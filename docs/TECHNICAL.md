@@ -184,7 +184,35 @@ This decision selects the backup primitive only. Backup cadence, retention count
 
 Backup failure must not corrupt or replace the live canonical database. Migration safety snapshots and ordinary rolling backups may share the same Online Backup primitive while retaining different lifecycle and retention policies.
 
-## 10. Open technical decisions
+## 10. Autosave ownership and durability boundary
+
+### Decision
+
+The **frontend owns the current unsaved editor draft and debounce scheduling; Go owns durable persistence commits**.
+
+Tiptap/Svelte tracks the latest in-memory document state and whether it differs from the last acknowledged durable revision. Ordinary typing coalesces through a frontend debounce before calling a typed Wails save operation. The Go backend validates the Flashnote document schema and commits the requested revision transactionally to SQLite before acknowledging success.
+
+Important transitions bypass or drain the ordinary debounce and request an explicit flush. These transitions include switching away from the current note, window close, app quit, and any other lifecycle boundary where losing the latest in-memory edit would violate the product contract.
+
+### Rationale
+
+- The editor is the natural owner of the actively edited in-memory draft; mirroring a second pending editor buffer in Go would create competing transient authorities.
+- Debouncing in the frontend avoids IPC and SQLite work on every keystroke while keeping save scheduling close to the edit stream that produces it.
+- Go remains the single owner of persistence semantics, validation, transactions, and durable success/failure acknowledgement.
+- Explicit transition flushes make lifecycle behavior independent from the ordinary typing debounce interval.
+- Separating pending draft state from acknowledged durable state enables the required persistent save-failure indication and close guard without adding a normal visible Saved indicator.
+
+### Concurrency and failure boundary
+
+Save requests must carry enough revision identity to prevent an older completion or retry from being mistaken for persistence of a newer draft. A successful backend acknowledgement advances the frontend's durable revision only for the revision actually committed.
+
+If persistence fails, the frontend retains the latest in-memory draft, keeps the note dirty, surfaces the persistent non-modal save-failure state defined by the product contract, and may retry in a bounded/coalesced manner. Retries must not overwrite a newer draft with stale content.
+
+On close or quit, if the latest draft has not been durably acknowledged, Flashnote must attempt the explicit flush and then follow the product contract's blocking retry / cancel / discard-and-exit choice rather than silently exiting.
+
+The exact debounce duration, retry delay/backoff, revision token representation, and flush timeout are implementation-tuning details to be established and tested with the first persistence vertical slice.
+
+## 11. Open technical decisions
 
 The following are intentionally not yet fixed:
 
@@ -192,7 +220,7 @@ The following are intentionally not yet fixed:
 - exact Wails v3 prerelease/stable pin and upgrade policy
 - exact Node/pnpm/TypeScript toolchain versions
 - backup cadence, retention, and attachment-backup policy
-- autosave scheduling and durability mechanics
+- exact autosave debounce/retry timings and revision-token representation
 - attachment ingest/storage implementation details
 - search indexing/tokenization implementation
 - test stack and native packaging/update strategy
