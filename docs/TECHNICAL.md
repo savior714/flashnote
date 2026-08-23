@@ -118,14 +118,37 @@ Wails bindings expose domain/application operations, not SQL primitives. The fro
 
 The exact package layout, transaction helper shape, connection policy, WAL/pragmas, migration mechanism, and backup implementation remain open until the persistence vertical slice requires them.
 
-## 7. Open technical decisions
+## 7. SQLite schema migrations
+
+### Decision
+
+Use **versioned SQL migration files embedded in the Go application with a minimal application-owned migration runner**.
+
+Schema migrations are packaged into the application binary with Go's `embed` support and applied in deterministic version order during database startup. SQL remains the default representation for schema changes. A narrowly scoped Go migration hook may be added only when a data transformation cannot be expressed safely and clearly in SQL alone.
+
+### Rationale
+
+- Flashnote has one application-owned local database, so a separate migration CLI or server-oriented migration framework adds little value.
+- Embedding migrations keeps the executable and the schema evolution authority coupled, which simplifies macOS and Windows packaging and recovery.
+- Application ownership makes it straightforward to enforce Flashnote-specific safety behavior such as a pre-migration backup and blocking startup when migration cannot be completed safely.
+- Plain versioned SQL keeps schema history readable without introducing migration-framework-specific abstractions.
+
+### Safety boundary
+
+Before a schema-changing migration, create a transactionally consistent safety backup when appropriate. Apply each migration transactionally where SQLite permits it, and advance the recorded schema version only after successful completion.
+
+If a required migration fails, preserve the existing database and backup evidence and stop normal application startup with a visible recovery error. Do not silently continue against a partially upgraded or unknown schema, and do not discard user data to recover automatically.
+
+Migration version identity must be monotonic and immutable once shipped. Existing migration files are not rewritten after release; corrections are introduced as new migrations.
+
+## 8. Open technical decisions
 
 The following are intentionally not yet fixed:
 
 - exact Go toolchain and version policy
 - exact Wails v3 prerelease/stable pin and upgrade policy
 - exact Node/pnpm/TypeScript toolchain versions
-- SQLite connection policy, WAL/pragmas, migration mechanism, and backup implementation
+- SQLite connection policy, WAL/pragmas, and backup implementation details
 - autosave scheduling and durability mechanics
 - attachment ingest/storage implementation details
 - search indexing/tokenization implementation
