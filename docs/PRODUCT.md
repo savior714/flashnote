@@ -259,6 +259,8 @@ Image ingest should follow one canonical application path regardless of paste vs
 
 When the overlay opens with an empty query, show a compact list of recently modified notes. This is a quick-reentry state inside search, not a separate Recent view or saved-search history. Typing any query immediately replaces the recent list with normal search results.
 
+Notes in Trash are excluded from both the empty-query recent list and normal search results. Recovery discovery happens inside Trash; the main search overlay does not expose an `Include Trash` filter in the MVP.
+
 Search scope:
 
 - explicit note title
