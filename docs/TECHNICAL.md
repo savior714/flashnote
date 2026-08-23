@@ -74,14 +74,35 @@ Validation, normalization, and migrations must preserve user content or fail vis
 
 The exact JSON envelope and first schema version will be implemented alongside the first persistence vertical slice rather than expanded into a separate abstract document model now.
 
-## 5. Open technical decisions
+## 5. SQLite driver
+
+### Decision
+
+Use **`modernc.org/sqlite`** as Flashnote's Go SQLite driver.
+
+SQLite access should use Go's standard `database/sql` surface unless a narrowly justified lower-level capability is needed.
+
+### Rationale
+
+- The driver is pure Go and does not require CGO, which keeps macOS and Windows build and packaging requirements smaller and more reproducible.
+- Flashnote's expected workload is local document CRUD, metadata queries, autosave, and search rather than a throughput-heavy analytical database workload.
+- Avoiding a C compiler and CGO toolchain is more valuable for this desktop application than optimizing for the maximum possible raw SQLite throughput before evidence shows a bottleneck.
+- The driver exposes SQLite capabilities needed by a local-first application while remaining compatible with the standard Go database abstraction.
+
+### Boundary
+
+This decision chooses the SQLite driver only. It does not yet fix connection-pool settings, WAL/pragmas, transaction ownership, migration tooling, backup mechanics, or the Go application-layer persistence API.
+
+The exact dependency version must be pinned at scaffold time and upgraded deliberately. The bundled SQLite engine version must also be observable in tests or diagnostics so database-runtime upgrades are explicit rather than accidental.
+
+## 6. Open technical decisions
 
 The following are intentionally not yet fixed:
 
 - exact Go toolchain and version policy
 - exact Wails v3 prerelease/stable pin and upgrade policy
 - exact Node/pnpm/TypeScript toolchain versions
-- SQLite driver, ownership boundary, migration mechanism, and backup implementation
+- SQLite ownership boundary, connection policy, migration mechanism, and backup implementation
 - autosave scheduling and durability mechanics
 - attachment ingest/storage implementation details
 - search indexing/tokenization implementation
