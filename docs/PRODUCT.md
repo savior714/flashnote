@@ -345,9 +345,11 @@ Schema migration and data format evolution should remain possible.
 
 Saving should normally be invisible to the user. There is no Save button and no persistent `Saved` indicator in normal operation.
 
-Implementation may debounce ordinary typing writes and flush at important transitions, but exact timings are implementation details rather than product contract. Save failures must not be silently hidden.
+Implementation may debounce ordinary typing writes and flush at important transitions, but exact timings are implementation details rather than product contract.
 
-### 9.4 Images and attachment authority
+A save failure must remain visibly present until it is resolved rather than disappearing as a transient toast. Show a compact non-modal failure state near the editor, automatically retry saving in the background, and allow the user to continue editing while retry is appropriate. Once persistence recovers and the pending changes are durably saved, remove the failure state without introducing a persistent success indicator.
+
+## 9.4 Images and attachment authority
 
 Do not store image binaries as SQLite BLOBs by default.
 
