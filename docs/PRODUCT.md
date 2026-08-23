@@ -154,6 +154,8 @@ Supported inline formatting:
 - inline code
 - external URL link
 
+Todo/checklist completion is deliberately document-local: checking or unchecking changes only that item's checked state and visual treatment. Completed items stay in place. Do not automatically reorder or hide them, add completion timestamps, task filters, reminders, or a task database.
+
 Not supported in the MVP:
 
 - tables
@@ -463,7 +465,6 @@ Future optional sync is not ruled out. The only deliberate low-cost preparation 
 
 The following areas are intentionally not yet product-contract decisions and should be resolved only when they become the next useful design frontier:
 
-- todo/checklist completion semantics beyond basic check/uncheck
 - exact autosave debounce and lifecycle flush mechanics
 - exact rolling-backup cadence/retention
 - precise search tokenizer/ranking implementation
