@@ -104,14 +104,21 @@ Sidebar note rows show the note title only. Do not show body previews, dates, wo
 
 Folders show their name and a disclosure affordance. Controls should remain visually quiet and appear mainly on hover/focus where appropriate.
 
-### 4.4 Creating notes
+### 4.4 Creating notes and folders
+
+Creation uses one quiet `+` control at the top of the sidebar. Activating it offers exactly the creation choices needed for the MVP:
+
+- `New note`
+- `New folder`
+
+Choosing `New folder` starts inline naming in the sidebar rather than opening a separate creation dialog. New folders are root-level by definition.
 
 A new note is created at the user's current location:
 
 - while working at root, create it at root
 - while viewing a note inside a folder, create it in that folder
 
-Do not interrupt creation with a location picker.
+Do not interrupt note creation with a location picker.
 
 ### 4.5 Moving notes
 
