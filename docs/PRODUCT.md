@@ -349,6 +349,8 @@ Implementation may debounce ordinary typing writes and flush at important transi
 
 A save failure must remain visibly present until it is resolved rather than disappearing as a transient toast. Show a compact non-modal failure state near the editor, automatically retry saving in the background, and allow the user to continue editing while retry is appropriate. Once persistence recovers and the pending changes are durably saved, remove the failure state without introducing a persistent success indicator.
 
+If the user requests window/app close while unsaved changes remain because persistence has not succeeded, do not close silently. Present a blocking choice to retry saving, cancel the close, or explicitly discard the unsaved changes and exit. Discard-and-exit is destructive and must be clearly labeled as such. This prompt is exceptional failure handling, not a normal save confirmation shown during ordinary successful autosave.
+
 ### 9.4 Images and attachment authority
 
 Do not store image binaries as SQLite BLOBs by default.
