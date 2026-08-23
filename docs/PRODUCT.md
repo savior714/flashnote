@@ -349,7 +349,7 @@ Implementation may debounce ordinary typing writes and flush at important transi
 
 A save failure must remain visibly present until it is resolved rather than disappearing as a transient toast. Show a compact non-modal failure state near the editor, automatically retry saving in the background, and allow the user to continue editing while retry is appropriate. Once persistence recovers and the pending changes are durably saved, remove the failure state without introducing a persistent success indicator.
 
-## 9.4 Images and attachment authority
+### 9.4 Images and attachment authority
 
 Do not store image binaries as SQLite BLOBs by default.
 
