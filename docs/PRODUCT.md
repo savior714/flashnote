@@ -315,6 +315,12 @@ When a folder and its notes are deleted together, preserve them as one recovery 
 - editing requires restoration first
 - do not flatten deleted folder contents into an unrelated list
 
+### 8.4 Empty Trash
+
+Trash provides an `Empty Trash…` action inside the Trash view only. It permanently deletes all Trash contents in one operation and must require a strong destructive confirmation that states how many notes/folders will be deleted and that the action cannot be undone.
+
+Keep individual permanent deletion as well. Do not add multi-select or bulk-selection UI merely to support partial batch deletion in the MVP.
+
 ## 9. Persistence and data authority
 
 ### 9.1 Canonical data
