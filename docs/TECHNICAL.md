@@ -48,11 +48,33 @@ Use **Tiptap 3** as the rich-text editor layer, backed by ProseMirror.
 - Paste normalization, image-node behavior, slash-command behavior, and constrained document schema can be implemented while retaining access to lower-level ProseMirror APIs when necessary.
 - Svelte integration is supported without making React a dependency of the application UI.
 
-### Storage boundary
+## 4. Canonical rich-text persistence schema
 
-The product contract requires rich-text document data to remain canonical and Markdown to remain an export artifact. The exact persisted Tiptap/ProseMirror schema, schema-versioning strategy, and normalization boundary remain open technical decisions and must be settled before the first persistence vertical slice.
+### Decision
 
-## 4. Open technical decisions
+Use a **Flashnote-owned, versioned, Tiptap/ProseMirror-compatible JSON schema** for canonical rich-text persistence.
+
+The persisted document shape may remain directly consumable by Tiptap/ProseMirror, but Flashnote—not the editor library—defines which node types, mark types, and attributes are valid canonical data.
+
+Each persisted document carries an explicit schema version. Reads and writes pass through a narrow validation/normalization boundary so unsupported extension data does not silently become durable application state.
+
+### Rationale
+
+- The product contract makes structured rich text canonical and Markdown an export projection.
+- Persisting arbitrary editor output would make Tiptap extension details the de facto Flashnote file format.
+- A small Flashnote-owned vocabulary keeps data authority independent from incidental editor configuration while avoiding the cost of maintaining a second, fully independent AST.
+- Explicit schema versions provide a clear place for deterministic migrations when document semantics evolve.
+- The representation should stay close enough to ProseMirror JSON that normal editor load/save does not require a large translation layer.
+
+### Boundary
+
+The initial schema should include only MVP-supported document constructs. New Tiptap extensions do not become persistent schema members merely because they are installed in the editor.
+
+Validation, normalization, and migrations must preserve user content or fail visibly; they must not silently discard unknown consequential document data.
+
+The exact JSON envelope and first schema version will be implemented alongside the first persistence vertical slice rather than expanded into a separate abstract document model now.
+
+## 5. Open technical decisions
 
 The following are intentionally not yet fixed:
 
@@ -60,7 +82,6 @@ The following are intentionally not yet fixed:
 - exact Wails v3 prerelease/stable pin and upgrade policy
 - exact Node/pnpm/TypeScript toolchain versions
 - SQLite driver, ownership boundary, migration mechanism, and backup implementation
-- canonical persisted editor schema and schema versioning
 - autosave scheduling and durability mechanics
 - attachment ingest/storage implementation details
 - search indexing/tokenization implementation
