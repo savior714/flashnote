@@ -163,14 +163,35 @@ Connection initialization must apply and verify required pragmas rather than ass
 
 Exact pool counts, busy-timeout duration, WAL auto-checkpoint threshold, and explicit checkpoint timing remain implementation-tuning values. Start from conservative values and change them only with evidence from the real autosave/search workload.
 
-## 9. Open technical decisions
+## 9. SQLite backup primitive
+
+### Decision
+
+Use the **SQLite Online Backup API** through `modernc.org/sqlite` as Flashnote's canonical database snapshot primitive.
+
+Backups are created from the live database into a temporary destination database using the Online Backup API. The copy may be stepped incrementally so the source database is only read-locked during individual backup steps rather than for the full backup duration. After successful completion, validate the destination as appropriate and atomically promote the completed temporary snapshot into the rolling-backup set.
+
+### Rationale
+
+- The Online Backup API is designed for transactionally consistent snapshots of a live SQLite database and avoids fragile raw file-copy behavior around WAL state.
+- Incremental stepping limits how long the live source database is held for each read phase, which fits a background safety mechanism in an interactive editor.
+- `modernc.org/sqlite` exposes backup lifecycle operations including `NewBackup`, `Step`, `Remaining`, `PageCount`, `Commit`, and `Finish`, so Flashnote can implement this without introducing another database library or external CLI.
+- A temporary destination followed by successful finalization prevents a partial or interrupted backup from being mistaken for a valid recovery snapshot.
+
+### Boundary
+
+This decision selects the backup primitive only. Backup cadence, retention count, triggering conditions, attachment backup policy, and storage-budget thresholds remain implementation or product-tuning decisions.
+
+Backup failure must not corrupt or replace the live canonical database. Migration safety snapshots and ordinary rolling backups may share the same Online Backup primitive while retaining different lifecycle and retention policies.
+
+## 10. Open technical decisions
 
 The following are intentionally not yet fixed:
 
 - exact Go toolchain and version policy
 - exact Wails v3 prerelease/stable pin and upgrade policy
 - exact Node/pnpm/TypeScript toolchain versions
-- SQLite backup implementation details
+- backup cadence, retention, and attachment-backup policy
 - autosave scheduling and durability mechanics
 - attachment ingest/storage implementation details
 - search indexing/tokenization implementation
