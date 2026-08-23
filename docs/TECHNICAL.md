@@ -141,14 +141,36 @@ If a required migration fails, preserve the existing database and backup evidenc
 
 Migration version identity must be monotonic and immutable once shipped. Existing migration files are not rewritten after release; corrections are introduced as new migrations.
 
-## 8. Open technical decisions
+## 8. SQLite runtime and connection policy
+
+### Decision
+
+Use **WAL journal mode with `synchronous=NORMAL`**, enable foreign-key enforcement on every database connection, use a bounded busy timeout, and keep the Go connection pool deliberately conservative and oriented around Flashnote's effectively single-writer workload.
+
+Retain SQLite's default WAL auto-checkpoint behavior initially. Do not introduce an application-owned checkpoint scheduler or aggressive pool tuning without measured contention, latency, or durability evidence.
+
+### Rationale
+
+- WAL allows readers to continue while autosave or other writes are committed, which fits a document editor that reads note lists and search state while persisting edits.
+- `synchronous=NORMAL` in WAL mode provides a practical durability/latency balance for frequent local autosave while stronger failure recovery remains supported by explicit flush points, backups, and migration safety snapshots.
+- Foreign-key enforcement protects relational invariants such as note/folder and attachment metadata relationships.
+- A bounded busy timeout is preferable to immediate transient lock failures, but persistence failures must still surface once the bounded wait is exhausted rather than retrying indefinitely.
+- Flashnote has one application process and one canonical database owner, so a large general-purpose connection pool provides little value and can increase write-contention complexity.
+
+### Boundary
+
+Connection initialization must apply and verify required pragmas rather than assuming process-global SQLite state. Runtime diagnostics or tests should make the effective SQLite version, journal mode, synchronous mode, foreign-key setting, and connection policy observable.
+
+Exact pool counts, busy-timeout duration, WAL auto-checkpoint threshold, and explicit checkpoint timing remain implementation-tuning values. Start from conservative values and change them only with evidence from the real autosave/search workload.
+
+## 9. Open technical decisions
 
 The following are intentionally not yet fixed:
 
 - exact Go toolchain and version policy
 - exact Wails v3 prerelease/stable pin and upgrade policy
 - exact Node/pnpm/TypeScript toolchain versions
-- SQLite connection policy, WAL/pragmas, and backup implementation details
+- SQLite backup implementation details
 - autosave scheduling and durability mechanics
 - attachment ingest/storage implementation details
 - search indexing/tokenization implementation
