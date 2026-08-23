@@ -124,6 +124,10 @@ Drag and drop means **folder membership change only**. It never means manual ord
 
 `Move to…` must offer root and all 1-depth folders as destinations.
 
+### 4.6 Trash navigation
+
+Trash is a fixed destination at the bottom of the sidebar, visually separated from normal root notes and folders. It should remain easy to find for recovery without being presented as a normal folder or promoted with item-count badges or similar attention-seeking metadata.
+
 ## 5. Editor behavior
 
 Flashnote should feel block-like to write in without implementing a Notion-style block database.
