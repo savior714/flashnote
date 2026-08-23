@@ -288,6 +288,8 @@ Deletion is soft by default.
 
 Deleting a note moves it to Trash. Normal note deletion should not require a heavy confirmation dialog when the action is recoverable. A lightweight Undo affordance after deletion is appropriate.
 
+When the note being deleted is the one currently open, immediately move the editor to a nearby surviving note rather than leaving a deleted or dead-end editor state. Prefer a nearby note in the same folder when one exists; otherwise open the nearest sensible surviving note in the library. Only create a new empty note when no normal notes remain.
+
 Permanent deletion happens only from Trash and requires explicit destructive confirmation.
 
 There is no automatic Trash expiry in the MVP.
