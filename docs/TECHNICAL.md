@@ -95,14 +95,37 @@ This decision chooses the SQLite driver only. It does not yet fix connection-poo
 
 The exact dependency version must be pinned at scaffold time and upgraded deliberately. The bundled SQLite engine version must also be observable in tests or diagnostics so database-runtime upgrades are explicit rather than accidental.
 
-## 6. Open technical decisions
+## 6. Persistence ownership boundary
+
+### Decision
+
+The **Go backend exclusively owns SQLite access and persistence semantics**.
+
+The Svelte frontend and Tiptap editor call typed Wails application operations such as create, load, save, move, delete, restore, and search. They do not receive a generic SQL execution API and do not know the database path, schema, transaction boundaries, migration state, WAL settings, or backup mechanics.
+
+Start with a small concrete persistence package behind application-facing Go operations. Do not introduce a formal repository-interface hierarchy until a real second implementation, test seam, or ownership boundary makes that abstraction useful.
+
+### Rationale
+
+- SQLite is the canonical internal authority, so transaction and durability semantics should have one owner.
+- Autosave, Trash recovery units, folder deletion, attachment reconciliation, migrations, and backup all need application-level atomicity that should not leak into frontend components.
+- Keeping SQL and persistence policy in Go prevents database schema details from spreading through Svelte UI code.
+- This keeps the architecture consistent with the Wails + Go choice while avoiding speculative repository abstractions.
+
+### Boundary
+
+Wails bindings expose domain/application operations, not SQL primitives. The frontend may keep transient editor/UI state, but durable state transitions are validated and committed by Go.
+
+The exact package layout, transaction helper shape, connection policy, WAL/pragmas, migration mechanism, and backup implementation remain open until the persistence vertical slice requires them.
+
+## 7. Open technical decisions
 
 The following are intentionally not yet fixed:
 
 - exact Go toolchain and version policy
 - exact Wails v3 prerelease/stable pin and upgrade policy
 - exact Node/pnpm/TypeScript toolchain versions
-- SQLite ownership boundary, connection policy, migration mechanism, and backup implementation
+- SQLite connection policy, WAL/pragmas, migration mechanism, and backup implementation
 - autosave scheduling and durability mechanics
 - attachment ingest/storage implementation details
 - search indexing/tokenization implementation
