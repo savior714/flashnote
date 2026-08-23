@@ -253,6 +253,8 @@ Do not add a general attachment system, gallery, caption editor, annotation, cro
 
 Image ingest should follow one canonical application path regardless of paste vs drag/drop.
 
+For normal supported images, preserve the ingested source representation and quality when available; do not routinely downscale or recompress images merely to save space. Exceptionally large or pathological inputs may cross implementation-defined safety limits; at that boundary Flashnote may downscale or re-encode them, or reject insertion with a clear error, to protect application responsiveness and local storage. Exact byte, dimension, format, and codec thresholds are implementation details and are not exposed as normal user settings.
+
 ## 7. Search
 
 `Cmd/Ctrl + K` opens a focused search overlay.
@@ -495,7 +497,7 @@ The following areas are intentionally not yet product-contract decisions and sho
 - exact autosave debounce and lifecycle flush mechanics
 - exact rolling-backup cadence/retention
 - precise search tokenizer/ranking implementation
-- image size/type limits and compression policy
+- exact image safety thresholds and normalization mechanics
 - Markdown filename collision/sanitization details
 - exact editor implementation library/framework and version pins
 - accessibility acceptance details beyond normal platform semantics and adequate contrast/focus behavior
