@@ -257,6 +257,8 @@ Image ingest should follow one canonical application path regardless of paste vs
 
 `Cmd/Ctrl + K` opens a focused search overlay.
 
+When the overlay opens with an empty query, show a compact list of recently modified notes. This is a quick-reentry state inside search, not a separate Recent view or saved-search history. Typing any query immediately replaces the recent list with normal search results.
+
 Search scope:
 
 - explicit note title
@@ -270,8 +272,8 @@ Results may show a short matching body excerpt. The sidebar itself remains title
 Keyboard behavior:
 
 - type to update results immediately
-- arrow keys move through results
-- Enter opens a result
+- arrow keys move through recent notes or search results
+- Enter opens the selected note
 - Escape closes search
 
 Do not add advanced operators, saved searches, filters, folder-scoped search, AI search, or command execution to this UI in the MVP.
