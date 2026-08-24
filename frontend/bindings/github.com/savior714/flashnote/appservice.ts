@@ -9,13 +9,37 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
+export function CreateFolder(name: string): $CancellablePromise<[string, string]> {
+    return $Call.ByID(3863529870, name);
+}
+
 export function CreateNote(): $CancellablePromise<[string, string, string, number, boolean]> {
     return $Call.ByID(4174655258);
+}
+
+export function CreateNoteInFolder(folderID: string): $CancellablePromise<[string, string, string, number, boolean]> {
+    return $Call.ByID(2400960381, folderID);
 }
 
 export function GetRuntimeInfo(): $CancellablePromise<$models.RuntimeInfo> {
     return $Call.ByID(3362057646).then(($result: any) => {
         return $$createType0($result);
+    });
+}
+
+export function ListFolderNotes(folderID: string): $CancellablePromise<[string[], string[]]> {
+    return $Call.ByID(3400012691, folderID).then(($result: any) => {
+        $result[0] = $$createType1($result[0]);
+        $result[1] = $$createType1($result[1]);
+        return $result;
+    });
+}
+
+export function ListFolders(): $CancellablePromise<[string[], string[]]> {
+    return $Call.ByID(3333458079).then(($result: any) => {
+        $result[0] = $$createType1($result[0]);
+        $result[1] = $$createType1($result[1]);
+        return $result;
     });
 }
 
@@ -25,6 +49,18 @@ export function ListNotes(): $CancellablePromise<[string[], string[]]> {
         $result[1] = $$createType1($result[1]);
         return $result;
     });
+}
+
+export function ListRootNotes(): $CancellablePromise<[string[], string[]]> {
+    return $Call.ByID(1260630135).then(($result: any) => {
+        $result[0] = $$createType1($result[0]);
+        $result[1] = $$createType1($result[1]);
+        return $result;
+    });
+}
+
+export function MoveNote(noteID: string, folderID: string): $CancellablePromise<boolean> {
+    return $Call.ByID(1994489847, noteID, folderID);
 }
 
 export function OpenInitialNote(): $CancellablePromise<[string, string, string, number, boolean]> {

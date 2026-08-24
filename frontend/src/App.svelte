@@ -2,9 +2,14 @@
   import { Events, Window } from '@wailsio/runtime'
   import { onMount, tick } from 'svelte'
   import {
+    CreateFolder,
     CreateNote,
+    CreateNoteInFolder,
     GetRuntimeInfo,
-    ListNotes,
+    ListFolderNotes,
+    ListFolders,
+    ListRootNotes,
+    MoveNote,
     OpenInitialNote,
     OpenNote,
     SaveNote,
@@ -27,7 +32,17 @@
   let closePromptVisible = false
   let closeRequestActive = false
 
-  let notes: NoteSummary[] = []
+  let rootNotes: NoteSummary[] = []
+  let folders: FolderSummary[] = []
+  let currentFolderID = ''
+  let expandedFolderIDs: string[] = []
+  let createMenuOpen = false
+  let folderNaming = false
+  let newFolderName = ''
+  let contextNoteID = ''
+  let contextMenuX = 0
+  let contextMenuY = 0
+
   let searchOpen = false
   let searchQuery = ''
   let searchResults: SearchResult[] = []
@@ -47,6 +62,11 @@
     id: string
     displayTitle: string
   }
+  type FolderSummary = {
+    id: string
+    name: string
+    notes: NoteSummary[]
+  }
   type SearchResult = {
     id: string
     displayTitle: string
@@ -65,12 +85,46 @@
     return error instanceof Error ? error.message : String(error)
   }
 
-  async function refreshNotes() {
-    const [ids, displayTitles] = (await ListNotes()) as [string[], string[]]
+  function noteSummaries(ids: string[], displayTitles: string[]): NoteSummary[] {
     if (ids.length !== displayTitles.length) {
       throw new Error('Flashnote received an invalid note list')
     }
-    notes = ids.map((id, index) => ({ id, displayTitle: displayTitles[index] ?? 'Untitled' }))
+    return ids.map((id, index) => ({ id, displayTitle: displayTitles[index] ?? 'Untitled' }))
+  }
+
+  async function refreshSidebar() {
+    const [rootTuple, folderTuple] = await Promise.all([ListRootNotes(), ListFolders()])
+    const [rootIDs, rootTitles] = rootTuple as [string[], string[]]
+    const [folderIDs, folderNames] = folderTuple as [string[], string[]]
+    if (folderIDs.length !== folderNames.length) {
+      throw new Error('Flashnote received an invalid folder list')
+    }
+
+    const nextFolders = await Promise.all(
+      folderIDs.map(async (id, index) => {
+        const [ids, titles] = (await ListFolderNotes(id)) as [string[], string[]]
+        return {
+          id,
+          name: folderNames[index] ?? '',
+          notes: noteSummaries(ids, titles),
+        }
+      }),
+    )
+
+    rootNotes = noteSummaries(rootIDs, rootTitles)
+    folders = nextFolders
+
+    let locatedFolderID = ''
+    for (const folder of nextFolders) {
+      if (folder.notes.some((note) => note.id === noteID)) {
+        locatedFolderID = folder.id
+        break
+      }
+    }
+    currentFolderID = locatedFolderID
+    if (locatedFolderID && !expandedFolderIDs.includes(locatedFolderID)) {
+      expandedFolderIDs = [...expandedFolderIDs, locatedFolderID]
+    }
   }
 
   async function runSearch(query = searchQuery) {
@@ -101,6 +155,8 @@
   }
 
   async function openSearch() {
+    createMenuOpen = false
+    contextNoteID = ''
     searchOpen = true
     searchQuery = ''
     searchResults = []
@@ -162,14 +218,6 @@
     }, retryDelayMs)
   }
 
-  function promoteCurrentNoteInSidebar() {
-    if (!noteID) {
-      return
-    }
-    const current = { id: noteID, displayTitle: displayTitle() }
-    notes = [current, ...notes.filter((note) => note.id !== noteID)]
-  }
-
   async function persistLatest(): Promise<boolean> {
     if (!noteID || durableSequence >= draftSequence) {
       return true
@@ -203,7 +251,9 @@
         durableSequence = Math.max(durableSequence, capturedSequence)
         saveError = ''
         clearRetryTimer()
-        promoteCurrentNoteInSidebar()
+        void refreshSidebar().catch((error: unknown) => {
+          operationError = `Could not refresh notes: ${formatError(error)}`
+        })
         if (searchOpen) {
           void runSearch(searchQuery)
         }
@@ -263,19 +313,71 @@
     document.querySelector<HTMLElement>('.prose-editor')?.focus()
   }
 
+  function toggleCreateMenu() {
+    createMenuOpen = !createMenuOpen
+    contextNoteID = ''
+  }
+
+  async function beginFolderNaming() {
+    createMenuOpen = false
+    folderNaming = true
+    newFolderName = ''
+    await tick()
+    document.querySelector<HTMLInputElement>('.new-folder-input')?.focus()
+  }
+
+  async function commitNewFolder() {
+    if (!folderNaming) {
+      return
+    }
+    const name = newFolderName.trim()
+    folderNaming = false
+    newFolderName = ''
+    if (!name) {
+      return
+    }
+    try {
+      const [folderID] = (await CreateFolder(name)) as [string, string]
+      if (!expandedFolderIDs.includes(folderID)) {
+        expandedFolderIDs = [...expandedFolderIDs, folderID]
+      }
+      await refreshSidebar()
+    } catch (error) {
+      operationError = `Could not create folder: ${formatError(error)}`
+    }
+  }
+
+  function handleFolderNameKeydown(event: KeyboardEvent) {
+    if (event.isComposing) {
+      return
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      void commitNewFolder()
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      folderNaming = false
+      newFolderName = ''
+    }
+  }
+
   async function createNote() {
     if (loading || noteTransitionActive) {
       return
     }
 
+    createMenuOpen = false
     noteTransitionActive = true
     operationError = ''
     try {
       if (!(await flushPendingSave())) {
         return
       }
-      applyNote((await CreateNote()) as NoteTuple)
-      await refreshNotes()
+      const snapshot = currentFolderID
+        ? ((await CreateNoteInFolder(currentFolderID)) as NoteTuple)
+        : ((await CreateNote()) as NoteTuple)
+      applyNote(snapshot)
+      await refreshSidebar()
       await tick()
       document.querySelector<HTMLInputElement>('.title')?.focus()
     } catch (error) {
@@ -300,11 +402,58 @@
         return false
       }
       applyNote((await OpenNote(nextNoteID)) as NoteTuple)
+      await refreshSidebar()
       await tick()
       return true
     } catch (error) {
       operationError = `Could not open note: ${formatError(error)}`
       return false
+    } finally {
+      noteTransitionActive = false
+    }
+  }
+
+  function toggleFolder(folderID: string) {
+    expandedFolderIDs = expandedFolderIDs.includes(folderID)
+      ? expandedFolderIDs.filter((id) => id !== folderID)
+      : [...expandedFolderIDs, folderID]
+  }
+
+  function openNoteContext(event: MouseEvent, targetNoteID: string) {
+    event.preventDefault()
+    createMenuOpen = false
+    contextNoteID = targetNoteID
+    contextMenuX = Math.min(event.clientX, window.innerWidth - 190)
+    contextMenuY = Math.min(event.clientY, window.innerHeight - 220)
+  }
+
+  function folderForNote(targetNoteID: string): string {
+    for (const folder of folders) {
+      if (folder.notes.some((note) => note.id === targetNoteID)) {
+        return folder.id
+      }
+    }
+    return ''
+  }
+
+  async function moveContextNote(targetFolderID: string) {
+    const targetNoteID = contextNoteID
+    if (!targetNoteID || noteTransitionActive || folderForNote(targetNoteID) === targetFolderID) {
+      contextNoteID = ''
+      return
+    }
+
+    contextNoteID = ''
+    noteTransitionActive = true
+    operationError = ''
+    try {
+      if (targetNoteID === noteID && !(await flushPendingSave())) {
+        return
+      }
+      await MoveNote(targetNoteID, targetFolderID)
+      await refreshSidebar()
+    } catch (error) {
+      operationError = `Could not move note: ${formatError(error)}`
     } finally {
       noteTransitionActive = false
     }
@@ -351,6 +500,16 @@
         event.preventDefault()
         void activateSearchResult(selected)
       }
+    }
+  }
+
+  function handleWindowClick(event: MouseEvent) {
+    const target = event.target as Element | null
+    if (!target?.closest('.create-controls')) {
+      createMenuOpen = false
+    }
+    if (!target?.closest('.note-context-menu')) {
+      contextNoteID = ''
     }
   }
 
@@ -440,13 +599,13 @@
     }
 
     const info = await GetRuntimeInfo()
-    if (!info.databaseReady || info.schemaVersion < 3) {
+    if (!info.databaseReady || info.schemaVersion < 4) {
       throw new Error('Flashnote runtime bridge returned invalid diagnostics')
     }
 
     const snapshot = (await OpenInitialNote()) as NoteTuple
     applyNote(snapshot)
-    await refreshNotes()
+    await refreshSidebar()
     loading = false
     await tick()
 
@@ -461,13 +620,22 @@
 
     if (acceptanceText) {
       setTimeout(() => {
-        void Window.Close()
+        void (async () => {
+          try {
+            const [folderID] = (await CreateFolder('Acceptance Folder')) as [string, string]
+            await MoveNote(noteID, folderID)
+            await refreshSidebar()
+          } finally {
+            await Window.Close()
+          }
+        })()
       }, 550)
     }
   }
 
   onMount(() => {
     window.addEventListener('keydown', handleGlobalKeydown)
+    window.addEventListener('click', handleWindowClick)
     void initialise().catch((error: unknown) => {
       loading = false
       operationError = `Flashnote could not open your note: ${formatError(error)}`
@@ -478,6 +646,7 @@
       clearRetryTimer()
       removeCloseListener?.()
       window.removeEventListener('keydown', handleGlobalKeydown)
+      window.removeEventListener('click', handleWindowClick)
     }
   })
 </script>
@@ -486,20 +655,29 @@
   <aside class="sidebar" aria-label="Notes">
     <div class="brand-row">
       <strong>Flashnote</strong>
-      <button
-        class="quiet-button"
-        type="button"
-        aria-label="Create note"
-        disabled={loading || noteTransitionActive}
-        onclick={createNote}
-      >+</button>
+      <div class="create-controls">
+        <button
+          class="quiet-button"
+          type="button"
+          aria-label="Create"
+          aria-expanded={createMenuOpen}
+          disabled={loading || noteTransitionActive}
+          onclick={toggleCreateMenu}
+        >+</button>
+        {#if createMenuOpen}
+          <div class="sidebar-menu create-menu">
+            <button type="button" onclick={() => void createNote()}>New note</button>
+            <button type="button" onclick={() => void beginFolderNaming()}>New folder</button>
+          </div>
+        {/if}
+      </div>
     </div>
 
     {#if loading}
       <div class="sidebar-placeholder">Opening…</div>
     {:else}
       <nav class="note-list" aria-label="Note list">
-        {#each notes as note (note.id)}
+        {#each rootNotes as note (note.id)}
           <button
             class="note-row"
             class:active={note.id === noteID}
@@ -507,7 +685,50 @@
             aria-current={note.id === noteID ? 'page' : undefined}
             disabled={noteTransitionActive}
             onclick={() => void selectNote(note.id)}
+            oncontextmenu={(event) => openNoteContext(event, note.id)}
           >{sidebarTitle(note)}</button>
+        {/each}
+
+        {#if folderNaming}
+          <input
+            class="new-folder-input"
+            aria-label="Folder name"
+            placeholder="Folder name"
+            bind:value={newFolderName}
+            onkeydown={handleFolderNameKeydown}
+            onblur={() => void commitNewFolder()}
+          />
+        {/if}
+
+        {#each folders as folder (folder.id)}
+          <div class="folder-block">
+            <button
+              class="folder-row"
+              type="button"
+              aria-expanded={expandedFolderIDs.includes(folder.id)}
+              onclick={() => toggleFolder(folder.id)}
+            >
+              <span class="folder-disclosure" aria-hidden="true">
+                {expandedFolderIDs.includes(folder.id) ? '▾' : '▸'}
+              </span>
+              <span class="folder-name">{folder.name}</span>
+            </button>
+            {#if expandedFolderIDs.includes(folder.id)}
+              <div class="folder-notes">
+                {#each folder.notes as note (note.id)}
+                  <button
+                    class="note-row nested"
+                    class:active={note.id === noteID}
+                    type="button"
+                    aria-current={note.id === noteID ? 'page' : undefined}
+                    disabled={noteTransitionActive}
+                    onclick={() => void selectNote(note.id)}
+                    oncontextmenu={(event) => openNoteContext(event, note.id)}
+                  >{sidebarTitle(note)}</button>
+                {/each}
+              </div>
+            {/if}
+          </div>
         {/each}
       </nav>
     {/if}
@@ -549,6 +770,24 @@
     </div>
   </section>
 </main>
+
+{#if contextNoteID}
+  <div class="note-context-menu" style={`left:${contextMenuX}px;top:${contextMenuY}px;`}>
+    <div class="context-menu-label">Move to…</div>
+    <button
+      type="button"
+      disabled={folderForNote(contextNoteID) === ''}
+      onclick={() => void moveContextNote('')}
+    >Root</button>
+    {#each folders as folder (folder.id)}
+      <button
+        type="button"
+        disabled={folderForNote(contextNoteID) === folder.id}
+        onclick={() => void moveContextNote(folder.id)}
+      >{folder.name}</button>
+    {/each}
+  </div>
+{/if}
 
 {#if searchOpen}
   <div class="search-backdrop">

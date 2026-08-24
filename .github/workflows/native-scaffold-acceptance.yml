@@ -70,6 +70,9 @@ jobs:
           grep -q 'export function OpenInitialNote' frontend/bindings/github.com/savior714/flashnote/appservice.ts
           grep -q 'export function SaveNote' frontend/bindings/github.com/savior714/flashnote/appservice.ts
           grep -q 'export function SearchNotes' frontend/bindings/github.com/savior714/flashnote/appservice.ts
+          grep -q 'export function CreateFolder' frontend/bindings/github.com/savior714/flashnote/appservice.ts
+          grep -q 'export function ListFolderNotes' frontend/bindings/github.com/savior714/flashnote/appservice.ts
+          grep -q 'export function MoveNote' frontend/bindings/github.com/savior714/flashnote/appservice.ts
           git diff --exit-code -- frontend/bindings
 
       - name: Static checks
@@ -115,8 +118,10 @@ jobs:
           grep -q FLASHNOTE_RUNTIME_READY "$LOG"
           grep -q FLASHNOTE_NOTE_OPEN "$LOG"
           migrations="$(sqlite3 "$DB" 'SELECT COUNT(*) FROM schema_migrations;')"
-          test "$migrations" -ge 3
+          test "$migrations" -ge 4
           test "$(sqlite3 "$DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='note_search';")" = 1
+          test "$(sqlite3 "$DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='folders';")" = 1
+          test "$(sqlite3 "$DB" "SELECT COUNT(*) FROM pragma_table_info('notes') WHERE name='folder_id';")" = 1
           sqlite3 "$DB" 'SELECT version FROM schema_migrations ORDER BY version;'
           sqlite3 "$DB" 'SELECT name FROM sqlite_master WHERE type="table" ORDER BY name;'
           cp "$LOG" "$RUNNER_TEMP/first-startup.log"
@@ -241,12 +246,19 @@ jobs:
           test -f "$DB"
           grep -q FLASHNOTE_NOTE_CREATED "$LOG"
           grep -q FLASHNOTE_NOTE_SAVED "$LOG"
+          grep -q FLASHNOTE_FOLDER_CREATED "$LOG"
+          grep -q FLASHNOTE_NOTE_MOVED "$LOG"
           grep -q FLASHNOTE_CLOSE_FLUSH_REQUESTED "$LOG"
           grep -q FLASHNOTE_CLOSE_APPROVED "$LOG"
           ! grep -q FLASHNOTE_CLOSE_DISCARDED "$LOG"
 
           test "$(sqlite3 "$DB" 'SELECT COUNT(*) FROM notes;')" = 1
+          test "$(sqlite3 "$DB" 'SELECT COUNT(*) FROM folders;')" = 1
           note_id="$(sqlite3 "$DB" 'SELECT id FROM notes LIMIT 1;')"
+          folder_id="$(sqlite3 "$DB" 'SELECT id FROM folders LIMIT 1;')"
+          test -n "$folder_id"
+          test "$(sqlite3 "$DB" "SELECT name = 'Acceptance Folder' FROM folders WHERE id = '$folder_id';")" = 1
+          test "$(sqlite3 "$DB" "SELECT folder_id = '$folder_id' FROM notes WHERE id = '$note_id';")" = 1
           revision="$(sqlite3 "$DB" "SELECT revision FROM notes WHERE id = '$note_id';")"
           test "$revision" -ge 2
           test "$(sqlite3 "$DB" "SELECT instr(document_json, '$ACCEPTANCE_TEXT') > 0 FROM notes WHERE id = '$note_id';")" = 1
@@ -283,16 +295,29 @@ jobs:
             store, err := persistence.Open(ctx, os.Getenv("FLASHNOTE_ACCEPTANCE_DB"))
             if err != nil { panic(err) }
             defer store.Close()
+            expectedID := os.Getenv("FLASHNOTE_EXPECTED_NOTE_ID")
+            folderID := os.Getenv("FLASHNOTE_EXPECTED_FOLDER_ID")
+
             results, err := store.SearchNotes(ctx, "Flashnote")
             if err != nil { panic(err) }
-            expectedID := os.Getenv("FLASHNOTE_EXPECTED_NOTE_ID")
             if len(results) != 1 || results[0].ID != expectedID {
               panic(fmt.Sprintf("unexpected search results: %+v expected_id=%s", results, expectedID))
             }
-            fmt.Printf("search_match id=%s title=%q\n", results[0].ID, results[0].DisplayTitle)
+
+            folderNotes, err := store.ListFolderNotes(ctx, folderID)
+            if err != nil { panic(err) }
+            if len(folderNotes) != 1 || folderNotes[0].ID != expectedID {
+              panic(fmt.Sprintf("unexpected folder notes: %+v expected_id=%s", folderNotes, expectedID))
+            }
+            rootNotes, err := store.ListRootNotes(ctx)
+            if err != nil { panic(err) }
+            if len(rootNotes) != 0 {
+              panic(fmt.Sprintf("expected empty root after move, got %+v", rootNotes))
+            }
+            fmt.Printf("search_match id=%s folder=%s title=%q\n", results[0].ID, folderID, results[0].DisplayTitle)
           }
           PROBE
-          FLASHNOTE_ACCEPTANCE_DB="$DB" FLASHNOTE_EXPECTED_NOTE_ID="$note_id" \
+          FLASHNOTE_ACCEPTANCE_DB="$DB" FLASHNOTE_EXPECTED_NOTE_ID="$note_id" FLASHNOTE_EXPECTED_FOLDER_ID="$folder_id" \
             go run ./internal/acceptanceprobe | tee "$RUNNER_TEMP/search-roundtrip.log"
           rm -rf internal/acceptanceprobe
 
