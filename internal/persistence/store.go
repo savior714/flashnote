@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"sync"
 
 	_ "modernc.org/sqlite"
 )
@@ -14,7 +15,8 @@ const busyTimeoutMilliseconds = 5000
 
 // Store is the single Go-owned persistence entry point for Flashnote.
 type Store struct {
-	db *sql.DB
+	db       *sql.DB
+	searchMu sync.Mutex
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
@@ -35,6 +37,10 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err := store.migrate(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate sqlite database: %w", err)
+	}
+	if err := store.ensureSearchIndex(ctx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("prepare note search index: %w", err)
 	}
 	if _, err := store.RuntimeInfo(ctx); err != nil {
 		_ = db.Close()

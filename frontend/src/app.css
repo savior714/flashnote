@@ -194,6 +194,98 @@ input {
   font-size: 13px;
 }
 
+.search-backdrop {
+  position: fixed;
+  z-index: 30;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: min(16vh, 120px) 24px 24px;
+  background: rgba(24, 23, 21, 0.28);
+}
+
+.search-dialog {
+  width: min(620px, 100%);
+  overflow: hidden;
+  border: 1px solid rgba(41, 40, 36, 0.12);
+  border-radius: 12px;
+  background: #fbfaf7;
+  box-shadow: 0 22px 64px rgba(25, 24, 21, 0.2);
+}
+
+.search-input {
+  width: 100%;
+  padding: 16px 18px;
+  border: 0;
+  border-bottom: 1px solid rgba(41, 40, 36, 0.08);
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 17px;
+}
+
+.search-input::placeholder {
+  color: #9a968e;
+}
+
+.search-section-label {
+  padding: 10px 14px 6px;
+  color: #8c887f;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.search-results {
+  max-height: min(52vh, 420px);
+  overflow: auto;
+  padding: 4px 8px 10px;
+}
+
+.search-result {
+  display: block;
+  width: 100%;
+  padding: 10px 11px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-result.selected {
+  background: rgba(41, 40, 36, 0.07);
+}
+
+.search-result-title,
+.search-result-excerpt {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-result-title {
+  font-size: 14px;
+  font-weight: 620;
+}
+
+.search-result-excerpt {
+  margin-top: 3px;
+  color: #77736c;
+  font-size: 12px;
+}
+
+.search-empty {
+  padding: 22px 12px 26px;
+  color: #8c887f;
+  font-size: 13px;
+  text-align: center;
+}
+
 .modal-backdrop {
   position: fixed;
   z-index: 20;
@@ -260,6 +352,10 @@ input {
     width: min(680px, calc(100% - 40px));
     padding-top: 52px;
   }
+
+  .search-backdrop {
+    padding: 70px 14px 14px;
+  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -280,7 +376,8 @@ input {
 
   .quiet-button:hover,
   .quiet-button:focus-visible,
-  .note-row.active {
+  .note-row.active,
+  .search-result.selected {
     background: rgba(255, 255, 255, 0.08);
   }
 
@@ -301,6 +398,22 @@ input {
     border-color: rgba(222, 137, 91, 0.28);
     background: #33231c;
     color: #efb18e;
+  }
+
+  .search-dialog {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: #25231f;
+    box-shadow: 0 22px 64px rgba(0, 0, 0, 0.4);
+  }
+
+  .search-input {
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .search-result-excerpt,
+  .search-section-label,
+  .search-empty {
+    color: #aaa59b;
   }
 
   .close-dialog {

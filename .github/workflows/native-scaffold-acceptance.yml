@@ -69,6 +69,7 @@ jobs:
           grep -q 'export function GetRuntimeInfo' frontend/bindings/github.com/savior714/flashnote/appservice.ts
           grep -q 'export function OpenInitialNote' frontend/bindings/github.com/savior714/flashnote/appservice.ts
           grep -q 'export function SaveNote' frontend/bindings/github.com/savior714/flashnote/appservice.ts
+          grep -q 'export function SearchNotes' frontend/bindings/github.com/savior714/flashnote/appservice.ts
           git diff --exit-code -- frontend/bindings
 
       - name: Static checks
@@ -114,7 +115,8 @@ jobs:
           grep -q FLASHNOTE_RUNTIME_READY "$LOG"
           grep -q FLASHNOTE_NOTE_OPEN "$LOG"
           migrations="$(sqlite3 "$DB" 'SELECT COUNT(*) FROM schema_migrations;')"
-          test "$migrations" -ge 2
+          test "$migrations" -ge 3
+          test "$(sqlite3 "$DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='note_search';")" = 1
           sqlite3 "$DB" 'SELECT version FROM schema_migrations ORDER BY version;'
           sqlite3 "$DB" 'SELECT name FROM sqlite_master WHERE type="table" ORDER BY name;'
           cp "$LOG" "$RUNNER_TEMP/first-startup.log"
@@ -264,6 +266,9 @@ jobs:
           grep -q "FLASHNOTE_NOTE_OPEN id=$note_id revision=$revision created=false" "$REOPEN_LOG"
           cleanup
           trap - EXIT
+
+          test "$(sqlite3 "$DB" "SELECT COUNT(*) FROM note_search WHERE note_search MATCH 'Flashnote';")" -ge 1
+          test "$(sqlite3 "$DB" "SELECT value = '1' FROM app_meta WHERE key = 'search_index_version';")" = 1
 
           cp "$LOG" "$RUNNER_TEMP/note-roundtrip-first.log.saved"
           cp "$REOPEN_LOG" "$RUNNER_TEMP/note-roundtrip-reopen.log.saved"

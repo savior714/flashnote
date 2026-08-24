@@ -39,6 +39,15 @@ export function SaveNote(noteID: string, title: string, documentJSON: string, ex
     return $Call.ByID(1592610343, noteID, title, documentJSON, expectedRevision);
 }
 
+export function SearchNotes(query: string): $CancellablePromise<[string[], string[], string[]]> {
+    return $Call.ByID(4172956135, query).then(($result: any) => {
+        $result[0] = $$createType1($result[0]);
+        $result[1] = $$createType1($result[1]);
+        $result[2] = $$createType1($result[2]);
+        return $result;
+    });
+}
+
 // Private type creation functions
 const $$createType0 = $models.RuntimeInfo.createFrom;
 const $$createType1 = $Create.Array($Create.Any);

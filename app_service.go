@@ -76,6 +76,23 @@ func (s *AppService) ListNotes() ([]string, []string, error) {
 	return ids, displayTitles, nil
 }
 
+func (s *AppService) SearchNotes(query string) ([]string, []string, []string, error) {
+	results, err := s.store.SearchNotes(context.Background(), query)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	ids := make([]string, 0, len(results))
+	displayTitles := make([]string, 0, len(results))
+	excerpts := make([]string, 0, len(results))
+	for _, result := range results {
+		ids = append(ids, result.ID)
+		displayTitles = append(displayTitles, result.DisplayTitle)
+		excerpts = append(excerpts, result.Excerpt)
+	}
+	log.Printf("FLASHNOTE_NOTE_SEARCH query_len=%d count=%d", len(query), len(ids))
+	return ids, displayTitles, excerpts, nil
+}
+
 func (s *AppService) OpenInitialNote() (string, string, string, int64, bool, error) {
 	note, created, err := s.store.OpenInitialNote(context.Background())
 	if err != nil {

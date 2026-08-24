@@ -8,6 +8,7 @@
     OpenInitialNote,
     OpenNote,
     SaveNote,
+    SearchNotes,
   } from '../bindings/github.com/savior714/flashnote/appservice'
   import NoteEditor from './lib/NoteEditor.svelte'
 
@@ -27,6 +28,13 @@
   let closeRequestActive = false
 
   let notes: NoteSummary[] = []
+  let searchOpen = false
+  let searchQuery = ''
+  let searchResults: SearchResult[] = []
+  let searchSelectedIndex = 0
+  let searchError = ''
+  let searchRequestSequence = 0
+
   let draftSequence = 0
   let durableSequence = 0
   let saveTimer: ReturnType<typeof setTimeout> | undefined
@@ -38,6 +46,11 @@
   type NoteSummary = {
     id: string
     displayTitle: string
+  }
+  type SearchResult = {
+    id: string
+    displayTitle: string
+    excerpt: string
   }
 
   function applyNote(snapshot: NoteTuple) {
@@ -58,6 +71,59 @@
       throw new Error('Flashnote received an invalid note list')
     }
     notes = ids.map((id, index) => ({ id, displayTitle: displayTitles[index] ?? 'Untitled' }))
+  }
+
+  async function runSearch(query = searchQuery) {
+    const requestSequence = ++searchRequestSequence
+    try {
+      const [ids, displayTitles, excerpts] = (await SearchNotes(query)) as [string[], string[], string[]]
+      if (requestSequence !== searchRequestSequence || !searchOpen) {
+        return
+      }
+      if (ids.length !== displayTitles.length || ids.length !== excerpts.length) {
+        throw new Error('Flashnote received invalid search results')
+      }
+      searchResults = ids.map((id, index) => ({
+        id,
+        displayTitle: displayTitles[index] ?? 'Untitled',
+        excerpt: excerpts[index] ?? '',
+      }))
+      searchSelectedIndex = Math.min(searchSelectedIndex, Math.max(0, searchResults.length - 1))
+      searchError = ''
+    } catch (error) {
+      if (requestSequence !== searchRequestSequence || !searchOpen) {
+        return
+      }
+      searchResults = []
+      searchSelectedIndex = 0
+      searchError = formatError(error)
+    }
+  }
+
+  async function openSearch() {
+    searchOpen = true
+    searchQuery = ''
+    searchResults = []
+    searchSelectedIndex = 0
+    searchError = ''
+    await tick()
+    document.querySelector<HTMLInputElement>('.search-input')?.focus()
+    void runSearch('')
+  }
+
+  function closeSearch() {
+    searchRequestSequence += 1
+    searchOpen = false
+    searchQuery = ''
+    searchResults = []
+    searchSelectedIndex = 0
+    searchError = ''
+  }
+
+  function handleSearchInput(event: Event) {
+    searchQuery = (event.currentTarget as HTMLInputElement).value
+    searchSelectedIndex = 0
+    void runSearch(searchQuery)
   }
 
   function clearSaveTimer() {
@@ -138,6 +204,9 @@
         saveError = ''
         clearRetryTimer()
         promoteCurrentNoteInSidebar()
+        if (searchOpen) {
+          void runSearch(searchQuery)
+        }
         if (durableSequence < draftSequence) {
           scheduleSave(0)
         }
@@ -216,23 +285,72 @@
     }
   }
 
-  async function selectNote(nextNoteID: string) {
-    if (loading || noteTransitionActive || !nextNoteID || nextNoteID === noteID) {
-      return
+  async function selectNote(nextNoteID: string): Promise<boolean> {
+    if (loading || noteTransitionActive || !nextNoteID) {
+      return false
+    }
+    if (nextNoteID === noteID) {
+      return true
     }
 
     noteTransitionActive = true
     operationError = ''
     try {
       if (!(await flushPendingSave())) {
-        return
+        return false
       }
       applyNote((await OpenNote(nextNoteID)) as NoteTuple)
       await tick()
+      return true
     } catch (error) {
       operationError = `Could not open note: ${formatError(error)}`
+      return false
     } finally {
       noteTransitionActive = false
+    }
+  }
+
+  async function activateSearchResult(result: SearchResult) {
+    if (await selectNote(result.id)) {
+      closeSearch()
+    }
+  }
+
+  function handleGlobalKeydown(event: KeyboardEvent) {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      event.preventDefault()
+      void openSearch()
+      return
+    }
+    if (!searchOpen || event.isComposing) {
+      return
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      closeSearch()
+      return
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      if (searchResults.length > 0) {
+        searchSelectedIndex = Math.min(searchSelectedIndex + 1, searchResults.length - 1)
+      }
+      return
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      if (searchResults.length > 0) {
+        searchSelectedIndex = Math.max(searchSelectedIndex - 1, 0)
+      }
+      return
+    }
+    if (event.key === 'Enter') {
+      const selected = searchResults[searchSelectedIndex]
+      if (selected) {
+        event.preventDefault()
+        void activateSearchResult(selected)
+      }
     }
   }
 
@@ -322,7 +440,7 @@
     }
 
     const info = await GetRuntimeInfo()
-    if (!info.databaseReady || info.schemaVersion < 2) {
+    if (!info.databaseReady || info.schemaVersion < 3) {
       throw new Error('Flashnote runtime bridge returned invalid diagnostics')
     }
 
@@ -349,6 +467,7 @@
   }
 
   onMount(() => {
+    window.addEventListener('keydown', handleGlobalKeydown)
     void initialise().catch((error: unknown) => {
       loading = false
       operationError = `Flashnote could not open your note: ${formatError(error)}`
@@ -358,6 +477,7 @@
       clearSaveTimer()
       clearRetryTimer()
       removeCloseListener?.()
+      window.removeEventListener('keydown', handleGlobalKeydown)
     }
   })
 </script>
@@ -429,6 +549,42 @@
     </div>
   </section>
 </main>
+
+{#if searchOpen}
+  <div class="search-backdrop">
+    <div class="search-dialog" role="dialog" aria-modal="true" aria-label="Search notes">
+      <input
+        class="search-input"
+        aria-label="Search notes"
+        placeholder="Search notes"
+        value={searchQuery}
+        oninput={handleSearchInput}
+      />
+      <div class="search-section-label">{searchQuery.trim() ? 'Results' : 'Recently modified'}</div>
+      <div class="search-results">
+        {#each searchResults as result, index (result.id)}
+          <button
+            class="search-result"
+            class:selected={index === searchSelectedIndex}
+            type="button"
+            onmouseenter={() => (searchSelectedIndex = index)}
+            onclick={() => void activateSearchResult(result)}
+          >
+            <span class="search-result-title">{result.displayTitle}</span>
+            {#if result.excerpt && result.excerpt !== result.displayTitle}
+              <span class="search-result-excerpt">{result.excerpt}</span>
+            {/if}
+          </button>
+        {/each}
+        {#if searchError}
+          <div class="search-empty" role="status">Search is unavailable right now.</div>
+        {:else if searchResults.length === 0}
+          <div class="search-empty">No matching notes</div>
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}
 
 {#if closePromptVisible}
   <div class="modal-backdrop" role="presentation">
