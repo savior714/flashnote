@@ -267,7 +267,35 @@ jobs:
           cleanup
           trap - EXIT
 
-          test "$(sqlite3 "$DB" "SELECT COUNT(*) FROM note_search WHERE note_search MATCH 'Flashnote';")" -ge 1
+          mkdir -p internal/acceptanceprobe
+          cat > internal/acceptanceprobe/main.go <<'PROBE'
+          package main
+
+          import (
+            "context"
+            "fmt"
+            "os"
+            "github.com/savior714/flashnote/internal/persistence"
+          )
+
+          func main() {
+            ctx := context.Background()
+            store, err := persistence.Open(ctx, os.Getenv("FLASHNOTE_ACCEPTANCE_DB"))
+            if err != nil { panic(err) }
+            defer store.Close()
+            results, err := store.SearchNotes(ctx, "Flashnote")
+            if err != nil { panic(err) }
+            expectedID := os.Getenv("FLASHNOTE_EXPECTED_NOTE_ID")
+            if len(results) != 1 || results[0].ID != expectedID {
+              panic(fmt.Sprintf("unexpected search results: %+v expected_id=%s", results, expectedID))
+            }
+            fmt.Printf("search_match id=%s title=%q\n", results[0].ID, results[0].DisplayTitle)
+          }
+          PROBE
+          FLASHNOTE_ACCEPTANCE_DB="$DB" FLASHNOTE_EXPECTED_NOTE_ID="$note_id" \
+            go run ./internal/acceptanceprobe | tee "$RUNNER_TEMP/search-roundtrip.log"
+          rm -rf internal/acceptanceprobe
+
           test "$(sqlite3 "$DB" "SELECT value = '1' FROM app_meta WHERE key = 'search_index_version';")" = 1
 
           cp "$LOG" "$RUNNER_TEMP/note-roundtrip-first.log.saved"
@@ -295,6 +323,7 @@ jobs:
             ${{ runner.temp }}/second-startup.log
             ${{ runner.temp }}/note-roundtrip-first.log.saved
             ${{ runner.temp }}/note-roundtrip-reopen.log.saved
+            ${{ runner.temp }}/search-roundtrip.log
 
       - name: Publish acceptance status
         if: always()
