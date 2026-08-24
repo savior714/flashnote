@@ -25,7 +25,7 @@ tasks:
       - wails3 generate bindings -clean=true -ts
 
   frontend:check:
-    deps: [frontend:install]
+    deps: [bindings]
     dir: frontend
     cmds:
       - corepack pnpm check

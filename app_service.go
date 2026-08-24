@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 
 	"github.com/savior714/flashnote/internal/persistence"
 )
@@ -31,7 +32,7 @@ func (s *AppService) GetRuntimeInfo() (RuntimeInfo, error) {
 	if err != nil {
 		return RuntimeInfo{}, err
 	}
-	return RuntimeInfo{
+	runtimeInfo := RuntimeInfo{
 		AppVersion:    appVersion,
 		DatabaseReady: true,
 		SQLiteVersion: info.SQLiteVersion,
@@ -39,5 +40,14 @@ func (s *AppService) GetRuntimeInfo() (RuntimeInfo, error) {
 		Synchronous:   info.Synchronous,
 		ForeignKeys:   info.ForeignKeys,
 		SchemaVersion: info.SchemaVersion,
-	}, nil
+	}
+	log.Printf(
+		"FLASHNOTE_RUNTIME_READY sqlite=%s journal=%s synchronous=%d foreign_keys=%t schema=%d",
+		runtimeInfo.SQLiteVersion,
+		runtimeInfo.JournalMode,
+		runtimeInfo.Synchronous,
+		runtimeInfo.ForeignKeys,
+		runtimeInfo.SchemaVersion,
+	)
+	return runtimeInfo, nil
 }
