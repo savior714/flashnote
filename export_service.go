@@ -53,3 +53,32 @@ func (s *ExportService) ExportCurrentNoteMarkdown() (bool, error) {
 	log.Printf("FLASHNOTE_NOTE_EXPORTED id=%s format=markdown", noteID)
 	return true, nil
 }
+
+// ExportLibraryMarkdown asks for a parent directory, then creates a new
+// collision-safe Flashnote Export directory containing every normal note.
+// Returning an empty path with no error means the user cancelled the dialog.
+func (s *ExportService) ExportLibraryMarkdown() (string, error) {
+	ctx := context.Background()
+	app := application.Get()
+	parentDirectory, err := app.Dialog.OpenFile().
+		CanChooseDirectories(true).
+		CanChooseFiles(false).
+		PromptForSingleSelection()
+	if err != nil {
+		return "", fmt.Errorf("choose Markdown library export location: %w", err)
+	}
+	if parentDirectory == "" {
+		return "", nil
+	}
+
+	exportDirectory, noteCount, folderCount, err := s.store.ExportLibraryMarkdown(ctx, parentDirectory)
+	if err != nil {
+		app.Dialog.Error().
+			SetTitle("Export Failed").
+			SetMessage(err.Error()).
+			Show()
+		return "", err
+	}
+	log.Printf("FLASHNOTE_LIBRARY_EXPORTED format=markdown notes=%d folders=%d", noteCount, folderCount)
+	return exportDirectory, nil
+}
