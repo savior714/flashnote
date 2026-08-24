@@ -2,18 +2,58 @@
 
 A lightweight, beautiful, local-first document note app for macOS and Windows.
 
-Flashnote is intentionally small: it keeps the polished writing feel of a modern block-style document editor while avoiding workspace, database, collaboration, PKM, and cloud complexity.
+Flashnote keeps the polished writing feel of a modern document editor while deliberately avoiding workspace, database-view, collaboration, PKM, cloud, and plugin complexity.
 
-## Product direction
+## Product and technical authority
 
-- Write short personal documents quickly and comfortably.
-- Local-only by default; no account or cloud dependency.
-- Two-pane UI: a compact sidebar and a focused editor.
-- Rich text without a block database or heavy document chrome.
-- Strong search, safe deletion, simple export, minimal settings.
+- [`docs/PRODUCT.md`](docs/PRODUCT.md) defines the current MVP product contract.
+- [`docs/TECHNICAL.md`](docs/TECHNICAL.md) records implementation-level baseline decisions.
 
-The current product contract and MVP decisions are documented in [`docs/PRODUCT.md`](docs/PRODUCT.md).
+## Current implementation baseline
 
-## Status
+- Wails v3 + Go backend
+- Svelte 5 + TypeScript frontend
+- Tiptap 3 over ProseMirror
+- SQLite through `modernc.org/sqlite`
+- Go-owned persistence boundary
 
-Product definition / early design.
+The initial scaffold proves the desktop shell, editor mounting point, application-private SQLite creation, embedded schema migration, and runtime database-policy verification. Product workflows are not feature-complete yet.
+
+## Development
+
+Prerequisites:
+
+- Go 1.27+
+- Node.js 24+
+- Corepack / pnpm 11
+- Wails v3 CLI pinned to the version used by `go.mod`
+
+Install the Wails CLI:
+
+```bash
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.11
+```
+
+Install frontend dependencies and normalize Go module metadata:
+
+```bash
+corepack enable
+cd frontend
+corepack pnpm install
+cd ..
+go mod tidy
+```
+
+Then run:
+
+```bash
+wails3 dev
+```
+
+Useful checks:
+
+```bash
+task check
+```
+
+Generated dependency lockfiles (`go.sum` and `frontend/pnpm-lock.yaml`) should be committed after dependency resolution on a network-enabled development machine.

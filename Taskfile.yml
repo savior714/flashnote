@@ -1,0 +1,65 @@
+version: '3'
+
+vars:
+  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+
+tasks:
+  frontend:install:
+    dir: frontend
+    sources:
+      - package.json
+    generates:
+      - node_modules/**/*
+    cmds:
+      - corepack pnpm install
+
+  bindings:
+    deps: [frontend:install]
+    sources:
+      - '**/*.go'
+      - go.mod
+      - go.sum
+    generates:
+      - frontend/bindings/**/*
+    cmds:
+      - wails3 generate bindings -clean=true -ts
+
+  frontend:check:
+    deps: [frontend:install]
+    dir: frontend
+    cmds:
+      - corepack pnpm check
+
+  frontend:build:
+    deps: [bindings]
+    dir: frontend
+    cmds:
+      - corepack pnpm build
+
+  frontend:dev:
+    deps: [frontend:install]
+    dir: frontend
+    cmds:
+      - corepack pnpm dev
+
+  go:check:
+    cmds:
+      - go test ./...
+      - go vet ./...
+
+  check:
+    deps: [frontend:check, go:check]
+
+  build:
+    deps: [frontend:build]
+    cmds:
+      - go build .
+
+  run:
+    deps: [frontend:build]
+    cmds:
+      - go run .
+
+  dev:
+    cmds:
+      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}

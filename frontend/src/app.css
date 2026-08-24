@@ -1,0 +1,166 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #292824;
+  background: #f7f6f2;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  min-width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  width: 100%;
+  height: 100vh;
+  background: #fbfaf7;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 18px 14px 14px;
+  border-right: 1px solid rgba(41, 40, 36, 0.08);
+  background: #f2f0eb;
+}
+
+.brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 6px 16px;
+}
+
+.quiet-button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.quiet-button:hover,
+.quiet-button:focus-visible {
+  background: rgba(41, 40, 36, 0.07);
+  outline: none;
+}
+
+.sidebar-placeholder {
+  padding: 8px 6px;
+  color: #89857d;
+  font-size: 13px;
+}
+
+.trash-row {
+  margin-top: auto;
+  padding: 10px 6px 4px;
+  border-top: 1px solid rgba(41, 40, 36, 0.08);
+  color: #6f6b64;
+  font-size: 13px;
+}
+
+.document {
+  min-width: 0;
+  overflow: auto;
+  background: #fbfaf7;
+}
+
+.document-inner {
+  width: min(720px, calc(100% - 64px));
+  margin: 0 auto;
+  padding: 72px 0 120px;
+}
+
+.title {
+  width: 100%;
+  margin: 0 0 20px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #292824;
+  font-size: 32px;
+  font-weight: 680;
+  line-height: 1.2;
+}
+
+.title::placeholder {
+  color: #b3afa7;
+}
+
+.editor-host .prose-editor {
+  min-height: 360px;
+  outline: none;
+  color: #34322e;
+  font-size: 16px;
+  line-height: 1.72;
+}
+
+.editor-host .prose-editor p {
+  margin: 0 0 0.85em;
+}
+
+@media (max-width: 760px) {
+  .shell {
+    grid-template-columns: 190px minmax(0, 1fr);
+  }
+
+  .document-inner {
+    width: min(680px, calc(100% - 40px));
+    padding-top: 52px;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color: #e9e6df;
+    background: #1d1c1a;
+  }
+
+  .shell,
+  .document {
+    background: #201f1c;
+  }
+
+  .sidebar {
+    border-color: rgba(255, 255, 255, 0.08);
+    background: #191816;
+  }
+
+  .quiet-button:hover,
+  .quiet-button:focus-visible {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .trash-row {
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .title,
+  .editor-host .prose-editor {
+    color: #e9e6df;
+  }
+
+  .title::placeholder {
+    color: #706d66;
+  }
+}
