@@ -412,7 +412,7 @@ jobs:
             go run ./internal/acceptanceprobe | tee "$RUNNER_TEMP/search-roundtrip.log"
           rm -rf internal/acceptanceprobe
 
-          test "$(sqlite3 "$DB" "SELECT value = '2' FROM app_meta WHERE key = 'search_index_version';")" = 1
+          test "$(sqlite3 "$DB" "SELECT COUNT(*) = 0 FROM app_meta WHERE key = 'search_index_version';")" = 1
           test "$(sqlite3 "$DB" "SELECT deleted_at IS NULL FROM notes WHERE id = '$note_id';")" = 1
           test "$(sqlite3 "$DB" "SELECT deleted_with_folder_id IS NULL FROM notes WHERE id = '$note_id';")" = 1
           test "$(sqlite3 "$DB" "SELECT deleted_at IS NULL FROM folders WHERE id = '$folder_id';")" = 1
