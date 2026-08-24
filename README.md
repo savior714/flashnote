@@ -8,6 +8,7 @@ Flashnote keeps the polished writing feel of a modern document editor while deli
 
 - [`docs/PRODUCT.md`](docs/PRODUCT.md) defines the current MVP product contract.
 - [`docs/TECHNICAL.md`](docs/TECHNICAL.md) records implementation-level baseline decisions.
+- [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) defines concurrent development and exact `origin/main` publication rules.
 
 ## Current implementation baseline
 
