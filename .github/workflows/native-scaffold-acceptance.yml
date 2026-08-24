@@ -3,10 +3,9 @@ name: Native scaffold acceptance
 on:
   push:
     branches: [main]
-  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   statuses: write
 
 jobs:
@@ -27,6 +26,8 @@ jobs:
             -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
 
       - uses: actions/setup-go@v7
         with:
@@ -51,7 +52,7 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           "$(go env GOPATH)/bin/wails3" version
 
-      - name: Resolve dependencies
+      - name: Resolve candidate dependencies
         run: |
           set -euo pipefail
           go mod tidy
@@ -151,7 +152,7 @@ jobs:
           set -euo pipefail
           export HOME="$RUNNER_TEMP/flashnote-home"
           mkdir -p internal/acceptanceprobe
-          cat > internal/acceptanceprobe/main.go <<'EOF'
+          cat > internal/acceptanceprobe/main.go <<'PROBE'
           package main
 
           import (
@@ -174,7 +175,7 @@ jobs:
             if err != nil { panic(err) }
             fmt.Println(string(data))
           }
-          EOF
+          PROBE
           go run ./internal/acceptanceprobe | tee "$RUNNER_TEMP/sqlite-runtime.json"
           rm -rf internal/acceptanceprobe
 
@@ -203,41 +204,174 @@ jobs:
           cleanup
           trap - EXIT
 
-      - name: Record candidate evidence
-        if: always()
+      - name: Prepare exact publication tree
         run: |
-          git diff -- app_service.go Taskfile.yml frontend/src/App.svelte frontend/package.json frontend/pnpm-lock.yaml go.sum > "$RUNNER_TEMP/candidate.patch" || true
-          {
-            echo "commit=$GITHUB_SHA"
-            echo "run_id=$GITHUB_RUN_ID"
-            echo "go=$(go version 2>/dev/null || true)"
-            echo "node=$(node --version 2>/dev/null || true)"
-            echo "pnpm=$(pnpm --version 2>/dev/null || true)"
-            echo "wails=$($(go env GOPATH)/bin/wails3 version 2>/dev/null || true)"
-            echo "go_sum_sha256=$(shasum -a 256 go.sum 2>/dev/null | awk '{print $1}' || true)"
-            echo "pnpm_lock_sha256=$(shasum -a 256 frontend/pnpm-lock.yaml 2>/dev/null | awk '{print $1}' || true)"
-          } | tee "$RUNNER_TEMP/acceptance-evidence.txt"
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/git/blobs/29f138518a18981a9c4f2909418dbce0dd0160cd" --jq .content | tr -d '\n' | base64 --decode > "$RUNNER_TEMP/verify-candidate.py"
+          python3 "$RUNNER_TEMP/verify-candidate.py"
+          git add Taskfile.yml app_service.go go.sum frontend/package.json frontend/pnpm-lock.yaml frontend/src/App.svelte frontend/bindings
+          git rm scripts/stage_native_acceptance_candidate.py
+          actual="$(git diff --cached --name-only | sort)"
+          expected="$(printf '%s\n' \
+            Taskfile.yml \
+            app_service.go \
+            frontend/bindings/github.com/savior714/flashnote/appservice.ts \
+            frontend/bindings/github.com/savior714/flashnote/index.ts \
+            frontend/bindings/github.com/savior714/flashnote/models.ts \
+            frontend/bindings/github.com/wailsapp/wails/v3/internal/eventcreate.ts \
+            frontend/bindings/github.com/wailsapp/wails/v3/internal/eventdata.d.ts \
+            frontend/package.json \
+            frontend/pnpm-lock.yaml \
+            frontend/src/App.svelte \
+            go.sum \
+            scripts/stage_native_acceptance_candidate.py | sort)"
+          test "$actual" = "$expected"
+          git diff --cached --check
 
-      - name: Upload evidence
+      - name: Publish exact candidate FF-only
+        id: publish
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix: close native scaffold acceptance"
+          candidate="$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD^)" = "$GITHUB_SHA"
+          git push origin HEAD:main
+          echo "candidate=$candidate" | tee "$RUNNER_TEMP/published-candidate.txt"
+          echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
+
+      - name: Post-publication exact commit acceptance
+        run: |
+          set -euo pipefail
+          candidate="${{ steps.publish.outputs.candidate }}"
+          test -n "$candidate"
+          git fetch origin main
+          test "$(git rev-parse HEAD)" = "$candidate"
+          test "$(git rev-parse origin/main)" = "$candidate"
+
+          git clean -fdx
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+          cd frontend
+          pnpm install --frozen-lockfile
+          cd ..
+          wails3 generate bindings -clean=true -ts
+          git diff --exit-code -- frontend/bindings
+
+          unformatted="$(find . -type f -name '*.go' -not -path './frontend/*' -print0 | xargs -0 gofmt -l)"
+          test -z "$unformatted"
+          go test ./...
+          go vet ./...
+          cd frontend
+          pnpm check
+          pnpm build
+          cd ..
+          wails3 task check
+          wails3 build
+          test -x ./flashnote
+
+          export HOME="$RUNNER_TEMP/postpublish-home"
+          mkdir -p "$HOME"
+          DB="$HOME/Library/Application Support/Flashnote/flashnote.db"
+          LOG1="$RUNNER_TEMP/postpublish-first.log"
+          ./flashnote >"$LOG1" 2>&1 &
+          pid=$!
+          cleanup() { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
+          trap cleanup EXIT
+          for _ in {1..30}; do
+            if [[ -f "$DB" ]] && grep -q FLASHNOTE_RUNTIME_READY "$LOG1"; then break; fi
+            kill -0 "$pid"
+            sleep 1
+          done
+          test -f "$DB"
+          kill -0 "$pid"
+          grep -q 'Handling request url=/assets/.*\.js' "$LOG1"
+          grep -q 'Handling request url=/assets/.*\.css' "$LOG1"
+          grep -q FLASHNOTE_RUNTIME_READY "$LOG1"
+          test "$(sqlite3 "$DB" 'SELECT COUNT(*) FROM schema_migrations;')" = 1
+          cleanup
+          trap - EXIT
+
+          LOG2="$RUNNER_TEMP/postpublish-second.log"
+          ./flashnote >"$LOG2" 2>&1 &
+          pid=$!
+          trap cleanup EXIT
+          for _ in {1..30}; do
+            if grep -q FLASHNOTE_RUNTIME_READY "$LOG2"; then break; fi
+            kill -0 "$pid"
+            sleep 1
+          done
+          kill -0 "$pid"
+          grep -q FLASHNOTE_RUNTIME_READY "$LOG2"
+          test "$(sqlite3 "$DB" 'SELECT COUNT(*) FROM schema_migrations;')" = 1
+          cleanup
+          trap - EXIT
+
+          export HOME="$RUNNER_TEMP/postpublish-dev-home"
+          mkdir -p "$HOME"
+          DEVLOG="$RUNNER_TEMP/postpublish-wails-dev.log"
+          wails3 dev -config ./build/config.yml -port 9245 >"$DEVLOG" 2>&1 &
+          pid=$!
+          cleanup_dev() {
+            pkill -TERM -P "$pid" 2>/dev/null || true
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+          }
+          trap cleanup_dev EXIT
+          for _ in {1..90}; do
+            if grep -q FLASHNOTE_RUNTIME_READY "$DEVLOG"; then break; fi
+            kill -0 "$pid"
+            sleep 1
+          done
+          grep -q FLASHNOTE_RUNTIME_READY "$DEVLOG"
+          curl --fail --silent --show-error http://127.0.0.1:9245/ | grep -q '<div id="app"></div>'
+          cleanup_dev
+          trap - EXIT
+
+          git diff --exit-code -- go.mod go.sum Taskfile.yml app_service.go frontend/package.json frontend/pnpm-lock.yaml frontend/src/App.svelte frontend/bindings
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$candidate"
+          echo "postpublication_candidate=$candidate" | tee "$RUNNER_TEMP/postpublication-proof.txt"
+
+      - name: Upload publication evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: native-scaffold-acceptance-${{ github.sha }}
+          name: native-scaffold-publication-${{ github.sha }}
           if-no-files-found: warn
           path: |
-            app_service.go
-            Taskfile.yml
-            go.sum
-            frontend/src/App.svelte
-            frontend/package.json
-            frontend/pnpm-lock.yaml
-            frontend/bindings
-            ${{ runner.temp }}/acceptance-evidence.txt
-            ${{ runner.temp }}/candidate.patch
+            ${{ runner.temp }}/published-candidate.txt
+            ${{ runner.temp }}/postpublication-proof.txt
+            ${{ runner.temp }}/postpublish-first.log
+            ${{ runner.temp }}/postpublish-second.log
+            ${{ runner.temp }}/postpublish-wails-dev.log
             ${{ runner.temp }}/sqlite-runtime.json
             ${{ runner.temp }}/first-startup.log
             ${{ runner.temp }}/wails-dev.log.saved
             ${{ runner.temp }}/second-startup.log
+
+      - name: Publish candidate acceptance status
+        if: always() && steps.publish.outputs.candidate != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ steps.publish.outputs.candidate }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          state=failure
+          description="Published native scaffold acceptance failed"
+          if [[ "$JOB_STATUS" == success ]]; then
+            state=success
+            description="Published native scaffold acceptance passed"
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$CANDIDATE" \
+            -f state="$state" \
+            -f context=native-scaffold-acceptance \
+            -f description="$description" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
       - name: Publish acceptance status
         if: always()
@@ -250,7 +384,7 @@ jobs:
           description="Native scaffold acceptance failed"
           if [[ "$JOB_STATUS" == success ]]; then
             state=success
-            description="Native scaffold acceptance passed"
+            description="Native scaffold acceptance passed and published"
           fi
           gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
             -f state="$state" \
