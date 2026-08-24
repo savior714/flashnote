@@ -76,8 +76,99 @@ jobs:
         run: |
           set -euo pipefail
           wails3 generate bindings -clean=true -ts
-          test -d frontend/bindings
+          test -f frontend/bindings/github.com/savior714/flashnote/appservice.ts
+          grep -q 'export function GetRuntimeInfo' frontend/bindings/github.com/savior714/flashnote/appservice.ts
           find frontend/bindings -type f -print | sort
+
+      - name: Stage runtime bridge candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          app = Path("frontend/src/App.svelte")
+          text = app.read_text()
+          old = '''<script lang="ts">
+            import NoteEditor from './lib/NoteEditor.svelte'
+          </script>'''
+          new = '''<script lang="ts">
+            import { onMount, tick } from 'svelte'
+            import { GetRuntimeInfo } from '../bindings/github.com/savior714/flashnote/appservice'
+            import NoteEditor from './lib/NoteEditor.svelte'
+
+            async function verifyNativeRuntime() {
+              await tick()
+              const shell = document.querySelector('main.shell')
+              const editorHost = document.querySelector('.editor-host')
+              if (!shell || !editorHost) {
+                throw new Error('Flashnote native UI did not mount')
+              }
+
+              const info = await GetRuntimeInfo()
+              if (!info.databaseReady || info.schemaVersion !== 1) {
+                throw new Error('Flashnote runtime bridge returned invalid diagnostics')
+              }
+            }
+
+            onMount(() => {
+              void verifyNativeRuntime()
+            })
+          </script>'''
+          if old not in text:
+              raise SystemExit("App.svelte bootstrap block changed")
+          app.write_text(text.replace(old, new, 1))
+
+          service = Path("app_service.go")
+          text = service.read_text()
+          old_import = 'import (\n\t"context"\n'
+          if old_import not in text:
+              raise SystemExit("app_service.go import block changed")
+          text = text.replace(old_import, 'import (\n\t"context"\n\t"log"\n', 1)
+          old_return = '''\treturn RuntimeInfo{
+\t\tAppVersion:    appVersion,
+\t\tDatabaseReady: true,
+\t\tSQLiteVersion: info.SQLiteVersion,
+\t\tJournalMode:   info.JournalMode,
+\t\tSynchronous:   info.Synchronous,
+\t\tForeignKeys:   info.ForeignKeys,
+\t\tSchemaVersion: info.SchemaVersion,
+\t}, nil
+          '''
+          new_return = '''\truntimeInfo := RuntimeInfo{
+\t\tAppVersion:    appVersion,
+\t\tDatabaseReady: true,
+\t\tSQLiteVersion: info.SQLiteVersion,
+\t\tJournalMode:   info.JournalMode,
+\t\tSynchronous:   info.Synchronous,
+\t\tForeignKeys:   info.ForeignKeys,
+\t\tSchemaVersion: info.SchemaVersion,
+\t}
+\tlog.Printf(
+\t\t"FLASHNOTE_RUNTIME_READY sqlite=%s journal=%s synchronous=%d foreign_keys=%t schema=%d",
+\t\truntimeInfo.SQLiteVersion,
+\t\truntimeInfo.JournalMode,
+\t\truntimeInfo.Synchronous,
+\t\truntimeInfo.ForeignKeys,
+\t\truntimeInfo.SchemaVersion,
+\t)
+\treturn runtimeInfo, nil
+          '''
+          if old_return not in text:
+              raise SystemExit("app_service.go return block changed")
+          service.write_text(text.replace(old_return, new_return, 1))
+
+          taskfile = Path("Taskfile.yml")
+          text = taskfile.read_text()
+          old_dep = "  frontend:check:\n    deps: [frontend:install]\n"
+          if old_dep not in text:
+              raise SystemExit("Taskfile frontend:check block changed")
+          taskfile.write_text(text.replace(old_dep, "  frontend:check:\n    deps: [bindings]\n", 1))
+          PY
+          gofmt -w app_service.go
+          grep -q 'GetRuntimeInfo' frontend/src/App.svelte
+          grep -q 'FLASHNOTE_RUNTIME_READY' app_service.go
+          grep -A1 'frontend:check:' Taskfile.yml | grep -q 'deps: \[bindings\]'
 
       - name: Go formatting and static checks
         shell: bash
@@ -100,6 +191,12 @@ jobs:
           pnpm check
           pnpm build
 
+      - name: Project check task
+        shell: bash
+        run: |
+          set -euo pipefail
+          wails3 task check
+
       - name: Wails build
         shell: bash
         run: |
@@ -107,7 +204,7 @@ jobs:
           wails3 build
           test -x ./flashnote
 
-      - name: First native startup
+      - name: First native startup and runtime bridge
         shell: bash
         run: |
           set -euo pipefail
@@ -120,7 +217,9 @@ jobs:
           cleanup() { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
           trap cleanup EXIT
           for _ in {1..30}; do
-            [[ -f "$DB" ]] && break
+            if [[ -f "$DB" ]] && grep -q 'FLASHNOTE_RUNTIME_READY' "$LOG"; then
+              break
+            fi
             if ! kill -0 "$pid" 2>/dev/null; then
               cat "$LOG"
               exit 1
@@ -129,9 +228,43 @@ jobs:
           done
           test -f "$DB"
           kill -0 "$pid"
+          grep -q 'Handling request url=/assets/.*\.js' "$LOG"
+          grep -q 'Handling request url=/assets/.*\.css' "$LOG"
+          grep -q 'FLASHNOTE_RUNTIME_READY' "$LOG"
           sqlite3 "$DB" 'SELECT version FROM schema_migrations ORDER BY version;'
           sqlite3 "$DB" 'SELECT name FROM sqlite_master WHERE type="table" ORDER BY name;'
           cp "$LOG" "$RUNNER_TEMP/first-startup.log"
+          cleanup
+          trap - EXIT
+
+      - name: Wails dev smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          export HOME="$RUNNER_TEMP/flashnote-dev-home"
+          mkdir -p "$HOME"
+          LOG="$RUNNER_TEMP/wails-dev.log"
+          wails3 dev -config ./build/config.yml -port 9245 >"$LOG" 2>&1 &
+          pid=$!
+          cleanup() {
+            pkill -TERM -P "$pid" 2>/dev/null || true
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          for _ in {1..90}; do
+            if grep -q 'FLASHNOTE_RUNTIME_READY' "$LOG"; then
+              break
+            fi
+            if ! kill -0 "$pid" 2>/dev/null; then
+              cat "$LOG"
+              exit 1
+            fi
+            sleep 1
+          done
+          grep -q 'FLASHNOTE_RUNTIME_READY' "$LOG"
+          curl --fail --silent --show-error http://127.0.0.1:9245/ | grep -q '<div id="app"></div>'
+          cp "$LOG" "$RUNNER_TEMP/wails-dev.log.saved"
           cleanup
           trap - EXIT
 
@@ -181,8 +314,18 @@ jobs:
           pid=$!
           cleanup() { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
           trap cleanup EXIT
-          sleep 5
+          for _ in {1..30}; do
+            if grep -q 'FLASHNOTE_RUNTIME_READY' "$LOG"; then
+              break
+            fi
+            if ! kill -0 "$pid" 2>/dev/null; then
+              cat "$LOG"
+              exit 1
+            fi
+            sleep 1
+          done
           kill -0 "$pid"
+          grep -q 'FLASHNOTE_RUNTIME_READY' "$LOG"
           after="$(sqlite3 "$DB" 'SELECT COUNT(*) FROM schema_migrations;')"
           test "$before" = "$after"
           test "$after" = "1"
@@ -190,18 +333,18 @@ jobs:
           cleanup
           trap - EXIT
 
-      - name: Record dependency and binding evidence
+      - name: Record candidate evidence
         if: always()
         shell: bash
         run: |
-          git diff -- frontend/package.json frontend/pnpm-lock.yaml go.sum > "$RUNNER_TEMP/dependency-candidate.patch" || true
+          git diff -- app_service.go Taskfile.yml frontend/src/App.svelte frontend/package.json frontend/pnpm-lock.yaml go.sum > "$RUNNER_TEMP/candidate.patch" || true
           {
             echo "commit=$GITHUB_SHA"
             echo "run_id=$GITHUB_RUN_ID"
             echo "go=$(go version 2>/dev/null || true)"
             echo "node=$(node --version 2>/dev/null || true)"
             echo "pnpm=$(pnpm --version 2>/dev/null || true)"
-            echo "wails=$(wails3 version 2>/dev/null || true)"
+            echo "wails=$($(go env GOPATH)/bin/wails3 version 2>/dev/null || true)"
             echo "go_sum_sha256=$(shasum -a 256 go.sum 2>/dev/null | awk '{print $1}' || true)"
             echo "pnpm_lock_sha256=$(shasum -a 256 frontend/pnpm-lock.yaml 2>/dev/null | awk '{print $1}' || true)"
           } | tee "$RUNNER_TEMP/acceptance-evidence.txt"
@@ -213,14 +356,18 @@ jobs:
           name: native-scaffold-acceptance-${{ github.sha }}
           if-no-files-found: warn
           path: |
+            app_service.go
+            Taskfile.yml
             go.sum
+            frontend/src/App.svelte
             frontend/package.json
             frontend/pnpm-lock.yaml
             frontend/bindings
             ${{ runner.temp }}/acceptance-evidence.txt
-            ${{ runner.temp }}/dependency-candidate.patch
+            ${{ runner.temp }}/candidate.patch
             ${{ runner.temp }}/sqlite-runtime.json
             ${{ runner.temp }}/first-startup.log
+            ${{ runner.temp }}/wails-dev.log.saved
             ${{ runner.temp }}/second-startup.log
 
       - name: Publish acceptance status
