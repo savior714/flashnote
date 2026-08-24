@@ -13,3 +13,12 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 export function ExportCurrentNoteMarkdown(): $CancellablePromise<boolean> {
     return $Call.ByID(3522548611);
 }
+
+/**
+ * ExportLibraryMarkdown asks for a parent directory, then creates a new
+ * collision-safe Flashnote Export directory containing every normal note.
+ * Returning an empty path with no error means the user cancelled the dialog.
+ */
+export function ExportLibraryMarkdown(): $CancellablePromise<string> {
+    return $Call.ByID(2014015777);
+}
