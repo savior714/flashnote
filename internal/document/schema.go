@@ -255,6 +255,7 @@ func validateMark(mark map[string]any) error {
 					return fmt.Errorf("link %s must be a string or null", key)
 				}
 			}
+		}
 	default:
 		return fmt.Errorf("unsupported mark type %q", markType)
 	}

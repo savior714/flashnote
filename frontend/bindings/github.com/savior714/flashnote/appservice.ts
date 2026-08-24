@@ -31,7 +31,7 @@ export function GetRuntimeInfo(): $CancellablePromise<$models.RuntimeInfo> {
     });
 }
 
-export function IngestImage(content: Uint8Array, originalName: string): $CancellablePromise<string> {
+export function IngestImage(content: string, originalName: string): $CancellablePromise<string> {
     return $Call.ByID(3268997603, content, originalName);
 }
 

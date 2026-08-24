@@ -47,12 +47,21 @@
     return Array.from(dataTransfer.files).filter(isImageCandidate)
   }
 
+  function bytesToBase64(bytes: Uint8Array): string {
+    const chunkSize = 0x8000
+    let binary = ''
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length)))
+    }
+    return btoa(binary)
+  }
+
   async function ingestFiles(files: File[], requestedPosition?: number) {
     let position = requestedPosition
     for (const file of files) {
       try {
         const bytes = new Uint8Array(await file.arrayBuffer())
-        const attachmentID = await IngestImage(bytes, file.name || 'clipboard-image')
+        const attachmentID = await IngestImage(bytesToBase64(bytes), file.name || 'clipboard-image')
         const currentEditor = editor
         if (!currentEditor || currentEditor.isDestroyed || !currentEditor.isEditable) {
           return
