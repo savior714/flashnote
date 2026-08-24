@@ -38,6 +38,9 @@ func main() {
 			log.Printf("close database: %v", err)
 		}
 	}()
+	if err := store.ReconcileStoredAttachments(ctx, true); err != nil {
+		log.Printf("FLASHNOTE_ATTACHMENT_RECONCILE_FAILED reason=startup error=%v", err)
+	}
 
 	app := application.New(application.Options{
 		Name:        "Flashnote",
@@ -46,7 +49,8 @@ func main() {
 			application.NewService(NewAppService(store)),
 		},
 		Assets: application.AssetOptions{
-			Handler: application.AssetFileServerFS(assets),
+			Handler:    application.AssetFileServerFS(assets),
+			Middleware: attachmentMiddleware(store),
 		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,

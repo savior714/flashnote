@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 )
 
 const SchemaVersion = 1
@@ -51,6 +52,48 @@ func ValidateAndNormalizeJSON(input string) (string, error) {
 	return string(normalized), nil
 }
 
+// AttachmentIDs returns the unique attachment identities referenced by a valid Flashnote document.
+func AttachmentIDs(input string) ([]string, error) {
+	normalized, err := ValidateAndNormalizeJSON(input)
+	if err != nil {
+		return nil, err
+	}
+	var envelope struct {
+		Doc map[string]any `json:"doc"`
+	}
+	if err := json.Unmarshal([]byte(normalized), &envelope); err != nil {
+		return nil, fmt.Errorf("%w: decode normalized document: %v", ErrInvalidDocument, err)
+	}
+
+	ids := make(map[string]struct{})
+	collectAttachmentIDs(envelope.Doc, ids)
+	result := make([]string, 0, len(ids))
+	for id := range ids {
+		result = append(result, id)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+func collectAttachmentIDs(value any, ids map[string]struct{}) {
+	node, ok := value.(map[string]any)
+	if !ok {
+		return
+	}
+	if node["type"] == "image" {
+		if attrs, ok := node["attrs"].(map[string]any); ok {
+			if id, ok := attrs["attachmentId"].(string); ok && id != "" {
+				ids[id] = struct{}{}
+			}
+		}
+	}
+	if children, ok := node["content"].([]any); ok {
+		for _, child := range children {
+			collectAttachmentIDs(child, ids)
+		}
+	}
+}
+
 func ensureEOF(decoder *json.Decoder) error {
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
@@ -94,6 +137,13 @@ func validateNode(node map[string]any, root bool) error {
 		if err := validateCodeBlockAttrs(node["attrs"]); err != nil {
 			return err
 		}
+	case "image":
+		if err := validateImageAttrs(node["attrs"]); err != nil {
+			return err
+		}
+		if _, exists := node["content"]; exists {
+			return errors.New("image node cannot contain content")
+		}
 	case "horizontalRule", "hardBreak":
 		if _, exists := node["content"]; exists {
 			return fmt.Errorf("%s node cannot contain content", nodeType)
@@ -111,7 +161,7 @@ func validateNode(node map[string]any, root bool) error {
 		return fmt.Errorf("unsupported node type %q", nodeType)
 	}
 
-	if nodeType != "heading" && nodeType != "orderedList" && nodeType != "codeBlock" && nodeType != "taskItem" {
+	if nodeType != "heading" && nodeType != "orderedList" && nodeType != "codeBlock" && nodeType != "taskItem" && nodeType != "image" {
 		if attrs, exists := node["attrs"]; exists {
 			if attrs == nil {
 				delete(node, "attrs")
@@ -205,7 +255,6 @@ func validateMark(mark map[string]any) error {
 					return fmt.Errorf("link %s must be a string or null", key)
 				}
 			}
-		}
 	default:
 		return fmt.Errorf("unsupported mark type %q", markType)
 	}
@@ -279,6 +328,36 @@ func validateCodeBlockAttrs(raw any) error {
 	if language, exists := attrs["language"]; exists && language != nil {
 		if _, ok := language.(string); !ok {
 			return errors.New("codeBlock language must be a string or null")
+		}
+	}
+	return nil
+}
+
+func validateImageAttrs(raw any) error {
+	attrs, ok := raw.(map[string]any)
+	if !ok {
+		return errors.New("image requires attributes")
+	}
+	if err := validateKeys(attrs, "attachmentId", "alt", "title", "width", "height"); err != nil {
+		return fmt.Errorf("image attributes: %w", err)
+	}
+	attachmentID, ok := attrs["attachmentId"].(string)
+	if !ok || attachmentID == "" {
+		return errors.New("image attachmentId must be a non-empty string")
+	}
+	for _, key := range []string{"alt", "title"} {
+		if value, exists := attrs[key]; exists && value != nil {
+			if _, ok := value.(string); !ok {
+				return fmt.Errorf("image %s must be a string or null", key)
+			}
+		}
+	}
+	for _, key := range []string{"width", "height"} {
+		if value, exists := attrs[key]; exists && value != nil {
+			integer, ok := integerValue(value)
+			if !ok || integer <= 0 {
+				return fmt.Errorf("image %s must be a positive integer or null", key)
+			}
 		}
 	}
 	return nil

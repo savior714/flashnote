@@ -31,6 +31,10 @@ export function GetRuntimeInfo(): $CancellablePromise<$models.RuntimeInfo> {
     });
 }
 
+export function IngestImage(content: Uint8Array, originalName: string): $CancellablePromise<string> {
+    return $Call.ByID(3268997603, content, originalName);
+}
+
 export function ListFolderNotes(folderID: string): $CancellablePromise<[string[], string[]]> {
     return $Call.ByID(3400012691, folderID).then(($result: any) => {
         $result[0] = $$createType1($result[0]);

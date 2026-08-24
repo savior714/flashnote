@@ -2,6 +2,7 @@ package document
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -54,6 +55,39 @@ func TestValidateAndNormalizeJSONRejectsInvalidTaskItemAttributes(t *testing.T) 
 	for _, input := range tests {
 		if _, err := ValidateAndNormalizeJSON(input); !errors.Is(err, ErrInvalidDocument) {
 			t.Fatalf("expected ErrInvalidDocument for invalid task item %s, got %v", input, err)
+		}
+	}
+}
+
+func TestValidateAndNormalizeJSONAcceptsAttachmentImage(t *testing.T) {
+	input := `{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"image","attrs":{"attachmentId":"attachment-b","alt":"diagram","title":null,"width":640,"height":480}},{"type":"image","attrs":{"attachmentId":"attachment-a","alt":null,"title":null,"width":null,"height":null}},{"type":"image","attrs":{"attachmentId":"attachment-b","alt":null,"title":null,"width":null,"height":null}}]}}`
+
+	normalized, err := ValidateAndNormalizeJSON(input)
+	if err != nil {
+		t.Fatalf("ValidateAndNormalizeJSON(image) error = %v", err)
+	}
+	if strings.Contains(normalized, `"src"`) {
+		t.Fatalf("canonical image unexpectedly persisted src: %s", normalized)
+	}
+	ids, err := AttachmentIDs(normalized)
+	if err != nil {
+		t.Fatalf("AttachmentIDs() error = %v", err)
+	}
+	if want := []string{"attachment-a", "attachment-b"}; !reflect.DeepEqual(ids, want) {
+		t.Fatalf("AttachmentIDs() = %v, want %v", ids, want)
+	}
+}
+
+func TestValidateAndNormalizeJSONRejectsInvalidImageAttributes(t *testing.T) {
+	tests := []string{
+		`{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"image","attrs":{}}]}}`,
+		`{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"image","attrs":{"attachmentId":"x","src":"file:///tmp/x.png"}}]}}`,
+		`{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"image","attrs":{"attachmentId":"x","width":0}}]}}`,
+		`{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"image","attrs":{"attachmentId":"x"},"content":[]}]}}`,
+	}
+	for _, input := range tests {
+		if _, err := ValidateAndNormalizeJSON(input); !errors.Is(err, ErrInvalidDocument) {
+			t.Fatalf("expected ErrInvalidDocument for invalid image %s, got %v", input, err)
 		}
 	}
 }

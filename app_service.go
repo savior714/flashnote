@@ -54,6 +54,15 @@ func (s *AppService) CreateFolder(name string) (string, string, error) {
 	return folder.ID, folder.Name, nil
 }
 
+func (s *AppService) IngestImage(content []byte, originalName string) (string, error) {
+	attachment, err := s.store.IngestImage(context.Background(), content, originalName)
+	if err != nil {
+		return "", err
+	}
+	log.Printf("FLASHNOTE_IMAGE_INGESTED id=%s media=%s bytes=%d dimensions=%dx%d", attachment.ID, attachment.MediaType, attachment.ByteSize, attachment.Width, attachment.Height)
+	return attachment.ID, nil
+}
+
 func (s *AppService) GetRuntimeInfo() (RuntimeInfo, error) {
 	info, err := s.store.RuntimeInfo(context.Background())
 	if err != nil {
@@ -203,6 +212,7 @@ func (s *AppService) PermanentlyDeleteNote(noteID string) (bool, error) {
 	if err := s.store.PermanentlyDeleteNote(context.Background(), noteID); err != nil {
 		return false, err
 	}
+	s.reconcileAttachments("permanent-note-delete")
 	log.Printf("FLASHNOTE_NOTE_PERMANENTLY_DELETED id=%s", noteID)
 	return true, nil
 }
@@ -212,6 +222,7 @@ func (s *AppService) PermanentlyDeleteFolder(folderID string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	s.reconcileAttachments("permanent-folder-delete")
 	log.Printf("FLASHNOTE_FOLDER_PERMANENTLY_DELETED id=%s notes=%d", folderID, count)
 	return count, nil
 }
@@ -225,6 +236,7 @@ func (s *AppService) EmptyTrash() (int, int, error) {
 	if err != nil {
 		return 0, 0, err
 	}
+	s.reconcileAttachments("empty-trash")
 	log.Printf("FLASHNOTE_TRASH_EMPTIED notes=%d folders=%d", notes, folders)
 	return notes, folders, nil
 }
@@ -277,12 +289,23 @@ func (s *AppService) OpenTrashNote(noteID string) (string, string, string, int64
 }
 
 func (s *AppService) SaveNote(noteID string, title string, documentJSON string, expectedRevision int64) (int64, error) {
-	revision, err := s.store.SaveNote(context.Background(), noteID, title, documentJSON, expectedRevision)
+	ctx := context.Background()
+	if err := s.store.ValidateDocumentAttachments(ctx, documentJSON); err != nil {
+		return 0, err
+	}
+	revision, err := s.store.SaveNote(ctx, noteID, title, documentJSON, expectedRevision)
 	if err != nil {
 		return 0, err
 	}
+	s.reconcileAttachments("save")
 	log.Printf("FLASHNOTE_NOTE_SAVED id=%s revision=%d", noteID, revision)
 	return revision, nil
+}
+
+func (s *AppService) reconcileAttachments(reason string) {
+	if err := s.store.ReconcileStoredAttachments(context.Background(), false); err != nil {
+		log.Printf("FLASHNOTE_ATTACHMENT_RECONCILE_FAILED reason=%s error=%v", reason, err)
+	}
 }
 
 func noteSummaryArrays(summaries []persistence.NoteSummary) ([]string, []string) {

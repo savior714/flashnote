@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"os"
 	"path/filepath"
 	"sync"
 
@@ -15,8 +16,10 @@ const busyTimeoutMilliseconds = 5000
 
 // Store is the single Go-owned persistence entry point for Flashnote.
 type Store struct {
-	db       *sql.DB
-	searchMu sync.Mutex
+	db             *sql.DB
+	attachmentsDir string
+	attachmentMu   sync.Mutex
+	searchMu       sync.Mutex
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
@@ -29,7 +32,13 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(4)
 
-	store := &Store{db: db}
+	attachmentsDir := filepath.Join(filepath.Dir(path), "attachments")
+	if err := os.MkdirAll(attachmentsDir, 0o700); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("create attachments directory: %w", err)
+	}
+
+	store := &Store{db: db, attachmentsDir: attachmentsDir}
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping sqlite database: %w", err)
