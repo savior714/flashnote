@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestInitialNotePersistsAcrossReopen(t *testing.T) {
@@ -45,6 +46,90 @@ func TestInitialNotePersistsAcrossReopen(t *testing.T) {
 	}
 	if reopened.ID != first.ID || reopened.Revision != first.Revision {
 		t.Fatalf("reopened note mismatch: first=%+v reopened=%+v", first, reopened)
+	}
+}
+
+func TestListAndOpenNotesPreserveRecentOrderAndLastSelection(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "flashnote.db")
+	store, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+
+	first, _, err := store.OpenInitialNote(ctx)
+	if err != nil {
+		t.Fatalf("OpenInitialNote() error = %v", err)
+	}
+	firstDocument := `{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Alpha "},{"type":"text","marks":[{"type":"bold"}],"text":"body"}]}]}}`
+	firstRevision, err := store.SaveNote(ctx, first.ID, "", firstDocument, first.Revision)
+	if err != nil {
+		t.Fatalf("SaveNote(first) error = %v", err)
+	}
+	first.Revision = firstRevision
+
+	time.Sleep(2 * time.Millisecond)
+	second, err := store.CreateNote(ctx)
+	if err != nil {
+		t.Fatalf("CreateNote() error = %v", err)
+	}
+	secondRevision, err := store.SaveNote(ctx, second.ID, "Second note", second.DocumentJSON, second.Revision)
+	if err != nil {
+		t.Fatalf("SaveNote(second) error = %v", err)
+	}
+	second.Revision = secondRevision
+
+	summaries, err := store.ListNotes(ctx)
+	if err != nil {
+		t.Fatalf("ListNotes() error = %v", err)
+	}
+	if len(summaries) != 2 {
+		t.Fatalf("ListNotes() len = %d, want 2", len(summaries))
+	}
+	if summaries[0].ID != second.ID || summaries[0].DisplayTitle != "Second note" {
+		t.Fatalf("most recent summary = %+v, want second note", summaries[0])
+	}
+	if summaries[1].ID != first.ID || summaries[1].DisplayTitle != "Alpha body" {
+		t.Fatalf("derived first summary = %+v, want Alpha body", summaries[1])
+	}
+
+	time.Sleep(2 * time.Millisecond)
+	firstRevision, err = store.SaveNote(ctx, first.ID, "", firstDocument, first.Revision)
+	if err != nil {
+		t.Fatalf("SaveNote(first recent) error = %v", err)
+	}
+	first.Revision = firstRevision
+	summaries, err = store.ListNotes(ctx)
+	if err != nil {
+		t.Fatalf("ListNotes() after recent save error = %v", err)
+	}
+	if summaries[0].ID != first.ID {
+		t.Fatalf("recently saved note not first: %+v", summaries)
+	}
+
+	opened, err := store.OpenNote(ctx, second.ID)
+	if err != nil {
+		t.Fatalf("OpenNote(second) error = %v", err)
+	}
+	if opened.ID != second.ID || opened.Revision != second.Revision {
+		t.Fatalf("opened note mismatch: %+v", opened)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	store, err = Open(ctx, path)
+	if err != nil {
+		t.Fatalf("reopen Store error = %v", err)
+	}
+	defer store.Close()
+
+	reopened, created, err := store.OpenInitialNote(ctx)
+	if err != nil {
+		t.Fatalf("reopen OpenInitialNote() error = %v", err)
+	}
+	if created || reopened.ID != second.ID {
+		t.Fatalf("last selection not restored: created=%t reopened=%+v", created, reopened)
 	}
 }
 

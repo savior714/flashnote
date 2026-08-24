@@ -61,6 +61,22 @@ func (s *AppService) GetRuntimeInfo() (RuntimeInfo, error) {
 	return runtimeInfo, nil
 }
 
+//wails:id 3000000001
+func (s *AppService) ListNotes() ([]string, []string, error) {
+	summaries, err := s.store.ListNotes(context.Background())
+	if err != nil {
+		return nil, nil, err
+	}
+	ids := make([]string, 0, len(summaries))
+	displayTitles := make([]string, 0, len(summaries))
+	for _, summary := range summaries {
+		ids = append(ids, summary.ID)
+		displayTitles = append(displayTitles, summary.DisplayTitle)
+	}
+	log.Printf("FLASHNOTE_NOTE_LIST count=%d", len(ids))
+	return ids, displayTitles, nil
+}
+
 func (s *AppService) OpenInitialNote() (string, string, string, int64, bool, error) {
 	note, created, err := s.store.OpenInitialNote(context.Background())
 	if err != nil {
@@ -71,6 +87,16 @@ func (s *AppService) OpenInitialNote() (string, string, string, int64, bool, err
 	}
 	log.Printf("FLASHNOTE_NOTE_OPEN id=%s revision=%d created=%t", note.ID, note.Revision, created)
 	return note.ID, note.Title, note.DocumentJSON, note.Revision, created, nil
+}
+
+//wails:id 3000000002
+func (s *AppService) OpenNote(noteID string) (string, string, string, int64, bool, error) {
+	note, err := s.store.OpenNote(context.Background(), noteID)
+	if err != nil {
+		return "", "", "", 0, false, err
+	}
+	log.Printf("FLASHNOTE_NOTE_OPEN id=%s revision=%d created=false", note.ID, note.Revision)
+	return note.ID, note.Title, note.DocumentJSON, note.Revision, false, nil
 }
 
 func (s *AppService) SaveNote(noteID string, title string, documentJSON string, expectedRevision int64) (int64, error) {

@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/savior714/flashnote/internal/document"
 )
@@ -22,6 +24,40 @@ type Note struct {
 	Title        string
 	DocumentJSON string
 	Revision     int64
+}
+
+type NoteSummary struct {
+	ID           string
+	DisplayTitle string
+}
+
+func (s *Store) ListNotes(ctx context.Context) ([]NoteSummary, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, title, document_json
+		FROM notes
+		ORDER BY updated_at DESC, id ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list notes: %w", err)
+	}
+	defer rows.Close()
+
+	summaries := make([]NoteSummary, 0)
+	for rows.Next() {
+		var id, title, documentJSON string
+		if err := rows.Scan(&id, &title, &documentJSON); err != nil {
+			return nil, fmt.Errorf("scan note summary: %w", err)
+		}
+		displayTitle, err := deriveDisplayTitle(title, documentJSON)
+		if err != nil {
+			return nil, fmt.Errorf("derive display title for note %s: %w", id, err)
+		}
+		summaries = append(summaries, NoteSummary{ID: id, DisplayTitle: displayTitle})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate note summaries: %w", err)
+	}
+	return summaries, nil
 }
 
 func (s *Store) OpenInitialNote(ctx context.Context) (Note, bool, error) {
@@ -64,6 +100,30 @@ func (s *Store) OpenInitialNote(ctx context.Context) (Note, bool, error) {
 		return Note{}, false, fmt.Errorf("commit initial note creation: %w", err)
 	}
 	return note, true, nil
+}
+
+func (s *Store) OpenNote(ctx context.Context, noteID string) (Note, error) {
+	if noteID == "" {
+		return Note{}, fmt.Errorf("%w: empty id", ErrNoteNotFound)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Note{}, fmt.Errorf("begin open note transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	note, err := loadNoteTx(ctx, tx, noteID)
+	if err != nil {
+		return Note{}, err
+	}
+	if err := setLastNoteIDTx(ctx, tx, note.ID); err != nil {
+		return Note{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Note{}, fmt.Errorf("commit open note transaction: %w", err)
+	}
+	return note, nil
 }
 
 func (s *Store) CreateNote(ctx context.Context) (Note, error) {
@@ -110,7 +170,7 @@ func (s *Store) SaveNote(ctx context.Context, noteID, title, documentJSON string
 		SET title = ?,
 			document_json = ?,
 			revision = revision + 1,
-			updated_at = CURRENT_TIMESTAMP
+			updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now')
 		WHERE id = ? AND revision = ?
 	`, title, normalizedDocument, noteID, expectedRevision)
 	if err != nil {
@@ -155,8 +215,8 @@ func createNoteTx(ctx context.Context, tx *sql.Tx) (Note, error) {
 		Revision:     1,
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO notes(id, title, document_json, revision)
-		VALUES (?, ?, ?, ?)
+		INSERT INTO notes(id, title, document_json, revision, created_at, updated_at)
+		VALUES (?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'), strftime('%Y-%m-%d %H:%M:%f', 'now'))
 	`, note.ID, note.Title, note.DocumentJSON, note.Revision); err != nil {
 		return Note{}, fmt.Errorf("insert note: %w", err)
 	}
@@ -196,6 +256,47 @@ func setLastNoteIDTx(ctx context.Context, tx *sql.Tx, noteID string) error {
 		return fmt.Errorf("persist last note id: %w", err)
 	}
 	return nil
+}
+
+func deriveDisplayTitle(title, documentJSON string) (string, error) {
+	if explicit := strings.TrimSpace(title); explicit != "" {
+		return explicit, nil
+	}
+
+	normalized, err := document.ValidateAndNormalizeJSON(documentJSON)
+	if err != nil {
+		return "", err
+	}
+	var envelope struct {
+		Doc map[string]any `json:"doc"`
+	}
+	if err := json.Unmarshal([]byte(normalized), &envelope); err != nil {
+		return "", fmt.Errorf("decode normalized document: %w", err)
+	}
+
+	content, _ := envelope.Doc["content"].([]any)
+	for _, child := range content {
+		var text strings.Builder
+		appendNodeText(&text, child)
+		if value := strings.Join(strings.Fields(text.String()), " "); value != "" {
+			return value, nil
+		}
+	}
+	return "Untitled", nil
+}
+
+func appendNodeText(builder *strings.Builder, value any) {
+	node, ok := value.(map[string]any)
+	if !ok {
+		return
+	}
+	if text, ok := node["text"].(string); ok {
+		builder.WriteString(text)
+	}
+	children, _ := node["content"].([]any)
+	for _, child := range children {
+		appendNodeText(builder, child)
+	}
 }
 
 func newNoteID() (string, error) {

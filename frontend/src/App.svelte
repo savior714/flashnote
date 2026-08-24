@@ -4,7 +4,9 @@
   import {
     CreateNote,
     GetRuntimeInfo,
+    ListNotes,
     OpenInitialNote,
+    OpenNote,
     SaveNote,
   } from '../bindings/github.com/savior714/flashnote/appservice'
   import NoteEditor from './lib/NoteEditor.svelte'
@@ -18,10 +20,13 @@
   let documentJSON = ''
   let revision = 0
   let loading = true
+  let noteTransitionActive = false
   let saveError = ''
+  let operationError = ''
   let closePromptVisible = false
   let closeRequestActive = false
 
+  let notes: NoteSummary[] = []
   let draftSequence = 0
   let durableSequence = 0
   let saveTimer: ReturnType<typeof setTimeout> | undefined
@@ -30,16 +35,29 @@
   let removeCloseListener: (() => void) | null = null
 
   type NoteTuple = [string, string, string, number, boolean]
+  type NoteSummary = {
+    id: string
+    displayTitle: string
+  }
 
   function applyNote(snapshot: NoteTuple) {
     ;[noteID, title, documentJSON, revision] = snapshot
     draftSequence = 0
     durableSequence = 0
     saveError = ''
+    operationError = ''
   }
 
   function formatError(error: unknown): string {
     return error instanceof Error ? error.message : String(error)
+  }
+
+  async function refreshNotes() {
+    const [ids, displayTitles] = (await ListNotes()) as [string[], string[]]
+    if (ids.length !== displayTitles.length) {
+      throw new Error('Flashnote received an invalid note list')
+    }
+    notes = ids.map((id, index) => ({ id, displayTitle: displayTitles[index] ?? 'Untitled' }))
   }
 
   function clearSaveTimer() {
@@ -78,6 +96,14 @@
     }, retryDelayMs)
   }
 
+  function promoteCurrentNoteInSidebar() {
+    if (!noteID) {
+      return
+    }
+    const current = { id: noteID, displayTitle: displayTitle() }
+    notes = [current, ...notes.filter((note) => note.id !== noteID)]
+  }
+
   async function persistLatest(): Promise<boolean> {
     if (!noteID || durableSequence >= draftSequence) {
       return true
@@ -111,6 +137,7 @@
         durableSequence = Math.max(durableSequence, capturedSequence)
         saveError = ''
         clearRetryTimer()
+        promoteCurrentNoteInSidebar()
         if (durableSequence < draftSequence) {
           scheduleSave(0)
         }
@@ -168,22 +195,44 @@
   }
 
   async function createNote() {
-    if (loading) {
-      return
-    }
-    if (!(await flushPendingSave())) {
+    if (loading || noteTransitionActive) {
       return
     }
 
-    loading = true
+    noteTransitionActive = true
+    operationError = ''
     try {
+      if (!(await flushPendingSave())) {
+        return
+      }
       applyNote((await CreateNote()) as NoteTuple)
-      loading = false
+      await refreshNotes()
       await tick()
       document.querySelector<HTMLInputElement>('.title')?.focus()
     } catch (error) {
-      loading = false
-      saveError = `Could not create note: ${formatError(error)}`
+      operationError = `Could not create note: ${formatError(error)}`
+    } finally {
+      noteTransitionActive = false
+    }
+  }
+
+  async function selectNote(nextNoteID: string) {
+    if (loading || noteTransitionActive || !nextNoteID || nextNoteID === noteID) {
+      return
+    }
+
+    noteTransitionActive = true
+    operationError = ''
+    try {
+      if (!(await flushPendingSave())) {
+        return
+      }
+      applyNote((await OpenNote(nextNoteID)) as NoteTuple)
+      await tick()
+    } catch (error) {
+      operationError = `Could not open note: ${formatError(error)}`
+    } finally {
+      noteTransitionActive = false
     }
   }
 
@@ -228,20 +277,25 @@
           return ''
         }
         const node = value as { text?: unknown; content?: unknown }
-        if (typeof node.text === 'string' && node.text.trim()) {
-          return node.text.trim()
+        if (typeof node.text === 'string') {
+          return node.text
         }
         if (Array.isArray(node.content)) {
-          for (const child of node.content) {
-            const text = visit(child)
-            if (text) {
-              return text
-            }
-          }
+          return node.content.map(visit).join('')
         }
         return ''
       }
-      return visit(parsed.doc)
+      const doc = parsed.doc as { content?: unknown } | undefined
+      if (!doc || !Array.isArray(doc.content)) {
+        return ''
+      }
+      for (const block of doc.content) {
+        const text = visit(block).replace(/\s+/g, ' ').trim()
+        if (text) {
+          return text
+        }
+      }
+      return ''
     } catch {
       return ''
     }
@@ -254,6 +308,10 @@
     }
     const derived = derivedBodyTitle()
     return derived || 'Untitled'
+  }
+
+  function sidebarTitle(note: NoteSummary): string {
+    return note.id === noteID ? displayTitle() : note.displayTitle
   }
 
   async function initialise() {
@@ -270,6 +328,7 @@
 
     const snapshot = (await OpenInitialNote()) as NoteTuple
     applyNote(snapshot)
+    await refreshNotes()
     loading = false
     await tick()
 
@@ -292,7 +351,7 @@
   onMount(() => {
     void initialise().catch((error: unknown) => {
       loading = false
-      saveError = `Flashnote could not open your note: ${formatError(error)}`
+      operationError = `Flashnote could not open your note: ${formatError(error)}`
     })
 
     return () => {
@@ -307,13 +366,30 @@
   <aside class="sidebar" aria-label="Notes">
     <div class="brand-row">
       <strong>Flashnote</strong>
-      <button class="quiet-button" type="button" aria-label="Create note" onclick={createNote}>+</button>
+      <button
+        class="quiet-button"
+        type="button"
+        aria-label="Create note"
+        disabled={loading || noteTransitionActive}
+        onclick={createNote}
+      >+</button>
     </div>
 
     {#if loading}
       <div class="sidebar-placeholder">Opening…</div>
     {:else}
-      <div class="note-row active" aria-current="page">{displayTitle()}</div>
+      <nav class="note-list" aria-label="Note list">
+        {#each notes as note (note.id)}
+          <button
+            class="note-row"
+            class:active={note.id === noteID}
+            type="button"
+            aria-current={note.id === noteID ? 'page' : undefined}
+            disabled={noteTransitionActive}
+            onclick={() => void selectNote(note.id)}
+          >{sidebarTitle(note)}</button>
+        {/each}
+      </nav>
     {/if}
 
     <div class="trash-row">Trash</div>
@@ -329,6 +405,7 @@
           aria-label="Note title"
           placeholder="Untitled"
           value={title}
+          disabled={noteTransitionActive}
           oninput={handleTitleInput}
           onkeydown={handleTitleKeydown}
         />
@@ -340,9 +417,12 @@
           />
         {/key}
         {#if saveError}
-          <div class="save-error" role="status">
+          <div class="save-error" role="status" title={saveError}>
             Changes aren’t saved. Flashnote will keep retrying.
           </div>
+        {/if}
+        {#if operationError}
+          <div class="save-error" role="status">{operationError}</div>
         {/if}
       {/if}
     </div>
