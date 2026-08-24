@@ -18,37 +18,31 @@ jobs:
       - name: Publish pending acceptance status
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
         run: |
           set -euo pipefail
           gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
-            -f state="pending" \
-            -f context="native-scaffold-acceptance" \
+            -f state=pending \
+            -f context=native-scaffold-acceptance \
             -f description="Native scaffold acceptance running" \
             -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
-      - name: Checkout
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
 
-      - name: Set up Go
-        uses: actions/setup-go@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.27.0'
           cache: false
 
-      - name: Set up Node
-        uses: actions/setup-node@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: '24'
           package-manager-cache: false
 
       - name: Toolchain diagnostics
-        shell: bash
         run: |
           set -euo pipefail
           go version
           node --version
-          npm --version
           xcode-select -p
           corepack enable
           corepack prepare pnpm@11.21.0 --activate
@@ -57,155 +51,50 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           "$(go env GOPATH)/bin/wails3" version
 
-      - name: Resolve dependencies and stage Node typing fix
-        shell: bash
+      - name: Resolve dependencies
         run: |
           set -euo pipefail
           go mod tidy
-          (
-            cd frontend
-            pnpm install --no-frozen-lockfile
-            pnpm add --save-dev --save-exact @types/node@24.13.3
-          )
+          cd frontend
+          pnpm install --no-frozen-lockfile
+          pnpm add --save-dev --save-exact @types/node@24.13.3
+          cd ..
           test -s go.sum
           test -s frontend/pnpm-lock.yaml
-          grep -q '"@types/node": "24.13.3"' frontend/package.json
 
-      - name: Generate Wails TypeScript bindings
-        shell: bash
+      - name: Generate bindings
         run: |
           set -euo pipefail
           wails3 generate bindings -clean=true -ts
           test -f frontend/bindings/github.com/savior714/flashnote/appservice.ts
           grep -q 'export function GetRuntimeInfo' frontend/bindings/github.com/savior714/flashnote/appservice.ts
-          find frontend/bindings -type f -print | sort
 
-      - name: Stage runtime bridge candidate
-        shell: bash
+      - name: Stage validated source candidate
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          app = Path("frontend/src/App.svelte")
-          text = app.read_text()
-          old = '''<script lang="ts">
-            import NoteEditor from './lib/NoteEditor.svelte'
-          </script>'''
-          new = '''<script lang="ts">
-            import { onMount, tick } from 'svelte'
-            import { GetRuntimeInfo } from '../bindings/github.com/savior714/flashnote/appservice'
-            import NoteEditor from './lib/NoteEditor.svelte'
-
-            async function verifyNativeRuntime() {
-              await tick()
-              const shell = document.querySelector('main.shell')
-              const editorHost = document.querySelector('.editor-host')
-              if (!shell || !editorHost) {
-                throw new Error('Flashnote native UI did not mount')
-              }
-
-              const info = await GetRuntimeInfo()
-              if (!info.databaseReady || info.schemaVersion !== 1) {
-                throw new Error('Flashnote runtime bridge returned invalid diagnostics')
-              }
-            }
-
-            onMount(() => {
-              void verifyNativeRuntime()
-            })
-          </script>'''
-          if old not in text:
-              raise SystemExit("App.svelte bootstrap block changed")
-          app.write_text(text.replace(old, new, 1))
-
-          service = Path("app_service.go")
-          text = service.read_text()
-          old_import = 'import (\n\t"context"\n'
-          if old_import not in text:
-              raise SystemExit("app_service.go import block changed")
-          text = text.replace(old_import, 'import (\n\t"context"\n\t"log"\n', 1)
-          old_return = '''\treturn RuntimeInfo{
-\t\tAppVersion:    appVersion,
-\t\tDatabaseReady: true,
-\t\tSQLiteVersion: info.SQLiteVersion,
-\t\tJournalMode:   info.JournalMode,
-\t\tSynchronous:   info.Synchronous,
-\t\tForeignKeys:   info.ForeignKeys,
-\t\tSchemaVersion: info.SchemaVersion,
-\t}, nil
-          '''
-          new_return = '''\truntimeInfo := RuntimeInfo{
-\t\tAppVersion:    appVersion,
-\t\tDatabaseReady: true,
-\t\tSQLiteVersion: info.SQLiteVersion,
-\t\tJournalMode:   info.JournalMode,
-\t\tSynchronous:   info.Synchronous,
-\t\tForeignKeys:   info.ForeignKeys,
-\t\tSchemaVersion: info.SchemaVersion,
-\t}
-\tlog.Printf(
-\t\t"FLASHNOTE_RUNTIME_READY sqlite=%s journal=%s synchronous=%d foreign_keys=%t schema=%d",
-\t\truntimeInfo.SQLiteVersion,
-\t\truntimeInfo.JournalMode,
-\t\truntimeInfo.Synchronous,
-\t\truntimeInfo.ForeignKeys,
-\t\truntimeInfo.SchemaVersion,
-\t)
-\treturn runtimeInfo, nil
-          '''
-          if old_return not in text:
-              raise SystemExit("app_service.go return block changed")
-          service.write_text(text.replace(old_return, new_return, 1))
-
-          taskfile = Path("Taskfile.yml")
-          text = taskfile.read_text()
-          old_dep = "  frontend:check:\n    deps: [frontend:install]\n"
-          if old_dep not in text:
-              raise SystemExit("Taskfile frontend:check block changed")
-          taskfile.write_text(text.replace(old_dep, "  frontend:check:\n    deps: [bindings]\n", 1))
-          PY
+          python3 scripts/stage_native_acceptance_candidate.py
           gofmt -w app_service.go
-          grep -q 'GetRuntimeInfo' frontend/src/App.svelte
-          grep -q 'FLASHNOTE_RUNTIME_READY' app_service.go
-          grep -A1 'frontend:check:' Taskfile.yml | grep -q 'deps: \[bindings\]'
 
-      - name: Go formatting and static checks
-        shell: bash
+      - name: Static checks
         run: |
           set -euo pipefail
           unformatted="$(find . -type f -name '*.go' -not -path './frontend/*' -print0 | xargs -0 gofmt -l)"
-          if [[ -n "$unformatted" ]]; then
-            echo "Unformatted Go files:"
-            echo "$unformatted"
-            exit 1
-          fi
+          test -z "$unformatted"
           go test ./...
           go vet ./...
-
-      - name: Frontend checks and production build
-        shell: bash
-        run: |
-          set -euo pipefail
           cd frontend
           pnpm check
           pnpm build
-
-      - name: Project check task
-        shell: bash
-        run: |
-          set -euo pipefail
+          cd ..
           wails3 task check
 
       - name: Wails build
-        shell: bash
         run: |
           set -euo pipefail
           wails3 build
           test -x ./flashnote
 
-      - name: First native startup and runtime bridge
-        shell: bash
+      - name: First native startup and frontend bridge
         run: |
           set -euo pipefail
           export HOME="$RUNNER_TEMP/flashnote-home"
@@ -217,20 +106,15 @@ jobs:
           cleanup() { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
           trap cleanup EXIT
           for _ in {1..30}; do
-            if [[ -f "$DB" ]] && grep -q 'FLASHNOTE_RUNTIME_READY' "$LOG"; then
-              break
-            fi
-            if ! kill -0 "$pid" 2>/dev/null; then
-              cat "$LOG"
-              exit 1
-            fi
+            if [[ -f "$DB" ]] && grep -q FLASHNOTE_RUNTIME_READY "$LOG"; then break; fi
+            kill -0 "$pid"
             sleep 1
           done
           test -f "$DB"
           kill -0 "$pid"
           grep -q 'Handling request url=/assets/.*\.js' "$LOG"
           grep -q 'Handling request url=/assets/.*\.css' "$LOG"
-          grep -q 'FLASHNOTE_RUNTIME_READY' "$LOG"
+          grep -q FLASHNOTE_RUNTIME_READY "$LOG"
           sqlite3 "$DB" 'SELECT version FROM schema_migrations ORDER BY version;'
           sqlite3 "$DB" 'SELECT name FROM sqlite_master WHERE type="table" ORDER BY name;'
           cp "$LOG" "$RUNNER_TEMP/first-startup.log"
@@ -238,7 +122,6 @@ jobs:
           trap - EXIT
 
       - name: Wails dev smoke
-        shell: bash
         run: |
           set -euo pipefail
           export HOME="$RUNNER_TEMP/flashnote-dev-home"
@@ -253,23 +136,17 @@ jobs:
           }
           trap cleanup EXIT
           for _ in {1..90}; do
-            if grep -q 'FLASHNOTE_RUNTIME_READY' "$LOG"; then
-              break
-            fi
-            if ! kill -0 "$pid" 2>/dev/null; then
-              cat "$LOG"
-              exit 1
-            fi
+            if grep -q FLASHNOTE_RUNTIME_READY "$LOG"; then break; fi
+            kill -0 "$pid"
             sleep 1
           done
-          grep -q 'FLASHNOTE_RUNTIME_READY' "$LOG"
+          grep -q FLASHNOTE_RUNTIME_READY "$LOG"
           curl --fail --silent --show-error http://127.0.0.1:9245/ | grep -q '<div id="app"></div>'
           cp "$LOG" "$RUNNER_TEMP/wails-dev.log.saved"
           cleanup
           trap - EXIT
 
-      - name: Inspect SQLite through Flashnote persistence owner
-        shell: bash
+      - name: SQLite runtime probe
         run: |
           set -euo pipefail
           export HOME="$RUNNER_TEMP/flashnote-home"
@@ -281,7 +158,6 @@ jobs:
             "context"
             "encoding/json"
             "fmt"
-
             "github.com/savior714/flashnote/internal/appdata"
             "github.com/savior714/flashnote/internal/persistence"
           )
@@ -294,16 +170,15 @@ jobs:
             defer store.Close()
             info, err := store.RuntimeInfo(context.Background())
             if err != nil { panic(err) }
-            encoded, err := json.Marshal(info)
+            data, err := json.Marshal(info)
             if err != nil { panic(err) }
-            fmt.Println(string(encoded))
+            fmt.Println(string(data))
           }
           EOF
           go run ./internal/acceptanceprobe | tee "$RUNNER_TEMP/sqlite-runtime.json"
           rm -rf internal/acceptanceprobe
 
       - name: Second native startup
-        shell: bash
         run: |
           set -euo pipefail
           export HOME="$RUNNER_TEMP/flashnote-home"
@@ -315,27 +190,21 @@ jobs:
           cleanup() { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
           trap cleanup EXIT
           for _ in {1..30}; do
-            if grep -q 'FLASHNOTE_RUNTIME_READY' "$LOG"; then
-              break
-            fi
-            if ! kill -0 "$pid" 2>/dev/null; then
-              cat "$LOG"
-              exit 1
-            fi
+            if grep -q FLASHNOTE_RUNTIME_READY "$LOG"; then break; fi
+            kill -0 "$pid"
             sleep 1
           done
           kill -0 "$pid"
-          grep -q 'FLASHNOTE_RUNTIME_READY' "$LOG"
+          grep -q FLASHNOTE_RUNTIME_READY "$LOG"
           after="$(sqlite3 "$DB" 'SELECT COUNT(*) FROM schema_migrations;')"
           test "$before" = "$after"
-          test "$after" = "1"
+          test "$after" = 1
           cp "$LOG" "$RUNNER_TEMP/second-startup.log"
           cleanup
           trap - EXIT
 
       - name: Record candidate evidence
         if: always()
-        shell: bash
         run: |
           git diff -- app_service.go Taskfile.yml frontend/src/App.svelte frontend/package.json frontend/pnpm-lock.yaml go.sum > "$RUNNER_TEMP/candidate.patch" || true
           {
@@ -349,7 +218,7 @@ jobs:
             echo "pnpm_lock_sha256=$(shasum -a 256 frontend/pnpm-lock.yaml 2>/dev/null | awk '{print $1}' || true)"
           } | tee "$RUNNER_TEMP/acceptance-evidence.txt"
 
-      - name: Upload acceptance evidence
+      - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -375,17 +244,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           JOB_STATUS: ${{ job.status }}
-        shell: bash
         run: |
           set -euo pipefail
           state=failure
           description="Native scaffold acceptance failed"
-          if [[ "$JOB_STATUS" == "success" ]]; then
+          if [[ "$JOB_STATUS" == success ]]; then
             state=success
             description="Native scaffold acceptance passed"
           fi
           gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
             -f state="$state" \
-            -f context="native-scaffold-acceptance" \
+            -f context=native-scaffold-acceptance \
             -f description="$description" \
             -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
