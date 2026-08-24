@@ -55,6 +55,7 @@ func main() {
 		Description: "A lightweight local-first document note app",
 		Services: []application.Service{
 			application.NewService(NewAppService(store)),
+			application.NewService(NewExportService(store)),
 		},
 		Assets: application.AssetOptions{
 			Handler:    application.AssetFileServerFS(assets),
