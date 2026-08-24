@@ -61,7 +61,6 @@ func (s *AppService) GetRuntimeInfo() (RuntimeInfo, error) {
 	return runtimeInfo, nil
 }
 
-//wails:id 3000000001
 func (s *AppService) ListNotes() ([]string, []string, error) {
 	summaries, err := s.store.ListNotes(context.Background())
 	if err != nil {
@@ -89,7 +88,6 @@ func (s *AppService) OpenInitialNote() (string, string, string, int64, bool, err
 	return note.ID, note.Title, note.DocumentJSON, note.Revision, created, nil
 }
 
-//wails:id 3000000002
 func (s *AppService) OpenNote(noteID string) (string, string, string, int64, bool, error) {
 	note, err := s.store.OpenNote(context.Background(), noteID)
 	if err != nil {

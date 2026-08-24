@@ -20,7 +20,7 @@ export function GetRuntimeInfo(): $CancellablePromise<$models.RuntimeInfo> {
 }
 
 export function ListNotes(): $CancellablePromise<[string[], string[]]> {
-    return $Call.ByID(3000000001).then(($result: any) => {
+    return $Call.ByID(3334466307).then(($result: any) => {
         $result[0] = $$createType1($result[0]);
         $result[1] = $$createType1($result[1]);
         return $result;
@@ -32,7 +32,7 @@ export function OpenInitialNote(): $CancellablePromise<[string, string, string, 
 }
 
 export function OpenNote(noteID: string): $CancellablePromise<[string, string, string, number, boolean]> {
-    return $Call.ByID(3000000002, noteID);
+    return $Call.ByID(2169568126, noteID);
 }
 
 export function SaveNote(noteID: string, title: string, documentJSON: string, expectedRevision: number): $CancellablePromise<number> {
