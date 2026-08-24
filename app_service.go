@@ -130,6 +130,29 @@ func (s *AppService) ListTrashNotes() ([]string, []string, error) {
 	return ids, displayTitles, nil
 }
 
+func (s *AppService) ListTrashFolders() ([]string, []string, error) {
+	folders, err := s.store.ListTrashFolders(context.Background())
+	if err != nil {
+		return nil, nil, err
+	}
+	ids := make([]string, 0, len(folders))
+	names := make([]string, 0, len(folders))
+	for _, folder := range folders {
+		ids = append(ids, folder.ID)
+		names = append(names, folder.Name)
+	}
+	return ids, names, nil
+}
+
+func (s *AppService) ListTrashFolderNotes(folderID string) ([]string, []string, error) {
+	summaries, err := s.store.ListTrashFolderNotes(context.Background(), folderID)
+	if err != nil {
+		return nil, nil, err
+	}
+	ids, displayTitles := noteSummaryArrays(summaries)
+	return ids, displayTitles, nil
+}
+
 func (s *AppService) MoveNote(noteID string, folderID string) (bool, error) {
 	if err := s.store.MoveNote(context.Background(), noteID, folderID); err != nil {
 		return false, err
@@ -150,6 +173,15 @@ func (s *AppService) MoveNoteToTrash(noteID string) (bool, error) {
 	return true, nil
 }
 
+func (s *AppService) MoveFolderToTrash(folderID string) (int, error) {
+	count, err := s.store.MoveFolderToTrash(context.Background(), folderID)
+	if err != nil {
+		return 0, err
+	}
+	log.Printf("FLASHNOTE_FOLDER_TRASHED id=%s notes=%d", folderID, count)
+	return count, nil
+}
+
 func (s *AppService) RestoreNote(noteID string) (bool, error) {
 	if err := s.store.RestoreNote(context.Background(), noteID); err != nil {
 		return false, err
@@ -158,12 +190,43 @@ func (s *AppService) RestoreNote(noteID string) (bool, error) {
 	return true, nil
 }
 
+func (s *AppService) RestoreFolder(folderID string) (int, error) {
+	count, err := s.store.RestoreFolder(context.Background(), folderID)
+	if err != nil {
+		return 0, err
+	}
+	log.Printf("FLASHNOTE_FOLDER_RESTORED id=%s notes=%d", folderID, count)
+	return count, nil
+}
+
 func (s *AppService) PermanentlyDeleteNote(noteID string) (bool, error) {
 	if err := s.store.PermanentlyDeleteNote(context.Background(), noteID); err != nil {
 		return false, err
 	}
 	log.Printf("FLASHNOTE_NOTE_PERMANENTLY_DELETED id=%s", noteID)
 	return true, nil
+}
+
+func (s *AppService) PermanentlyDeleteFolder(folderID string) (int, error) {
+	count, err := s.store.PermanentlyDeleteFolder(context.Background(), folderID)
+	if err != nil {
+		return 0, err
+	}
+	log.Printf("FLASHNOTE_FOLDER_PERMANENTLY_DELETED id=%s notes=%d", folderID, count)
+	return count, nil
+}
+
+func (s *AppService) TrashCounts() (int, int, error) {
+	return s.store.TrashCounts(context.Background())
+}
+
+func (s *AppService) EmptyTrash() (int, int, error) {
+	notes, folders, err := s.store.EmptyTrash(context.Background())
+	if err != nil {
+		return 0, 0, err
+	}
+	log.Printf("FLASHNOTE_TRASH_EMPTIED notes=%d folders=%d", notes, folders)
+	return notes, folders, nil
 }
 
 func (s *AppService) SearchNotes(query string) ([]string, []string, []string, error) {

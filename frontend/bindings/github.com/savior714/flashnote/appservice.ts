@@ -21,6 +21,10 @@ export function CreateNoteInFolder(folderID: string): $CancellablePromise<[strin
     return $Call.ByID(2400960381, folderID);
 }
 
+export function EmptyTrash(): $CancellablePromise<[number, number]> {
+    return $Call.ByID(2664781739);
+}
+
 export function GetRuntimeInfo(): $CancellablePromise<$models.RuntimeInfo> {
     return $Call.ByID(3362057646).then(($result: any) => {
         return $$createType0($result);
@@ -59,12 +63,32 @@ export function ListRootNotes(): $CancellablePromise<[string[], string[]]> {
     });
 }
 
+export function ListTrashFolderNotes(folderID: string): $CancellablePromise<[string[], string[]]> {
+    return $Call.ByID(466940197, folderID).then(($result: any) => {
+        $result[0] = $$createType1($result[0]);
+        $result[1] = $$createType1($result[1]);
+        return $result;
+    });
+}
+
+export function ListTrashFolders(): $CancellablePromise<[string[], string[]]> {
+    return $Call.ByID(903952433).then(($result: any) => {
+        $result[0] = $$createType1($result[0]);
+        $result[1] = $$createType1($result[1]);
+        return $result;
+    });
+}
+
 export function ListTrashNotes(): $CancellablePromise<[string[], string[]]> {
     return $Call.ByID(3893406897).then(($result: any) => {
         $result[0] = $$createType1($result[0]);
         $result[1] = $$createType1($result[1]);
         return $result;
     });
+}
+
+export function MoveFolderToTrash(folderID: string): $CancellablePromise<number> {
+    return $Call.ByID(3096972676, folderID);
 }
 
 export function MoveNote(noteID: string, folderID: string): $CancellablePromise<boolean> {
@@ -87,8 +111,16 @@ export function OpenTrashNote(noteID: string): $CancellablePromise<[string, stri
     return $Call.ByID(1480422420, noteID);
 }
 
+export function PermanentlyDeleteFolder(folderID: string): $CancellablePromise<number> {
+    return $Call.ByID(3774136408, folderID);
+}
+
 export function PermanentlyDeleteNote(noteID: string): $CancellablePromise<boolean> {
     return $Call.ByID(991217112, noteID);
+}
+
+export function RestoreFolder(folderID: string): $CancellablePromise<number> {
+    return $Call.ByID(953089364, folderID);
 }
 
 export function RestoreNote(noteID: string): $CancellablePromise<boolean> {
@@ -106,6 +138,10 @@ export function SearchNotes(query: string): $CancellablePromise<[string[], strin
         $result[2] = $$createType1($result[2]);
         return $result;
     });
+}
+
+export function TrashCounts(): $CancellablePromise<[number, number]> {
+    return $Call.ByID(2696325604);
 }
 
 // Private type creation functions

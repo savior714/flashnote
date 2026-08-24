@@ -42,6 +42,7 @@ func (s *Store) ListFolders(ctx context.Context) ([]Folder, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, name
 		FROM folders
+		WHERE deleted_at IS NULL
 		ORDER BY name COLLATE NOCASE ASC, name ASC, id ASC
 	`)
 	if err != nil {
@@ -189,7 +190,7 @@ func (s *Store) listNotesByFolder(ctx context.Context, folderID string, root boo
 
 func (s *Store) ensureFolderExists(ctx context.Context, folderID string) error {
 	var exists int
-	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM folders WHERE id = ?`, folderID).Scan(&exists)
+	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM folders WHERE id = ? AND deleted_at IS NULL`, folderID).Scan(&exists)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%w: %s", ErrFolderNotFound, folderID)
 	}
@@ -201,7 +202,7 @@ func (s *Store) ensureFolderExists(ctx context.Context, folderID string) error {
 
 func ensureFolderExistsTx(ctx context.Context, tx *sql.Tx, folderID string) error {
 	var exists int
-	err := tx.QueryRowContext(ctx, `SELECT 1 FROM folders WHERE id = ?`, folderID).Scan(&exists)
+	err := tx.QueryRowContext(ctx, `SELECT 1 FROM folders WHERE id = ? AND deleted_at IS NULL`, folderID).Scan(&exists)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%w: %s", ErrFolderNotFound, folderID)
 	}

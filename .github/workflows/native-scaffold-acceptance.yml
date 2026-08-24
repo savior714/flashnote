@@ -78,6 +78,13 @@ jobs:
           grep -q 'export function OpenTrashNote' frontend/bindings/github.com/savior714/flashnote/appservice.ts
           grep -q 'export function RestoreNote' frontend/bindings/github.com/savior714/flashnote/appservice.ts
           grep -q 'export function PermanentlyDeleteNote' frontend/bindings/github.com/savior714/flashnote/appservice.ts
+          grep -q 'export function ListTrashFolders' frontend/bindings/github.com/savior714/flashnote/appservice.ts
+          grep -q 'export function ListTrashFolderNotes' frontend/bindings/github.com/savior714/flashnote/appservice.ts
+          grep -q 'export function MoveFolderToTrash' frontend/bindings/github.com/savior714/flashnote/appservice.ts
+          grep -q 'export function RestoreFolder' frontend/bindings/github.com/savior714/flashnote/appservice.ts
+          grep -q 'export function PermanentlyDeleteFolder' frontend/bindings/github.com/savior714/flashnote/appservice.ts
+          grep -q 'export function TrashCounts' frontend/bindings/github.com/savior714/flashnote/appservice.ts
+          grep -q 'export function EmptyTrash' frontend/bindings/github.com/savior714/flashnote/appservice.ts
           git diff --exit-code -- frontend/bindings
 
       - name: Static checks
@@ -123,11 +130,13 @@ jobs:
           grep -q FLASHNOTE_RUNTIME_READY "$LOG"
           grep -q FLASHNOTE_NOTE_OPEN "$LOG"
           migrations="$(sqlite3 "$DB" 'SELECT COUNT(*) FROM schema_migrations;')"
-          test "$migrations" -ge 5
+          test "$migrations" -ge 6
           test "$(sqlite3 "$DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='note_search';")" = 1
           test "$(sqlite3 "$DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='folders';")" = 1
           test "$(sqlite3 "$DB" "SELECT COUNT(*) FROM pragma_table_info('notes') WHERE name='folder_id';")" = 1
           test "$(sqlite3 "$DB" "SELECT COUNT(*) FROM pragma_table_info('notes') WHERE name='deleted_at';")" = 1
+          test "$(sqlite3 "$DB" "SELECT COUNT(*) FROM pragma_table_info('notes') WHERE name='deleted_with_folder_id';")" = 1
+          test "$(sqlite3 "$DB" "SELECT COUNT(*) FROM pragma_table_info('folders') WHERE name='deleted_at';")" = 1
           sqlite3 "$DB" 'SELECT version FROM schema_migrations ORDER BY version;'
           sqlite3 "$DB" 'SELECT name FROM sqlite_master WHERE type="table" ORDER BY name;'
           cp "$LOG" "$RUNNER_TEMP/first-startup.log"
@@ -257,19 +266,23 @@ jobs:
           grep -q FLASHNOTE_NOTE_TRASHED "$LOG"
           grep -q FLASHNOTE_TRASH_NOTE_OPEN "$LOG"
           grep -q FLASHNOTE_NOTE_RESTORED "$LOG"
+          grep -q FLASHNOTE_FOLDER_TRASHED "$LOG"
+          grep -q FLASHNOTE_FOLDER_RESTORED "$LOG"
           ! grep -q FLASHNOTE_ACCEPTANCE_TRASH_FAILURE "$LOG"
           grep -q FLASHNOTE_CLOSE_FLUSH_REQUESTED "$LOG"
           grep -q FLASHNOTE_CLOSE_APPROVED "$LOG"
           ! grep -q FLASHNOTE_CLOSE_DISCARDED "$LOG"
 
-          test "$(sqlite3 "$DB" 'SELECT COUNT(*) FROM notes;')" = 1
+          test "$(sqlite3 "$DB" 'SELECT COUNT(*) FROM notes;')" = 2
           test "$(sqlite3 "$DB" 'SELECT COUNT(*) FROM folders;')" = 1
-          note_id="$(sqlite3 "$DB" 'SELECT id FROM notes LIMIT 1;')"
+          note_id="$(sqlite3 "$DB" "SELECT id FROM notes WHERE instr(document_json, '$ACCEPTANCE_TEXT') > 0 LIMIT 1;")"
           folder_id="$(sqlite3 "$DB" 'SELECT id FROM folders LIMIT 1;')"
+          test -n "$note_id"
           test -n "$folder_id"
           test "$(sqlite3 "$DB" "SELECT name = 'Acceptance Folder' FROM folders WHERE id = '$folder_id';")" = 1
-          test "$(sqlite3 "$DB" "SELECT folder_id = '$folder_id' FROM notes WHERE id = '$note_id';")" = 1
-          test "$(sqlite3 "$DB" "SELECT deleted_at IS NULL FROM notes WHERE id = '$note_id';")" = 1
+          test "$(sqlite3 "$DB" "SELECT COUNT(*) = 2 FROM notes WHERE folder_id = '$folder_id' AND deleted_at IS NULL;")" = 1
+          test "$(sqlite3 "$DB" "SELECT deleted_with_folder_id IS NULL FROM notes WHERE id = '$note_id';")" = 1
+          test "$(sqlite3 "$DB" "SELECT deleted_at IS NULL FROM folders WHERE id = '$folder_id';")" = 1
           revision="$(sqlite3 "$DB" "SELECT revision FROM notes WHERE id = '$note_id';")"
           test "$revision" -ge 2
           test "$(sqlite3 "$DB" "SELECT instr(document_json, '$ACCEPTANCE_TEXT') > 0 FROM notes WHERE id = '$note_id';")" = 1
@@ -302,6 +315,13 @@ jobs:
             "github.com/savior714/flashnote/internal/persistence"
           )
 
+          func contains(summaries []persistence.NoteSummary, id string) bool {
+            for _, summary := range summaries {
+              if summary.ID == id { return true }
+            }
+            return false
+          }
+
           func main() {
             ctx := context.Background()
             store, err := persistence.Open(ctx, os.Getenv("FLASHNOTE_ACCEPTANCE_DB"))
@@ -315,7 +335,7 @@ jobs:
               panic(fmt.Sprintf("unexpected pre-trash search: %+v err=%v", results, err))
             }
             folderNotes, err := store.ListFolderNotes(ctx, folderID)
-            if err != nil || len(folderNotes) != 1 || folderNotes[0].ID != expectedID {
+            if err != nil || len(folderNotes) != 2 || !contains(folderNotes, expectedID) {
               panic(fmt.Sprintf("unexpected pre-trash folder notes: %+v err=%v", folderNotes, err))
             }
             rootNotes, err := store.ListRootNotes(ctx)
@@ -325,11 +345,13 @@ jobs:
 
             if err := store.MoveNoteToTrash(ctx, expectedID); err != nil { panic(err) }
             folderNotes, err = store.ListFolderNotes(ctx, folderID)
-            if err != nil || len(folderNotes) != 0 { panic(fmt.Sprintf("trash leaked into folder list: %+v err=%v", folderNotes, err)) }
+            if err != nil || len(folderNotes) != 1 || contains(folderNotes, expectedID) {
+              panic(fmt.Sprintf("trash leaked into folder list: %+v err=%v", folderNotes, err))
+            }
             results, err = store.SearchNotes(ctx, "Flashnote")
             if err != nil || len(results) != 0 { panic(fmt.Sprintf("trash leaked into search: %+v err=%v", results, err)) }
             recent, err := store.SearchNotes(ctx, "")
-            if err != nil || len(recent) != 0 { panic(fmt.Sprintf("trash leaked into recent: %+v err=%v", recent, err)) }
+            if err != nil || contains(recent, expectedID) { panic(fmt.Sprintf("trash leaked into recent: %+v err=%v", recent, err)) }
             if _, err := store.OpenNote(ctx, expectedID); !errors.Is(err, persistence.ErrNoteNotFound) { panic(fmt.Sprintf("normal open allowed trash note: %v", err)) }
             trashed, err := store.OpenTrashNote(ctx, expectedID)
             if err != nil || trashed.ID != expectedID { panic(fmt.Sprintf("trash open failed: %+v err=%v", trashed, err)) }
@@ -337,13 +359,46 @@ jobs:
             if err != nil || len(trashNotes) != 1 || trashNotes[0].ID != expectedID { panic(fmt.Sprintf("trash list mismatch: %+v err=%v", trashNotes, err)) }
 
             if err := store.RestoreNote(ctx, expectedID); err != nil { panic(err) }
-            restored, err := store.OpenNote(ctx, expectedID)
-            if err != nil || restored.ID != expectedID { panic(fmt.Sprintf("restored open failed: %+v err=%v", restored, err)) }
             folderNotes, err = store.ListFolderNotes(ctx, folderID)
-            if err != nil || len(folderNotes) != 1 || folderNotes[0].ID != expectedID { panic(fmt.Sprintf("restored folder mismatch: %+v err=%v", folderNotes, err)) }
+            if err != nil || len(folderNotes) != 2 || !contains(folderNotes, expectedID) { panic(fmt.Sprintf("restored folder mismatch: %+v err=%v", folderNotes, err)) }
             results, err = store.SearchNotes(ctx, "Flashnote")
             if err != nil || len(results) != 1 || results[0].ID != expectedID { panic(fmt.Sprintf("restored search mismatch: %+v err=%v", results, err)) }
-            fmt.Printf("trash_roundtrip id=%s folder=%s title=%q\n", expectedID, folderID, results[0].DisplayTitle)
+
+            moved, err := store.MoveFolderToTrash(ctx, folderID)
+            if err != nil || moved != 2 { panic(fmt.Sprintf("MoveFolderToTrash moved=%d err=%v", moved, err)) }
+            trashFolders, err := store.ListTrashFolders(ctx)
+            if err != nil || len(trashFolders) != 1 || trashFolders[0].ID != folderID { panic(fmt.Sprintf("trash folders mismatch: %+v err=%v", trashFolders, err)) }
+            grouped, err := store.ListTrashFolderNotes(ctx, folderID)
+            if err != nil || len(grouped) != 2 || !contains(grouped, expectedID) { panic(fmt.Sprintf("recovery unit mismatch: %+v err=%v", grouped, err)) }
+            trashNotes, err = store.ListTrashNotes(ctx)
+            if err != nil || len(trashNotes) != 0 { panic(fmt.Sprintf("recovery unit flattened: %+v err=%v", trashNotes, err)) }
+            if err := store.RestoreNote(ctx, expectedID); !errors.Is(err, persistence.ErrNotePartOfFolderTrash) { panic(fmt.Sprintf("child restore unexpectedly allowed: %v", err)) }
+            results, err = store.SearchNotes(ctx, "Flashnote")
+            if err != nil || len(results) != 0 { panic(fmt.Sprintf("folder trash leaked into search: %+v err=%v", results, err)) }
+
+            restoredCount, err := store.RestoreFolder(ctx, folderID)
+            if err != nil || restoredCount != 2 { panic(fmt.Sprintf("RestoreFolder restored=%d err=%v", restoredCount, err)) }
+            folderNotes, err = store.ListFolderNotes(ctx, folderID)
+            if err != nil || len(folderNotes) != 2 || !contains(folderNotes, expectedID) { panic(fmt.Sprintf("folder restore mismatch: %+v err=%v", folderNotes, err)) }
+            results, err = store.SearchNotes(ctx, "Flashnote")
+            if err != nil || len(results) != 1 || results[0].ID != expectedID { panic(fmt.Sprintf("folder restored search mismatch: %+v err=%v", results, err)) }
+
+            standalone, err := store.CreateNote(ctx)
+            if err != nil { panic(err) }
+            if err := store.MoveNoteToTrash(ctx, standalone.ID); err != nil { panic(err) }
+            emptyFolder, err := store.CreateFolder(ctx, "Acceptance Empty Trash Folder")
+            if err != nil { panic(err) }
+            if moved, err := store.MoveFolderToTrash(ctx, emptyFolder.ID); err != nil || moved != 0 { panic(fmt.Sprintf("empty folder trash moved=%d err=%v", moved, err)) }
+            noteCount, folderCount, err := store.TrashCounts(ctx)
+            if err != nil || noteCount != 1 || folderCount != 1 { panic(fmt.Sprintf("trash counts notes=%d folders=%d err=%v", noteCount, folderCount, err)) }
+            deletedNotes, deletedFolders, err := store.EmptyTrash(ctx)
+            if err != nil || deletedNotes != 1 || deletedFolders != 1 { panic(fmt.Sprintf("EmptyTrash notes=%d folders=%d err=%v", deletedNotes, deletedFolders, err)) }
+            noteCount, folderCount, err = store.TrashCounts(ctx)
+            if err != nil || noteCount != 0 || folderCount != 0 { panic(fmt.Sprintf("trash not empty notes=%d folders=%d err=%v", noteCount, folderCount, err)) }
+            restored, err := store.OpenNote(ctx, expectedID)
+            if err != nil || restored.ID != expectedID { panic(fmt.Sprintf("normal note lost after EmptyTrash: %+v err=%v", restored, err)) }
+
+            fmt.Printf("trash_roundtrip id=%s folder=%s grouped=2 empty_trash=1/1 title=%q\n", expectedID, folderID, results[0].DisplayTitle)
           }
           PROBE
           FLASHNOTE_ACCEPTANCE_DB="$DB" FLASHNOTE_EXPECTED_NOTE_ID="$note_id" FLASHNOTE_EXPECTED_FOLDER_ID="$folder_id" \
@@ -352,6 +407,8 @@ jobs:
 
           test "$(sqlite3 "$DB" "SELECT value = '2' FROM app_meta WHERE key = 'search_index_version';")" = 1
           test "$(sqlite3 "$DB" "SELECT deleted_at IS NULL FROM notes WHERE id = '$note_id';")" = 1
+          test "$(sqlite3 "$DB" "SELECT deleted_with_folder_id IS NULL FROM notes WHERE id = '$note_id';")" = 1
+          test "$(sqlite3 "$DB" "SELECT deleted_at IS NULL FROM folders WHERE id = '$folder_id';")" = 1
 
           cp "$LOG" "$RUNNER_TEMP/note-roundtrip-first.log.saved"
           cp "$REOPEN_LOG" "$RUNNER_TEMP/note-roundtrip-reopen.log.saved"

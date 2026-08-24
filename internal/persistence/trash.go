@@ -9,13 +9,20 @@ import (
 	"github.com/savior714/flashnote/internal/document"
 )
 
-var ErrNoteNotInTrash = errors.New("note is not in trash")
+var (
+	ErrNoteNotInTrash        = errors.New("note is not in trash")
+	ErrNotePartOfFolderTrash = errors.New("note belongs to a deleted folder recovery unit")
+)
 
 func (s *Store) MoveNoteToTrash(ctx context.Context, noteID string) error {
 	if noteID == "" {
 		return fmt.Errorf("%w: empty id", ErrNoteNotFound)
 	}
-	result, err := s.db.ExecContext(ctx, `UPDATE notes SET deleted_at = strftime('%Y-%m-%d %H:%M:%f','now') WHERE id = ? AND deleted_at IS NULL`, noteID)
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE notes
+		SET deleted_at = strftime('%Y-%m-%d %H:%M:%f','now'), deleted_with_folder_id = NULL
+		WHERE id = ? AND deleted_at IS NULL
+	`, noteID)
 	if err != nil {
 		return fmt.Errorf("move note to trash: %w", err)
 	}
@@ -30,7 +37,12 @@ func (s *Store) MoveNoteToTrash(ctx context.Context, noteID string) error {
 }
 
 func (s *Store) ListTrashNotes(ctx context.Context) ([]NoteSummary, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,title,document_json FROM notes WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC,id ASC`)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id,title,document_json
+		FROM notes
+		WHERE deleted_at IS NOT NULL AND deleted_with_folder_id IS NULL
+		ORDER BY deleted_at DESC,id ASC
+	`)
 	if err != nil {
 		return nil, fmt.Errorf("list trash notes: %w", err)
 	}
@@ -74,14 +86,40 @@ func (s *Store) OpenTrashNote(ctx context.Context, noteID string) (Note, error) 
 }
 
 func (s *Store) RestoreNote(ctx context.Context, noteID string) error {
-	return s.changeTrashState(ctx, noteID, false)
+	if noteID == "" {
+		return fmt.Errorf("%w: empty id", ErrNoteNotFound)
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE notes
+		SET deleted_at = NULL,
+			folder_id = CASE
+				WHEN folder_id IS NULL THEN NULL
+				WHEN EXISTS (SELECT 1 FROM folders WHERE folders.id = notes.folder_id AND folders.deleted_at IS NULL) THEN folder_id
+				ELSE NULL
+			END
+		WHERE id = ? AND deleted_at IS NOT NULL AND deleted_with_folder_id IS NULL
+	`, noteID)
+	if err != nil {
+		return fmt.Errorf("restore note: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("inspect note restore: %w", err)
+	}
+	if affected == 1 {
+		return nil
+	}
+	return s.trashStateError(ctx, noteID)
 }
 
 func (s *Store) PermanentlyDeleteNote(ctx context.Context, noteID string) error {
 	if noteID == "" {
 		return fmt.Errorf("%w: empty id", ErrNoteNotFound)
 	}
-	result, err := s.db.ExecContext(ctx, `DELETE FROM notes WHERE id = ? AND deleted_at IS NOT NULL`, noteID)
+	result, err := s.db.ExecContext(ctx, `
+		DELETE FROM notes
+		WHERE id = ? AND deleted_at IS NOT NULL AND deleted_with_folder_id IS NULL
+	`, noteID)
 	if err != nil {
 		return fmt.Errorf("permanently delete note: %w", err)
 	}
@@ -95,38 +133,17 @@ func (s *Store) PermanentlyDeleteNote(ctx context.Context, noteID string) error 
 	return s.trashStateError(ctx, noteID)
 }
 
-func (s *Store) changeTrashState(ctx context.Context, noteID string, deleted bool) error {
-	if noteID == "" {
-		return fmt.Errorf("%w: empty id", ErrNoteNotFound)
-	}
-	var query string
-	if deleted {
-		query = `UPDATE notes SET deleted_at = strftime('%Y-%m-%d %H:%M:%f','now') WHERE id = ? AND deleted_at IS NULL`
-	} else {
-		query = `UPDATE notes SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL`
-	}
-	result, err := s.db.ExecContext(ctx, query, noteID)
-	if err != nil {
-		return fmt.Errorf("change note trash state: %w", err)
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("inspect trash state change: %w", err)
-	}
-	if affected == 1 {
-		return nil
-	}
-	return s.trashStateError(ctx, noteID)
-}
-
 func (s *Store) trashStateError(ctx context.Context, noteID string) error {
-	var exists int
-	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM notes WHERE id = ?`, noteID).Scan(&exists)
+	var deletedAt, deletedWithFolderID sql.NullString
+	err := s.db.QueryRowContext(ctx, `SELECT deleted_at, deleted_with_folder_id FROM notes WHERE id = ?`, noteID).Scan(&deletedAt, &deletedWithFolderID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%w: %s", ErrNoteNotFound, noteID)
 	}
 	if err != nil {
 		return fmt.Errorf("resolve note trash state: %w", err)
+	}
+	if deletedAt.Valid && deletedWithFolderID.Valid {
+		return fmt.Errorf("%w: note=%s folder=%s", ErrNotePartOfFolderTrash, noteID, deletedWithFolderID.String)
 	}
 	return fmt.Errorf("%w: %s", ErrNoteNotInTrash, noteID)
 }

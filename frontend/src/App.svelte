@@ -5,20 +5,27 @@
     CreateFolder,
     CreateNote,
     CreateNoteInFolder,
+    EmptyTrash,
     GetRuntimeInfo,
     ListFolderNotes,
     ListFolders,
     ListRootNotes,
+    ListTrashFolderNotes,
+    ListTrashFolders,
     ListTrashNotes,
+    MoveFolderToTrash,
     MoveNote,
     MoveNoteToTrash,
     OpenInitialNote,
     OpenNote,
     OpenTrashNote,
+    PermanentlyDeleteFolder,
     PermanentlyDeleteNote,
+    RestoreFolder,
     RestoreNote,
     SaveNote,
     SearchNotes,
+    TrashCounts,
   } from '../bindings/github.com/savior714/flashnote/appservice'
   import NoteEditor from './lib/NoteEditor.svelte'
 
@@ -46,12 +53,20 @@
   let folderNaming = false
   let newFolderName = ''
   let contextNoteID = ''
+  let contextFolderID = ''
   let contextMenuX = 0
   let contextMenuY = 0
+  let folderDeleteTargetID = ''
 
   let trashView = false
   let trashNotes: NoteSummary[] = []
+  let trashFolders: FolderSummary[] = []
+  let selectedTrashFolderID = ''
+  let trashNoteCount = 0
+  let trashFolderCount = 0
   let permanentDeleteTargetID = ''
+  let permanentDeleteFolderTargetID = ''
+  let emptyTrashConfirmVisible = false
   let undoTrashNoteID = ''
   let undoTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -155,8 +170,60 @@
   }
 
   async function refreshTrash() {
-    const [ids, displayTitles] = (await ListTrashNotes()) as [string[], string[]]
-    trashNotes = noteSummaries(ids, displayTitles)
+    const [noteTuple, folderTuple, countTuple] = await Promise.all([
+      ListTrashNotes(),
+      ListTrashFolders(),
+      TrashCounts(),
+    ])
+    const [noteIDs, noteTitles] = noteTuple as [string[], string[]]
+    const [folderIDs, folderNames] = folderTuple as [string[], string[]]
+    const [nextNoteCount, nextFolderCount] = countTuple as [number, number]
+    if (folderIDs.length !== folderNames.length) {
+      throw new Error('Flashnote received an invalid Trash folder list')
+    }
+
+    const nextFolders = await Promise.all(
+      folderIDs.map(async (id, index) => {
+        const [ids, titles] = (await ListTrashFolderNotes(id)) as [string[], string[]]
+        return {
+          id,
+          name: folderNames[index] ?? '',
+          notes: noteSummaries(ids, titles),
+        }
+      }),
+    )
+
+    trashNotes = noteSummaries(noteIDs, noteTitles)
+    trashFolders = nextFolders
+    trashNoteCount = nextNoteCount
+    trashFolderCount = nextFolderCount
+    if (selectedTrashFolderID && !nextFolders.some((folder) => folder.id === selectedTrashFolderID)) {
+      selectedTrashFolderID = ''
+    }
+  }
+
+  function currentTrashFolder(): FolderSummary | undefined {
+    return trashFolders.find((folder) => folder.id === selectedTrashFolderID)
+  }
+
+  async function openFirstTrashItem() {
+    if (trashNotes.length > 0) {
+      selectedTrashFolderID = ''
+      applyNote((await OpenTrashNote(trashNotes[0].id)) as NoteTuple)
+      return
+    }
+    const folder = trashFolders[0]
+    if (folder) {
+      selectedTrashFolderID = folder.id
+      if (folder.notes.length > 0) {
+        applyNote((await OpenTrashNote(folder.notes[0].id)) as NoteTuple)
+      } else {
+        clearOpenedNote()
+      }
+      return
+    }
+    selectedTrashFolderID = ''
+    clearOpenedNote()
   }
 
   async function runSearch(query = searchQuery) {
@@ -189,6 +256,7 @@
   async function openSearch() {
     createMenuOpen = false
     contextNoteID = ''
+    contextFolderID = ''
     searchOpen = true
     searchQuery = ''
     searchResults = []
@@ -361,6 +429,7 @@
     }
     createMenuOpen = !createMenuOpen
     contextNoteID = ''
+    contextFolderID = ''
   }
 
   async function beginFolderNaming() {
@@ -449,6 +518,7 @@
       }
       const snapshot = (await OpenNote(nextNoteID)) as NoteTuple
       trashView = false
+      selectedTrashFolderID = ''
       applyNote(snapshot)
       await refreshSidebar()
       await tick()
@@ -470,6 +540,7 @@
     operationError = ''
     createMenuOpen = false
     contextNoteID = ''
+    contextFolderID = ''
     closeSearch()
     try {
       if (!trashView && !(await flushPendingSave())) {
@@ -478,11 +549,7 @@
       trashView = true
       currentFolderID = ''
       await refreshTrash()
-      if (trashNotes.length > 0) {
-        applyNote((await OpenTrashNote(trashNotes[0].id)) as NoteTuple)
-      } else {
-        clearOpenedNote()
-      }
+      await openFirstTrashItem()
     } catch (error) {
       operationError = `Could not open Trash: ${formatError(error)}`
     } finally {
@@ -490,17 +557,46 @@
     }
   }
 
-  async function selectTrashNote(nextNoteID: string) {
-    if (!trashView || loading || noteTransitionActive || !nextNoteID || nextNoteID === noteID) {
+  async function selectTrashNote(nextNoteID: string, folderID = '') {
+    if (!trashView || loading || noteTransitionActive || !nextNoteID) {
+      return
+    }
+    if (nextNoteID === noteID && selectedTrashFolderID === folderID) {
       return
     }
 
     noteTransitionActive = true
     operationError = ''
     try {
+      selectedTrashFolderID = folderID
       applyNote((await OpenTrashNote(nextNoteID)) as NoteTuple)
     } catch (error) {
       operationError = `Could not open trashed note: ${formatError(error)}`
+    } finally {
+      noteTransitionActive = false
+    }
+  }
+
+  async function selectTrashFolder(folderID: string) {
+    if (!trashView || loading || noteTransitionActive || !folderID) {
+      return
+    }
+    const folder = trashFolders.find((candidate) => candidate.id === folderID)
+    if (!folder) {
+      return
+    }
+
+    noteTransitionActive = true
+    operationError = ''
+    try {
+      selectedTrashFolderID = folderID
+      if (folder.notes.length > 0) {
+        applyNote((await OpenTrashNote(folder.notes[0].id)) as NoteTuple)
+      } else {
+        clearOpenedNote()
+      }
+    } catch (error) {
+      operationError = `Could not open trashed folder: ${formatError(error)}`
     } finally {
       noteTransitionActive = false
     }
@@ -518,9 +614,22 @@
     }
     event.preventDefault()
     createMenuOpen = false
+    contextFolderID = ''
     contextNoteID = targetNoteID
     contextMenuX = Math.min(event.clientX, window.innerWidth - 190)
     contextMenuY = Math.min(event.clientY, window.innerHeight - 260)
+  }
+
+  function openFolderContext(event: MouseEvent, targetFolderID: string) {
+    if (trashView) {
+      return
+    }
+    event.preventDefault()
+    createMenuOpen = false
+    contextNoteID = ''
+    contextFolderID = targetFolderID
+    contextMenuX = Math.min(event.clientX, window.innerWidth - 190)
+    contextMenuY = Math.min(event.clientY, window.innerHeight - 180)
   }
 
   function folderForNote(targetNoteID: string): string {
@@ -550,6 +659,21 @@
         if (note.id !== targetNoteID) {
           return note.id
         }
+      }
+    }
+    return ''
+  }
+
+  function preferredSurvivorOutsideFolder(folderID: string): string {
+    if (rootNotes.length > 0) {
+      return rootNotes[0].id
+    }
+    for (const folder of folders) {
+      if (folder.id === folderID) {
+        continue
+      }
+      if (folder.notes.length > 0) {
+        return folder.notes[0].id
       }
     }
     return ''
@@ -630,6 +754,62 @@
     }
   }
 
+  function requestFolderTrash(folderID: string) {
+    const folder = folders.find((candidate) => candidate.id === folderID)
+    contextFolderID = ''
+    if (!folder || noteTransitionActive || trashView) {
+      return
+    }
+    if (folder.notes.length > 0) {
+      folderDeleteTargetID = folderID
+      return
+    }
+    void moveFolderToTrash(folderID)
+  }
+
+  async function moveFolderToTrash(folderID: string) {
+    const folder = folders.find((candidate) => candidate.id === folderID)
+    if (!folder || noteTransitionActive || trashView) {
+      return
+    }
+
+    const containsCurrent = folder.notes.some((note) => note.id === noteID)
+    const survivorID = preferredSurvivorOutsideFolder(folderID)
+    noteTransitionActive = true
+    operationError = ''
+    try {
+      if (containsCurrent && !(await flushPendingSave())) {
+        return
+      }
+      await MoveFolderToTrash(folderID)
+      await Promise.all([refreshSidebar(), refreshTrash()])
+      if (containsCurrent) {
+        if (survivorID) {
+          trashView = false
+          applyNote((await OpenNote(survivorID)) as NoteTuple)
+        } else {
+          trashView = false
+          applyNote((await CreateNote()) as NoteTuple)
+          await tick()
+          document.querySelector<HTMLInputElement>('.title')?.focus()
+        }
+        await refreshSidebar()
+      }
+    } catch (error) {
+      operationError = `Could not move folder to Trash: ${formatError(error)}`
+    } finally {
+      noteTransitionActive = false
+    }
+  }
+
+  async function confirmFolderTrash() {
+    const folderID = folderDeleteTargetID
+    folderDeleteTargetID = ''
+    if (folderID) {
+      await moveFolderToTrash(folderID)
+    }
+  }
+
   async function undoTrash() {
     const targetNoteID = undoTrashNoteID
     if (!targetNoteID || noteTransitionActive) {
@@ -642,7 +822,7 @@
     operationError = ''
     try {
       await RestoreNote(targetNoteID)
-      if (trashView && noteID === targetNoteID) {
+      if (trashView && noteID === targetNoteID && !selectedTrashFolderID) {
         const snapshot = (await OpenNote(targetNoteID)) as NoteTuple
         trashView = false
         applyNote(snapshot)
@@ -656,21 +836,35 @@
   }
 
   async function restoreCurrentTrash() {
-    if (!trashView || !noteID || noteTransitionActive) {
+    if (!trashView || noteTransitionActive) {
       return
     }
 
-    const targetNoteID = noteID
     noteTransitionActive = true
     operationError = ''
     try {
-      await RestoreNote(targetNoteID)
-      const snapshot = (await OpenNote(targetNoteID)) as NoteTuple
-      trashView = false
-      applyNote(snapshot)
+      if (selectedTrashFolderID) {
+        const folder = currentTrashFolder()
+        const folderID = selectedTrashFolderID
+        await RestoreFolder(folderID)
+        const snapshot = folder?.notes[0]
+          ? ((await OpenNote(folder.notes[0].id)) as NoteTuple)
+          : ((await OpenInitialNote()) as NoteTuple)
+        trashView = false
+        selectedTrashFolderID = ''
+        applyNote(snapshot)
+      } else if (noteID) {
+        const targetNoteID = noteID
+        await RestoreNote(targetNoteID)
+        const snapshot = (await OpenNote(targetNoteID)) as NoteTuple
+        trashView = false
+        applyNote(snapshot)
+      } else {
+        return
+      }
       await Promise.all([refreshSidebar(), refreshTrash()])
     } catch (error) {
-      operationError = `Could not restore note: ${formatError(error)}`
+      operationError = `Could not restore Trash item: ${formatError(error)}`
     } finally {
       noteTransitionActive = false
     }
@@ -678,7 +872,7 @@
 
   async function confirmPermanentDelete() {
     const targetNoteID = permanentDeleteTargetID
-    if (!targetNoteID || !trashView || noteTransitionActive) {
+    if (!targetNoteID || !trashView || noteTransitionActive || selectedTrashFolderID) {
       return
     }
 
@@ -688,16 +882,53 @@
     try {
       await PermanentlyDeleteNote(targetNoteID)
       await refreshTrash()
-      if (noteID === targetNoteID) {
-        if (trashNotes.length > 0) {
-          applyNote((await OpenTrashNote(trashNotes[0].id)) as NoteTuple)
-        } else {
-          clearOpenedNote()
-        }
-      }
+      await openFirstTrashItem()
       await refreshSidebar()
     } catch (error) {
       operationError = `Could not permanently delete note: ${formatError(error)}`
+    } finally {
+      noteTransitionActive = false
+    }
+  }
+
+  async function confirmPermanentFolderDelete() {
+    const folderID = permanentDeleteFolderTargetID
+    if (!folderID || !trashView || noteTransitionActive) {
+      return
+    }
+
+    permanentDeleteFolderTargetID = ''
+    noteTransitionActive = true
+    operationError = ''
+    try {
+      await PermanentlyDeleteFolder(folderID)
+      selectedTrashFolderID = ''
+      await refreshTrash()
+      await openFirstTrashItem()
+      await refreshSidebar()
+    } catch (error) {
+      operationError = `Could not permanently delete folder: ${formatError(error)}`
+    } finally {
+      noteTransitionActive = false
+    }
+  }
+
+  async function confirmEmptyTrash() {
+    if (!trashView || noteTransitionActive) {
+      return
+    }
+
+    emptyTrashConfirmVisible = false
+    noteTransitionActive = true
+    operationError = ''
+    try {
+      await EmptyTrash()
+      selectedTrashFolderID = ''
+      await refreshTrash()
+      clearOpenedNote()
+      await refreshSidebar()
+    } catch (error) {
+      operationError = `Could not empty Trash: ${formatError(error)}`
     } finally {
       noteTransitionActive = false
     }
@@ -754,6 +985,7 @@
     }
     if (!target?.closest('.note-context-menu')) {
       contextNoteID = ''
+      contextFolderID = ''
     }
   }
 
@@ -835,6 +1067,14 @@
     return note.id === noteID ? displayTitle() : note.displayTitle
   }
 
+  function folderDeleteTarget(): FolderSummary | undefined {
+    return folders.find((folder) => folder.id === folderDeleteTargetID)
+  }
+
+  function permanentFolderTarget(): FolderSummary | undefined {
+    return trashFolders.find((folder) => folder.id === permanentDeleteFolderTargetID)
+  }
+
   async function runAcceptanceTrashLifecycle() {
     if (!(await flushPendingSave())) {
       throw new Error('acceptance save flush failed')
@@ -842,8 +1082,8 @@
     const expectedID = noteID
     const [folderID] = (await CreateFolder('Acceptance Folder')) as [string, string]
     await MoveNote(expectedID, folderID)
-    await MoveNoteToTrash(expectedID)
 
+    await MoveNoteToTrash(expectedID)
     const [trashIDs] = (await ListTrashNotes()) as [string[], string[]]
     if (!trashIDs.includes(expectedID)) {
       throw new Error('acceptance Trash listing missed note')
@@ -856,14 +1096,39 @@
     if (trashSnapshot[0] !== expectedID) {
       throw new Error('acceptance trash open mismatch')
     }
-
     await RestoreNote(expectedID)
+
+    const sibling = (await CreateNoteInFolder(folderID)) as NoteTuple
+    await MoveFolderToTrash(folderID)
+    const [trashFolderIDs] = (await ListTrashFolders()) as [string[], string[]]
+    if (!trashFolderIDs.includes(folderID)) {
+      throw new Error('acceptance Trash folder listing missed folder')
+    }
+    const [groupedIDs] = (await ListTrashFolderNotes(folderID)) as [string[], string[]]
+    if (!groupedIDs.includes(expectedID) || !groupedIDs.includes(sibling[0])) {
+      throw new Error('acceptance folder recovery unit missed child notes')
+    }
+    const [standaloneIDs] = (await ListTrashNotes()) as [string[], string[]]
+    if (standaloneIDs.includes(expectedID) || standaloneIDs.includes(sibling[0])) {
+      throw new Error('acceptance folder recovery unit was flattened')
+    }
+    const [folderHiddenIDs] = (await SearchNotes('Flashnote')) as [string[], string[], string[]]
+    if (folderHiddenIDs.includes(expectedID)) {
+      throw new Error('acceptance Search exposed folder-trashed note')
+    }
+    const [countedNotes, countedFolders] = (await TrashCounts()) as [number, number]
+    if (countedNotes !== 2 || countedFolders !== 1) {
+      throw new Error('acceptance Trash counts mismatch')
+    }
+
+    await RestoreFolder(folderID)
     const restoredSnapshot = (await OpenNote(expectedID)) as NoteTuple
     const [restoredIDs] = (await SearchNotes('Flashnote')) as [string[], string[], string[]]
     if (!restoredIDs.includes(expectedID)) {
       throw new Error('acceptance Search missed restored note')
     }
     trashView = false
+    selectedTrashFolderID = ''
     applyNote(restoredSnapshot)
     await refreshSidebar()
   }
@@ -876,7 +1141,7 @@
     }
 
     const info = await GetRuntimeInfo()
-    if (!info.databaseReady || info.schemaVersion < 5) {
+    if (!info.databaseReady || info.schemaVersion < 6) {
       throw new Error('Flashnote runtime bridge returned invalid diagnostics')
     }
 
@@ -956,18 +1221,55 @@
       <div class="sidebar-placeholder">Opening…</div>
     {:else if trashView}
       <nav class="note-list trash-list" aria-label="Trash notes">
-        <div class="trash-heading">Trash</div>
+        <div class="trash-heading-row">
+          <div class="trash-heading">Trash</div>
+          <button
+            class="trash-empty-button"
+            type="button"
+            disabled={noteTransitionActive || (trashNoteCount === 0 && trashFolderCount === 0)}
+            onclick={() => (emptyTrashConfirmVisible = true)}
+          >Empty Trash…</button>
+        </div>
         {#each trashNotes as note (note.id)}
           <button
             class="note-row"
-            class:active={note.id === noteID}
+            class:active={note.id === noteID && !selectedTrashFolderID}
             type="button"
-            aria-current={note.id === noteID ? 'page' : undefined}
+            aria-current={note.id === noteID && !selectedTrashFolderID ? 'page' : undefined}
             disabled={noteTransitionActive}
             onclick={() => void selectTrashNote(note.id)}
           >{sidebarTitle(note)}</button>
         {/each}
-        {#if trashNotes.length === 0}
+        {#each trashFolders as folder (folder.id)}
+          <div class="folder-block trash-folder-block">
+            <button
+              class="folder-row"
+              class:active={folder.id === selectedTrashFolderID}
+              type="button"
+              disabled={noteTransitionActive}
+              onclick={() => void selectTrashFolder(folder.id)}
+            >
+              <span class="folder-disclosure" aria-hidden="true">▾</span>
+              <span class="folder-name">{folder.name}</span>
+            </button>
+            <div class="folder-notes">
+              {#each folder.notes as note (note.id)}
+                <button
+                  class="note-row nested"
+                  class:active={note.id === noteID && folder.id === selectedTrashFolderID}
+                  type="button"
+                  aria-current={note.id === noteID && folder.id === selectedTrashFolderID ? 'page' : undefined}
+                  disabled={noteTransitionActive}
+                  onclick={() => void selectTrashNote(note.id, folder.id)}
+                >{sidebarTitle(note)}</button>
+              {/each}
+              {#if folder.notes.length === 0}
+                <div class="trash-folder-empty">Empty folder</div>
+              {/if}
+            </div>
+          </div>
+        {/each}
+        {#if trashNoteCount === 0 && trashFolderCount === 0}
           <div class="sidebar-placeholder">Trash is empty</div>
         {/if}
       </nav>
@@ -1003,6 +1305,7 @@
               type="button"
               aria-expanded={expandedFolderIDs.includes(folder.id)}
               onclick={() => toggleFolder(folder.id)}
+              oncontextmenu={(event) => openFolderContext(event, folder.id)}
             >
               <span class="folder-disclosure" aria-hidden="true">
                 {expandedFolderIDs.includes(folder.id) ? '▾' : '▸'}
@@ -1044,7 +1347,46 @@
       {#if loading}
         <div class="editor-loading">Opening note…</div>
       {:else if trashView}
-        {#if noteID}
+        {#if selectedTrashFolderID}
+          <div class="trash-actions">
+            <span>Folder recovery unit · read-only</span>
+            <div>
+              <button
+                type="button"
+                class="secondary-button"
+                disabled={noteTransitionActive}
+                onclick={() => void restoreCurrentTrash()}
+              >Restore folder</button>
+              <button
+                type="button"
+                class="danger-button"
+                disabled={noteTransitionActive}
+                onclick={() => (permanentDeleteFolderTargetID = selectedTrashFolderID)}
+              >Delete folder permanently…</button>
+            </div>
+          </div>
+          {#if noteID}
+            <input
+              class="title"
+              aria-label="Note title"
+              value={title}
+              readonly
+            />
+            {#key noteID}
+              <NoteEditor
+                {documentJSON}
+                onDocumentChange={handleDocumentChange}
+                acceptanceText=""
+                editable={false}
+              />
+            {/key}
+          {:else}
+            <div class="trash-empty">
+              <h2>{currentTrashFolder()?.name ?? 'Folder'}</h2>
+              <p>This deleted folder is empty.</p>
+            </div>
+          {/if}
+        {:else if noteID}
           <div class="trash-actions">
             <span>Read-only in Trash</span>
             <div>
@@ -1079,7 +1421,7 @@
         {:else}
           <div class="trash-empty">
             <h2>Trash is empty</h2>
-            <p>Deleted notes stay here until you restore or permanently delete them.</p>
+            <p>Deleted notes and folders stay here until you restore or permanently delete them.</p>
           </div>
         {/if}
         {#if operationError}
@@ -1140,6 +1482,16 @@
   </div>
 {/if}
 
+{#if contextFolderID}
+  <div class="note-context-menu" style={`left:${contextMenuX}px;top:${contextMenuY}px;`}>
+    <button
+      type="button"
+      class="context-danger"
+      onclick={() => requestFolderTrash(contextFolderID)}
+    >Move to Trash{folders.find((folder) => folder.id === contextFolderID)?.notes.length ? '…' : ''}</button>
+  </div>
+{/if}
+
 {#if undoTrashNoteID}
   <div class="undo-trash" role="status">
     <span>Note moved to Trash</span>
@@ -1183,22 +1535,61 @@
   </div>
 {/if}
 
+{#if folderDeleteTargetID}
+  <div class="modal-backdrop" role="presentation">
+    <div class="close-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-folder-title">
+      <h2 id="delete-folder-title">Move folder to Trash?</h2>
+      <p>This folder and {folderDeleteTarget()?.notes.length ?? 0} notes will be moved to Trash.</p>
+      <div class="dialog-actions">
+        <button type="button" class="secondary-button" onclick={() => (folderDeleteTargetID = '')}>Cancel</button>
+        <button type="button" class="danger-button" onclick={() => void confirmFolderTrash()}>Move to Trash</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 {#if permanentDeleteTargetID}
   <div class="modal-backdrop" role="presentation">
-    <section class="close-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-note-title">
+    <div class="close-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-note-title">
       <h2 id="delete-note-title">Delete this note permanently?</h2>
       <p>This cannot be undone.</p>
       <div class="dialog-actions">
         <button type="button" class="secondary-button" onclick={() => (permanentDeleteTargetID = '')}>Cancel</button>
         <button type="button" class="danger-button" onclick={() => void confirmPermanentDelete()}>Delete permanently</button>
       </div>
-    </section>
+    </div>
+  </div>
+{/if}
+
+{#if permanentDeleteFolderTargetID}
+  <div class="modal-backdrop" role="presentation">
+    <div class="close-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-trash-folder-title">
+      <h2 id="delete-trash-folder-title">Delete this folder permanently?</h2>
+      <p>This folder and {permanentFolderTarget()?.notes.length ?? 0} notes will be permanently deleted. This cannot be undone.</p>
+      <div class="dialog-actions">
+        <button type="button" class="secondary-button" onclick={() => (permanentDeleteFolderTargetID = '')}>Cancel</button>
+        <button type="button" class="danger-button" onclick={() => void confirmPermanentFolderDelete()}>Delete permanently</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if emptyTrashConfirmVisible}
+  <div class="modal-backdrop" role="presentation">
+    <div class="close-dialog" role="dialog" aria-modal="true" aria-labelledby="empty-trash-title">
+      <h2 id="empty-trash-title">Empty Trash?</h2>
+      <p>Permanently delete {trashNoteCount} notes and {trashFolderCount} folders. This cannot be undone.</p>
+      <div class="dialog-actions">
+        <button type="button" class="secondary-button" onclick={() => (emptyTrashConfirmVisible = false)}>Cancel</button>
+        <button type="button" class="danger-button" onclick={() => void confirmEmptyTrash()}>Empty Trash</button>
+      </div>
+    </div>
   </div>
 {/if}
 
 {#if closePromptVisible}
   <div class="modal-backdrop" role="presentation">
-    <section class="close-dialog" role="dialog" aria-modal="true" aria-labelledby="close-title">
+    <div class="close-dialog" role="dialog" aria-modal="true" aria-labelledby="close-title">
       <h2 id="close-title">Changes aren’t saved</h2>
       <p>Flashnote couldn’t save your latest changes. Retry saving, keep the window open, or discard those unsaved changes and exit.</p>
       <div class="dialog-actions">
@@ -1206,6 +1597,6 @@
         <button type="button" class="secondary-button" onclick={retryClose}>Retry saving</button>
         <button type="button" class="danger-button" onclick={discardAndExit}>Discard &amp; exit</button>
       </div>
-    </section>
+    </div>
   </div>
 {/if}

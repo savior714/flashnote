@@ -15,22 +15,158 @@
   outline: none;
 }
 
-.trash-row:disabled { cursor: default; }
-.trash-heading { padding: 4px 8px 10px; color: #8c887f; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
-.trash-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 28px; color: #8c887f; font-size: 12px; }
-.trash-actions > div { display: flex; gap: 8px; }
-.trash-empty { padding-top: 80px; color: #77736c; text-align: center; }
-.trash-empty h2 { margin: 0 0 8px; color: inherit; font-size: 18px; }
-.trash-empty p { margin: 0; font-size: 13px; }
-.context-menu-separator { height: 1px; margin: 5px 4px; background: rgba(41, 40, 36, .1); }
-.note-context-menu .context-danger { color: #a7462c; }
-.undo-trash { position: fixed; z-index: 50; left: 50%; bottom: 24px; display: flex; align-items: center; gap: 14px; transform: translateX(-50%); padding: 9px 12px; border: 1px solid rgba(41,40,36,.12); border-radius: 8px; background: #292824; color: #fff; box-shadow: 0 12px 30px rgba(25,24,21,.2); font-size: 13px; }
-.undo-trash button { padding: 0; border: 0; background: transparent; color: inherit; font-weight: 650; cursor: pointer; }
+.trash-row:disabled {
+  cursor: default;
+}
+
+.trash-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 4px 10px 8px;
+}
+
+.trash-heading {
+  color: #8c887f;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.trash-empty-button {
+  padding: 3px 5px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #8c887f;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.trash-empty-button:hover:not(:disabled),
+.trash-empty-button:focus-visible:not(:disabled) {
+  background: rgba(41, 40, 36, 0.06);
+  outline: none;
+}
+
+.trash-empty-button:disabled {
+  color: #b5b1aa;
+  cursor: default;
+}
+
+.trash-folder-block {
+  margin-top: 5px;
+}
+
+.trash-folder-block .folder-row.active {
+  background: rgba(41, 40, 36, 0.06);
+}
+
+.trash-folder-empty {
+  padding: 5px 8px 7px;
+  color: #aaa69e;
+  font-size: 12px;
+}
+
+.trash-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 28px;
+  color: #8c887f;
+  font-size: 12px;
+}
+
+.trash-actions > div {
+  display: flex;
+  gap: 8px;
+}
+
+.trash-empty {
+  padding-top: 80px;
+  color: #77736c;
+  text-align: center;
+}
+
+.trash-empty h2 {
+  margin: 0 0 8px;
+  color: inherit;
+  font-size: 18px;
+}
+
+.trash-empty p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.context-menu-separator {
+  height: 1px;
+  margin: 5px 4px;
+  background: rgba(41, 40, 36, 0.1);
+}
+
+.note-context-menu .context-danger {
+  color: #a7462c;
+}
+
+.undo-trash {
+  position: fixed;
+  z-index: 50;
+  left: 50%;
+  bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  transform: translateX(-50%);
+  padding: 9px 12px;
+  border: 1px solid rgba(41, 40, 36, 0.12);
+  border-radius: 8px;
+  background: #292824;
+  color: #fff;
+  box-shadow: 0 12px 30px rgba(25, 24, 21, 0.2);
+  font-size: 13px;
+}
+
+.undo-trash button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
 @media (prefers-color-scheme: dark) {
   .trash-row.active,
   .trash-row:hover:not(:disabled),
-  .trash-row:focus-visible:not(:disabled) { background: rgba(255,255,255,.08); }
-  .context-menu-separator { background: rgba(255,255,255,.1); }
-  .trash-heading, .trash-actions { color: #aaa59b; }
-  .undo-trash { border-color: rgba(255,255,255,.12); background: #e9e6df; color: #201f1c; }
+  .trash-row:focus-visible:not(:disabled),
+  .trash-empty-button:hover:not(:disabled),
+  .trash-empty-button:focus-visible:not(:disabled),
+  .trash-folder-block .folder-row.active {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .context-menu-separator {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .trash-heading,
+  .trash-actions,
+  .trash-empty-button {
+    color: #aaa59b;
+  }
+
+  .trash-empty-button:disabled,
+  .trash-folder-empty {
+    color: #67635d;
+  }
+
+  .undo-trash {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: #e9e6df;
+    color: #201f1c;
+  }
 }
