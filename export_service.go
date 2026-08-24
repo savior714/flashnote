@@ -30,7 +30,6 @@ func (s *ExportService) ExportCurrentNoteMarkdown() (bool, error) {
 
 	app := application.Get()
 	path, err := app.Dialog.SaveFile().
-		SetTitle("Export Note as Markdown").
 		SetFilename(filename).
 		AddFilter("Markdown Files", "*.md").
 		PromptForSingleSelection()
