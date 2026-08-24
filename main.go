@@ -42,6 +42,14 @@ func main() {
 		log.Printf("FLASHNOTE_ATTACHMENT_RECONCILE_FAILED reason=startup error=%v", err)
 	}
 
+	backupDir, err := appdata.BackupDir()
+	if err != nil {
+		log.Printf("FLASHNOTE_BACKUP_FAILED reason=setup error=%v", err)
+	} else {
+		stopBackups := startRollingBackups(ctx, store, backupDir)
+		defer stopBackups()
+	}
+
 	app := application.New(application.Options{
 		Name:        "Flashnote",
 		Description: "A lightweight local-first document note app",

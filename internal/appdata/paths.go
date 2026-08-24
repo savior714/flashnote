@@ -28,3 +28,15 @@ func DatabasePath() (string, error) {
 	}
 	return filepath.Join(root, "flashnote.db"), nil
 }
+
+func BackupDir() (string, error) {
+	root, err := RootDir()
+	if err != nil {
+		return "", err
+	}
+	backupDir := filepath.Join(root, "backups")
+	if err := os.MkdirAll(backupDir, 0o700); err != nil {
+		return "", fmt.Errorf("create backup directory: %w", err)
+	}
+	return backupDir, nil
+}
