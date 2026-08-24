@@ -28,7 +28,7 @@ replace_once(
     }
 
     const info = await GetRuntimeInfo()
-    if (!info.databaseReady || info.schemaVersion !== 1) {
+    if (!info.databaseReady || info.schemaVersion < 1) {
       throw new Error('Flashnote runtime bridge returned invalid diagnostics')
     }
   }
