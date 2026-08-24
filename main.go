@@ -4,10 +4,19 @@ import (
 	"context"
 	"embed"
 	"log"
+	"sync/atomic"
 
 	"github.com/savior714/flashnote/internal/appdata"
 	"github.com/savior714/flashnote/internal/persistence"
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
+)
+
+const (
+	closeRequestedEvent = "flashnote:close-requested"
+	closeApprovedEvent  = "flashnote:close-approved"
+	closeDiscardEvent   = "flashnote:close-discard"
+	frontendReadyEvent  = "flashnote:frontend-ready"
 )
 
 //go:embed all:frontend/dist
@@ -44,7 +53,7 @@ func main() {
 		},
 	})
 
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
+	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:     "Flashnote",
 		Width:     1100,
 		Height:    720,
@@ -56,6 +65,32 @@ func main() {
 		},
 		BackgroundColour: application.NewRGB(247, 246, 242),
 		URL:              "/",
+	})
+
+	var frontendReady atomic.Bool
+	var allowClose atomic.Bool
+
+	window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+		if !frontendReady.Load() || allowClose.Swap(false) {
+			return
+		}
+		log.Print("FLASHNOTE_CLOSE_FLUSH_REQUESTED")
+		event.Cancel()
+		window.EmitEvent(closeRequestedEvent)
+	})
+
+	app.Event.On(frontendReadyEvent, func(_ *application.CustomEvent) {
+		frontendReady.Store(true)
+	})
+	app.Event.On(closeApprovedEvent, func(_ *application.CustomEvent) {
+		log.Print("FLASHNOTE_CLOSE_APPROVED")
+		allowClose.Store(true)
+		window.Close()
+	})
+	app.Event.On(closeDiscardEvent, func(_ *application.CustomEvent) {
+		log.Print("FLASHNOTE_CLOSE_DISCARDED")
+		allowClose.Store(true)
+		window.Close()
 	})
 
 	if err := app.Run(); err != nil {

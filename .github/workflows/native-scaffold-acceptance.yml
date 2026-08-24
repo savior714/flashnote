@@ -12,7 +12,7 @@ permissions:
 jobs:
   macos-native-scaffold:
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 35
 
     steps:
       - name: Publish pending acceptance status
@@ -67,6 +67,8 @@ jobs:
           wails3 generate bindings -clean=true -ts
           test -f frontend/bindings/github.com/savior714/flashnote/appservice.ts
           grep -q 'export function GetRuntimeInfo' frontend/bindings/github.com/savior714/flashnote/appservice.ts
+          grep -q 'export function OpenInitialNote' frontend/bindings/github.com/savior714/flashnote/appservice.ts
+          grep -q 'export function SaveNote' frontend/bindings/github.com/savior714/flashnote/appservice.ts
           git diff --exit-code -- frontend/bindings
 
       - name: Static checks
@@ -87,6 +89,7 @@ jobs:
           set -euo pipefail
           wails3 build
           test -x ./flashnote
+          cp ./flashnote "$RUNNER_TEMP/flashnote-normal"
 
       - name: First native startup and frontend bridge
         run: |
@@ -100,7 +103,7 @@ jobs:
           cleanup() { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
           trap cleanup EXIT
           for _ in {1..30}; do
-            if [[ -f "$DB" ]] && grep -q FLASHNOTE_RUNTIME_READY "$LOG"; then break; fi
+            if [[ -f "$DB" ]] && grep -q FLASHNOTE_RUNTIME_READY "$LOG" && grep -q FLASHNOTE_NOTE_OPEN "$LOG"; then break; fi
             kill -0 "$pid"
             sleep 1
           done
@@ -109,8 +112,9 @@ jobs:
           grep -q 'Handling request url=/assets/.*\.js' "$LOG"
           grep -q 'Handling request url=/assets/.*\.css' "$LOG"
           grep -q FLASHNOTE_RUNTIME_READY "$LOG"
+          grep -q FLASHNOTE_NOTE_OPEN "$LOG"
           migrations="$(sqlite3 "$DB" 'SELECT COUNT(*) FROM schema_migrations;')"
-          test "$migrations" -ge 1
+          test "$migrations" -ge 2
           sqlite3 "$DB" 'SELECT version FROM schema_migrations ORDER BY version;'
           sqlite3 "$DB" 'SELECT name FROM sqlite_master WHERE type="table" ORDER BY name;'
           cp "$LOG" "$RUNNER_TEMP/first-startup.log"
@@ -132,11 +136,12 @@ jobs:
           }
           trap cleanup EXIT
           for _ in {1..90}; do
-            if grep -q FLASHNOTE_RUNTIME_READY "$LOG"; then break; fi
+            if grep -q FLASHNOTE_RUNTIME_READY "$LOG" && grep -q FLASHNOTE_NOTE_OPEN "$LOG"; then break; fi
             kill -0 "$pid"
             sleep 1
           done
           grep -q FLASHNOTE_RUNTIME_READY "$LOG"
+          grep -q FLASHNOTE_NOTE_OPEN "$LOG"
           curl --fail --silent --show-error http://127.0.0.1:9245/ | grep -q '<div id="app"></div>'
           cp "$LOG" "$RUNNER_TEMP/wails-dev.log.saved"
           cleanup
@@ -181,30 +186,96 @@ jobs:
           DB="$HOME/Library/Application Support/Flashnote/flashnote.db"
           LOG="$RUNNER_TEMP/flashnote-second.log"
           before="$(sqlite3 "$DB" 'SELECT COUNT(*) FROM schema_migrations;')"
-          test "$before" -ge 1
+          note_id="$(sqlite3 "$DB" 'SELECT id FROM notes LIMIT 1;')"
+          test -n "$note_id"
           ./flashnote >"$LOG" 2>&1 &
           pid=$!
           cleanup() { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
           trap cleanup EXIT
           for _ in {1..30}; do
-            if grep -q FLASHNOTE_RUNTIME_READY "$LOG"; then break; fi
+            if grep -q FLASHNOTE_RUNTIME_READY "$LOG" && grep -q "FLASHNOTE_NOTE_OPEN id=$note_id" "$LOG"; then break; fi
             kill -0 "$pid"
             sleep 1
           done
           kill -0 "$pid"
           grep -q FLASHNOTE_RUNTIME_READY "$LOG"
+          grep -q "FLASHNOTE_NOTE_OPEN id=$note_id" "$LOG"
+          grep -q 'created=false' "$LOG"
           after="$(sqlite3 "$DB" 'SELECT COUNT(*) FROM schema_migrations;')"
           test "$before" = "$after"
           cp "$LOG" "$RUNNER_TEMP/second-startup.log"
           cleanup
           trap - EXIT
 
+      - name: Durable note round trip
+        env:
+          ACCEPTANCE_TEXT: Flashnote durable vertical slice
+        run: |
+          set -euo pipefail
+          export HOME="$RUNNER_TEMP/flashnote-note-home"
+          mkdir -p "$HOME"
+          DB="$HOME/Library/Application Support/Flashnote/flashnote.db"
+          LOG="$RUNNER_TEMP/note-roundtrip-first.log"
+
+          rm -rf .task frontend/dist flashnote
+          VITE_FLASHNOTE_ACCEPTANCE_TEXT="$ACCEPTANCE_TEXT" wails3 build
+          test -x ./flashnote
+
+          ./flashnote >"$LOG" 2>&1 &
+          pid=$!
+          cleanup() { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
+          trap cleanup EXIT
+          for _ in {1..35}; do
+            if ! kill -0 "$pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if kill -0 "$pid" 2>/dev/null; then
+            echo "acceptance app did not close after frontend flush" >&2
+            exit 1
+          fi
+          wait "$pid"
+          trap - EXIT
+
+          test -f "$DB"
+          grep -q FLASHNOTE_NOTE_CREATED "$LOG"
+          grep -q FLASHNOTE_NOTE_SAVED "$LOG"
+          grep -q FLASHNOTE_CLOSE_FLUSH_REQUESTED "$LOG"
+          grep -q FLASHNOTE_CLOSE_APPROVED "$LOG"
+          ! grep -q FLASHNOTE_CLOSE_DISCARDED "$LOG"
+
+          test "$(sqlite3 "$DB" 'SELECT COUNT(*) FROM notes;')" = 1
+          note_id="$(sqlite3 "$DB" 'SELECT id FROM notes LIMIT 1;')"
+          revision="$(sqlite3 "$DB" "SELECT revision FROM notes WHERE id = '$note_id';")"
+          test "$revision" -ge 2
+          test "$(sqlite3 "$DB" "SELECT instr(document_json, '$ACCEPTANCE_TEXT') > 0 FROM notes WHERE id = '$note_id';")" = 1
+          test "$(sqlite3 "$DB" "SELECT value = '$note_id' FROM app_meta WHERE key = 'last_note_id';")" = 1
+
+          cp "$RUNNER_TEMP/flashnote-normal" ./flashnote
+          REOPEN_LOG="$RUNNER_TEMP/note-roundtrip-reopen.log"
+          ./flashnote >"$REOPEN_LOG" 2>&1 &
+          pid=$!
+          cleanup() { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
+          trap cleanup EXIT
+          for _ in {1..30}; do
+            if grep -q "FLASHNOTE_NOTE_OPEN id=$note_id revision=$revision created=false" "$REOPEN_LOG"; then break; fi
+            kill -0 "$pid"
+            sleep 1
+          done
+          grep -q "FLASHNOTE_NOTE_OPEN id=$note_id revision=$revision created=false" "$REOPEN_LOG"
+          cleanup
+          trap - EXIT
+
+          cp "$LOG" "$RUNNER_TEMP/note-roundtrip-first.log.saved"
+          cp "$REOPEN_LOG" "$RUNNER_TEMP/note-roundtrip-reopen.log.saved"
+
       - name: Verify source integrity
         run: |
           set -euo pipefail
           git diff --exit-code -- \
-            go.mod go.sum Taskfile.yml app_service.go \
-            frontend/package.json frontend/pnpm-lock.yaml frontend/src/App.svelte frontend/bindings
+            go.mod go.sum Taskfile.yml main.go app_service.go \
+            internal/document internal/persistence \
+            frontend/package.json frontend/pnpm-lock.yaml \
+            frontend/src frontend/bindings
 
       - name: Upload acceptance evidence
         if: always()
@@ -217,6 +288,8 @@ jobs:
             ${{ runner.temp }}/first-startup.log
             ${{ runner.temp }}/wails-dev.log.saved
             ${{ runner.temp }}/second-startup.log
+            ${{ runner.temp }}/note-roundtrip-first.log.saved
+            ${{ runner.temp }}/note-roundtrip-reopen.log.saved
 
       - name: Publish acceptance status
         if: always()

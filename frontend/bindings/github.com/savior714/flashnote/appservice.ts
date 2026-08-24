@@ -9,10 +9,22 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
+export function CreateNote(): $CancellablePromise<[string, string, string, number, boolean]> {
+    return $Call.ByID(4174655258);
+}
+
 export function GetRuntimeInfo(): $CancellablePromise<$models.RuntimeInfo> {
     return $Call.ByID(3362057646).then(($result: any) => {
         return $$createType0($result);
     });
+}
+
+export function OpenInitialNote(): $CancellablePromise<[string, string, string, number, boolean]> {
+    return $Call.ByID(2406348922);
+}
+
+export function SaveNote(noteID: string, title: string, documentJSON: string, expectedRevision: number): $CancellablePromise<number> {
+    return $Call.ByID(1592610343, noteID, title, documentJSON, expectedRevision);
 }
 
 // Private type creation functions

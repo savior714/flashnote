@@ -27,6 +27,15 @@ func NewAppService(store *persistence.Store) *AppService {
 	return &AppService{store: store}
 }
 
+func (s *AppService) CreateNote() (string, string, string, int64, bool, error) {
+	note, err := s.store.CreateNote(context.Background())
+	if err != nil {
+		return "", "", "", 0, false, err
+	}
+	log.Printf("FLASHNOTE_NOTE_CREATED id=%s revision=%d", note.ID, note.Revision)
+	return note.ID, note.Title, note.DocumentJSON, note.Revision, true, nil
+}
+
 func (s *AppService) GetRuntimeInfo() (RuntimeInfo, error) {
 	info, err := s.store.RuntimeInfo(context.Background())
 	if err != nil {
@@ -50,4 +59,25 @@ func (s *AppService) GetRuntimeInfo() (RuntimeInfo, error) {
 		runtimeInfo.SchemaVersion,
 	)
 	return runtimeInfo, nil
+}
+
+func (s *AppService) OpenInitialNote() (string, string, string, int64, bool, error) {
+	note, created, err := s.store.OpenInitialNote(context.Background())
+	if err != nil {
+		return "", "", "", 0, false, err
+	}
+	if created {
+		log.Printf("FLASHNOTE_NOTE_CREATED id=%s revision=%d", note.ID, note.Revision)
+	}
+	log.Printf("FLASHNOTE_NOTE_OPEN id=%s revision=%d created=%t", note.ID, note.Revision, created)
+	return note.ID, note.Title, note.DocumentJSON, note.Revision, created, nil
+}
+
+func (s *AppService) SaveNote(noteID string, title string, documentJSON string, expectedRevision int64) (int64, error) {
+	revision, err := s.store.SaveNote(context.Background(), noteID, title, documentJSON, expectedRevision)
+	if err != nil {
+		return 0, err
+	}
+	log.Printf("FLASHNOTE_NOTE_SAVED id=%s revision=%d", noteID, revision)
+	return revision, nil
 }

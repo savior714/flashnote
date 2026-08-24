@@ -1,10 +1,28 @@
 <script lang="ts">
-  import { Editor } from '@tiptap/core'
+  import { Editor, type JSONContent } from '@tiptap/core'
   import StarterKit from '@tiptap/starter-kit'
   import { onDestroy, onMount } from 'svelte'
 
+  type Props = {
+    documentJSON: string
+    onDocumentChange: (documentJSON: string) => void
+    acceptanceText?: string
+  }
+
+  let { documentJSON, onDocumentChange, acceptanceText = '' }: Props = $props()
   let element!: HTMLDivElement
   let editor = $state<Editor | null>(null)
+
+  function persistedDoc(): JSONContent {
+    const envelope = JSON.parse(documentJSON) as {
+      schemaVersion?: unknown
+      doc?: unknown
+    }
+    if (envelope.schemaVersion !== 1 || typeof envelope.doc !== 'object' || envelope.doc === null) {
+      throw new Error('Flashnote received an invalid persisted document')
+    }
+    return envelope.doc as JSONContent
+  }
 
   onMount(() => {
     editor = new Editor({
@@ -15,7 +33,15 @@
           underline: false,
         }),
       ],
-      content: '<p></p>',
+      content: persistedDoc(),
+      onUpdate: ({ editor: updatedEditor }) => {
+        onDocumentChange(
+          JSON.stringify({
+            schemaVersion: 1,
+            doc: updatedEditor.getJSON(),
+          }),
+        )
+      },
       editorProps: {
         attributes: {
           class: 'prose-editor',
@@ -23,6 +49,12 @@
         },
       },
     })
+
+    if (acceptanceText) {
+      queueMicrotask(() => {
+        editor?.commands.insertContent(acceptanceText)
+      })
+    }
   })
 
   onDestroy(() => {
