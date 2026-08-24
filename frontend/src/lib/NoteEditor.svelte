@@ -2,6 +2,7 @@
   import { Editor, type JSONContent } from '@tiptap/core'
   import StarterKit from '@tiptap/starter-kit'
   import { onDestroy, onMount } from 'svelte'
+  import { TaskItem, TaskList } from './taskList'
 
   type Props = {
     documentJSON: string
@@ -37,6 +38,8 @@
           heading: { levels: [1, 2, 3] },
           underline: false,
         }),
+        TaskList,
+        TaskItem,
       ],
       content: persistedDoc(),
       editable,
@@ -58,7 +61,31 @@
 
     if (acceptanceText) {
       queueMicrotask(() => {
-        editor?.commands.insertContent(acceptanceText)
+        editor?.commands.insertContent({
+          type: 'taskList',
+          content: [
+            {
+              type: 'taskItem',
+              attrs: { checked: false },
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [{ type: 'text', text: acceptanceText }],
+                },
+              ],
+            },
+            {
+              type: 'taskItem',
+              attrs: { checked: true },
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [{ type: 'text', text: 'Completed checklist item' }],
+                },
+              ],
+            },
+          ],
+        })
       })
     }
   })

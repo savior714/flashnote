@@ -138,6 +138,43 @@ input {
   margin: 0 0 0.85em;
 }
 
+.editor-host .prose-editor ul[data-type="taskList"] {
+  margin: 0 0 0.85em;
+  padding: 0;
+  list-style: none;
+}
+
+.editor-host .prose-editor li[data-type="taskItem"] {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0.25em 0;
+}
+
+.editor-host .prose-editor li[data-type="taskItem"] > label {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-height: 1.72em;
+  user-select: none;
+}
+
+.editor-host .prose-editor li[data-type="taskItem"] input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: currentColor;
+}
+
+.editor-host .prose-editor li[data-type="taskItem"] > div {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.editor-host .prose-editor li[data-type="taskItem"] > div > p {
+  margin-bottom: 0;
+}
+
 .editor-loading {
   color: #89857d;
   font-size: 14px;

@@ -77,7 +77,11 @@ func validateNode(node map[string]any, root bool) error {
 		if !root {
 			return errors.New("doc node may only appear at the root")
 		}
-	case "paragraph", "bulletList", "listItem", "blockquote":
+	case "paragraph", "bulletList", "listItem", "blockquote", "taskList":
+	case "taskItem":
+		if err := validateTaskItemAttrs(node["attrs"]); err != nil {
+			return err
+		}
 	case "orderedList":
 		if err := validateOrderedListAttrs(node["attrs"]); err != nil {
 			return err
@@ -107,7 +111,7 @@ func validateNode(node map[string]any, root bool) error {
 		return fmt.Errorf("unsupported node type %q", nodeType)
 	}
 
-	if nodeType != "heading" && nodeType != "orderedList" && nodeType != "codeBlock" {
+	if nodeType != "heading" && nodeType != "orderedList" && nodeType != "codeBlock" && nodeType != "taskItem" {
 		if attrs, exists := node["attrs"]; exists {
 			if attrs == nil {
 				delete(node, "attrs")
@@ -204,6 +208,24 @@ func validateMark(mark map[string]any) error {
 		}
 	default:
 		return fmt.Errorf("unsupported mark type %q", markType)
+	}
+	return nil
+}
+
+func validateTaskItemAttrs(raw any) error {
+	attrs, ok := raw.(map[string]any)
+	if !ok {
+		return errors.New("taskItem requires attributes")
+	}
+	if err := validateKeys(attrs, "checked"); err != nil {
+		return fmt.Errorf("taskItem attributes: %w", err)
+	}
+	checked, exists := attrs["checked"]
+	if !exists {
+		return errors.New("taskItem checked is required")
+	}
+	if _, ok := checked.(bool); !ok {
+		return errors.New("taskItem checked must be a boolean")
 	}
 	return nil
 }
