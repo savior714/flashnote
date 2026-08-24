@@ -7,9 +7,10 @@
     documentJSON: string
     onDocumentChange: (documentJSON: string) => void
     acceptanceText?: string
+    editable?: boolean
   }
 
-  let { documentJSON, onDocumentChange, acceptanceText = '' }: Props = $props()
+  let { documentJSON, onDocumentChange, acceptanceText = '', editable = true }: Props = $props()
   let element!: HTMLDivElement
   let editor = $state<Editor | null>(null)
 
@@ -24,6 +25,10 @@
     return envelope.doc as JSONContent
   }
 
+  $effect(() => {
+    editor?.setEditable(editable, false)
+  })
+
   onMount(() => {
     editor = new Editor({
       element,
@@ -34,6 +39,7 @@
         }),
       ],
       content: persistedDoc(),
+      editable,
       onUpdate: ({ editor: updatedEditor }) => {
         onDocumentChange(
           JSON.stringify({
