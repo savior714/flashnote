@@ -57,7 +57,7 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           "$(go env GOPATH)/bin/wails3" version
 
-      - name: Resolve dependencies
+      - name: Resolve dependencies and stage Node typing fix
         shell: bash
         run: |
           set -euo pipefail
@@ -65,9 +65,11 @@ jobs:
           (
             cd frontend
             pnpm install --no-frozen-lockfile
+            pnpm add --save-dev --save-exact @types/node@24.13.3
           )
           test -s go.sum
           test -s frontend/pnpm-lock.yaml
+          grep -q '"@types/node": "24.13.3"' frontend/package.json
 
       - name: Generate Wails TypeScript bindings
         shell: bash
@@ -192,6 +194,7 @@ jobs:
         if: always()
         shell: bash
         run: |
+          git diff -- frontend/package.json frontend/pnpm-lock.yaml go.sum > "$RUNNER_TEMP/dependency-candidate.patch" || true
           {
             echo "commit=$GITHUB_SHA"
             echo "run_id=$GITHUB_RUN_ID"
@@ -211,9 +214,11 @@ jobs:
           if-no-files-found: warn
           path: |
             go.sum
+            frontend/package.json
             frontend/pnpm-lock.yaml
             frontend/bindings
             ${{ runner.temp }}/acceptance-evidence.txt
+            ${{ runner.temp }}/dependency-candidate.patch
             ${{ runner.temp }}/sqlite-runtime.json
             ${{ runner.temp }}/first-startup.log
             ${{ runner.temp }}/second-startup.log
