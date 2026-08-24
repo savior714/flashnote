@@ -1,0 +1,205 @@
+name: Native scaffold acceptance
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos-native-scaffold:
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.0'
+          cache: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Toolchain diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          go version
+          node --version
+          npm --version
+          xcode-select -p
+          corepack enable
+          corepack prepare pnpm@11.21.0 --activate
+          pnpm --version
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.11
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          "$(go env GOPATH)/bin/wails3" version
+
+      - name: Resolve dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          go mod tidy
+          (
+            cd frontend
+            pnpm install --no-frozen-lockfile
+          )
+          test -s go.sum
+          test -s frontend/pnpm-lock.yaml
+
+      - name: Generate Wails TypeScript bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          wails3 generate bindings -clean=true -ts
+          test -d frontend/bindings
+          find frontend/bindings -type f -maxdepth 8 -print | sort
+
+      - name: Go formatting and static checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          unformatted="$(gofmt -l -- *.go internal 2>/dev/null || true)"
+          if [[ -n "$unformatted" ]]; then
+            echo "Unformatted Go files:"
+            echo "$unformatted"
+            exit 1
+          fi
+          go test ./...
+          go vet ./...
+
+      - name: Frontend checks and production build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd frontend
+          pnpm check
+          pnpm build
+
+      - name: Wails build
+        shell: bash
+        run: |
+          set -euo pipefail
+          wails3 build
+          test -x ./flashnote
+
+      - name: First native startup
+        shell: bash
+        run: |
+          set -euo pipefail
+          export HOME="$RUNNER_TEMP/flashnote-home"
+          mkdir -p "$HOME"
+          DB="$HOME/Library/Application Support/Flashnote/flashnote.db"
+          LOG="$RUNNER_TEMP/flashnote-first.log"
+          ./flashnote >"$LOG" 2>&1 &
+          pid=$!
+          cleanup() { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
+          trap cleanup EXIT
+          for _ in {1..30}; do
+            [[ -f "$DB" ]] && break
+            if ! kill -0 "$pid" 2>/dev/null; then
+              cat "$LOG"
+              exit 1
+            fi
+            sleep 1
+          done
+          test -f "$DB"
+          kill -0 "$pid"
+          sqlite3 "$DB" 'SELECT version FROM schema_migrations ORDER BY version;'
+          sqlite3 "$DB" 'SELECT name FROM sqlite_master WHERE type="table" ORDER BY name;'
+          cp "$LOG" "$RUNNER_TEMP/first-startup.log"
+          cleanup
+          trap - EXIT
+
+      - name: Inspect SQLite through Flashnote persistence owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          export HOME="$RUNNER_TEMP/flashnote-home"
+          mkdir -p internal/acceptanceprobe
+          cat > internal/acceptanceprobe/main.go <<'EOF'
+          package main
+
+          import (
+            "context"
+            "encoding/json"
+            "fmt"
+
+            "github.com/savior714/flashnote/internal/appdata"
+            "github.com/savior714/flashnote/internal/persistence"
+          )
+
+          func main() {
+            path, err := appdata.DatabasePath()
+            if err != nil { panic(err) }
+            store, err := persistence.Open(context.Background(), path)
+            if err != nil { panic(err) }
+            defer store.Close()
+            info, err := store.RuntimeInfo(context.Background())
+            if err != nil { panic(err) }
+            encoded, err := json.Marshal(info)
+            if err != nil { panic(err) }
+            fmt.Println(string(encoded))
+          }
+          EOF
+          go run ./internal/acceptanceprobe | tee "$RUNNER_TEMP/sqlite-runtime.json"
+          rm -rf internal/acceptanceprobe
+
+      - name: Second native startup
+        shell: bash
+        run: |
+          set -euo pipefail
+          export HOME="$RUNNER_TEMP/flashnote-home"
+          DB="$HOME/Library/Application Support/Flashnote/flashnote.db"
+          LOG="$RUNNER_TEMP/flashnote-second.log"
+          before="$(sqlite3 "$DB" 'SELECT COUNT(*) FROM schema_migrations;')"
+          ./flashnote >"$LOG" 2>&1 &
+          pid=$!
+          cleanup() { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
+          trap cleanup EXIT
+          sleep 5
+          kill -0 "$pid"
+          after="$(sqlite3 "$DB" 'SELECT COUNT(*) FROM schema_migrations;')"
+          test "$before" = "$after"
+          test "$after" = "1"
+          cp "$LOG" "$RUNNER_TEMP/second-startup.log"
+          cleanup
+          trap - EXIT
+
+      - name: Record dependency and binding evidence
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "commit=$GITHUB_SHA"
+            echo "go=$(go version 2>/dev/null || true)"
+            echo "node=$(node --version 2>/dev/null || true)"
+            echo "pnpm=$(pnpm --version 2>/dev/null || true)"
+            echo "wails=$(wails3 version 2>/dev/null || true)"
+            echo "go_sum_sha256=$(shasum -a 256 go.sum 2>/dev/null | awk '{print $1}' || true)"
+            echo "pnpm_lock_sha256=$(shasum -a 256 frontend/pnpm-lock.yaml 2>/dev/null | awk '{print $1}' || true)"
+          } | tee "$RUNNER_TEMP/acceptance-evidence.txt"
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-scaffold-acceptance-${{ github.sha }}
+          if-no-files-found: warn
+          path: |
+            go.sum
+            frontend/pnpm-lock.yaml
+            frontend/bindings
+            ${{ runner.temp }}/acceptance-evidence.txt
+            ${{ runner.temp }}/sqlite-runtime.json
+            ${{ runner.temp }}/first-startup.log
+            ${{ runner.temp }}/second-startup.log
