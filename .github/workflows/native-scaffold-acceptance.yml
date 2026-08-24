@@ -322,6 +322,13 @@ jobs:
             return false
           }
 
+          func containsSearch(results []persistence.SearchResult, id string) bool {
+            for _, result := range results {
+              if result.ID == id { return true }
+            }
+            return false
+          }
+
           func main() {
             ctx := context.Background()
             store, err := persistence.Open(ctx, os.Getenv("FLASHNOTE_ACCEPTANCE_DB"))
@@ -351,7 +358,7 @@ jobs:
             results, err = store.SearchNotes(ctx, "Flashnote")
             if err != nil || len(results) != 0 { panic(fmt.Sprintf("trash leaked into search: %+v err=%v", results, err)) }
             recent, err := store.SearchNotes(ctx, "")
-            if err != nil || contains(recent, expectedID) { panic(fmt.Sprintf("trash leaked into recent: %+v err=%v", recent, err)) }
+            if err != nil || containsSearch(recent, expectedID) { panic(fmt.Sprintf("trash leaked into recent: %+v err=%v", recent, err)) }
             if _, err := store.OpenNote(ctx, expectedID); !errors.Is(err, persistence.ErrNoteNotFound) { panic(fmt.Sprintf("normal open allowed trash note: %v", err)) }
             trashed, err := store.OpenTrashNote(ctx, expectedID)
             if err != nil || trashed.ID != expectedID { panic(fmt.Sprintf("trash open failed: %+v err=%v", trashed, err)) }
