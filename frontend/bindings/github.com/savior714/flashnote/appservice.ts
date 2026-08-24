@@ -59,8 +59,20 @@ export function ListRootNotes(): $CancellablePromise<[string[], string[]]> {
     });
 }
 
+export function ListTrashNotes(): $CancellablePromise<[string[], string[]]> {
+    return $Call.ByID(3893406897).then(($result: any) => {
+        $result[0] = $$createType1($result[0]);
+        $result[1] = $$createType1($result[1]);
+        return $result;
+    });
+}
+
 export function MoveNote(noteID: string, folderID: string): $CancellablePromise<boolean> {
     return $Call.ByID(1994489847, noteID, folderID);
+}
+
+export function MoveNoteToTrash(noteID: string): $CancellablePromise<boolean> {
+    return $Call.ByID(1119408872, noteID);
 }
 
 export function OpenInitialNote(): $CancellablePromise<[string, string, string, number, boolean]> {
@@ -69,6 +81,18 @@ export function OpenInitialNote(): $CancellablePromise<[string, string, string, 
 
 export function OpenNote(noteID: string): $CancellablePromise<[string, string, string, number, boolean]> {
     return $Call.ByID(2169568126, noteID);
+}
+
+export function OpenTrashNote(noteID: string): $CancellablePromise<[string, string, string, number, boolean]> {
+    return $Call.ByID(1480422420, noteID);
+}
+
+export function PermanentlyDeleteNote(noteID: string): $CancellablePromise<boolean> {
+    return $Call.ByID(991217112, noteID);
+}
+
+export function RestoreNote(noteID: string): $CancellablePromise<boolean> {
+    return $Call.ByID(2653971148, noteID);
 }
 
 export function SaveNote(noteID: string, title: string, documentJSON: string, expectedRevision: number): $CancellablePromise<number> {

@@ -73,6 +73,11 @@ jobs:
           grep -q 'export function CreateFolder' frontend/bindings/github.com/savior714/flashnote/appservice.ts
           grep -q 'export function ListFolderNotes' frontend/bindings/github.com/savior714/flashnote/appservice.ts
           grep -q 'export function MoveNote' frontend/bindings/github.com/savior714/flashnote/appservice.ts
+          grep -q 'export function ListTrashNotes' frontend/bindings/github.com/savior714/flashnote/appservice.ts
+          grep -q 'export function MoveNoteToTrash' frontend/bindings/github.com/savior714/flashnote/appservice.ts
+          grep -q 'export function OpenTrashNote' frontend/bindings/github.com/savior714/flashnote/appservice.ts
+          grep -q 'export function RestoreNote' frontend/bindings/github.com/savior714/flashnote/appservice.ts
+          grep -q 'export function PermanentlyDeleteNote' frontend/bindings/github.com/savior714/flashnote/appservice.ts
           git diff --exit-code -- frontend/bindings
 
       - name: Static checks
@@ -118,10 +123,11 @@ jobs:
           grep -q FLASHNOTE_RUNTIME_READY "$LOG"
           grep -q FLASHNOTE_NOTE_OPEN "$LOG"
           migrations="$(sqlite3 "$DB" 'SELECT COUNT(*) FROM schema_migrations;')"
-          test "$migrations" -ge 4
+          test "$migrations" -ge 5
           test "$(sqlite3 "$DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='note_search';")" = 1
           test "$(sqlite3 "$DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='folders';")" = 1
           test "$(sqlite3 "$DB" "SELECT COUNT(*) FROM pragma_table_info('notes') WHERE name='folder_id';")" = 1
+          test "$(sqlite3 "$DB" "SELECT COUNT(*) FROM pragma_table_info('notes') WHERE name='deleted_at';")" = 1
           sqlite3 "$DB" 'SELECT version FROM schema_migrations ORDER BY version;'
           sqlite3 "$DB" 'SELECT name FROM sqlite_master WHERE type="table" ORDER BY name;'
           cp "$LOG" "$RUNNER_TEMP/first-startup.log"
@@ -193,7 +199,7 @@ jobs:
           DB="$HOME/Library/Application Support/Flashnote/flashnote.db"
           LOG="$RUNNER_TEMP/flashnote-second.log"
           before="$(sqlite3 "$DB" 'SELECT COUNT(*) FROM schema_migrations;')"
-          note_id="$(sqlite3 "$DB" 'SELECT id FROM notes LIMIT 1;')"
+          note_id="$(sqlite3 "$DB" 'SELECT id FROM notes WHERE deleted_at IS NULL LIMIT 1;')"
           test -n "$note_id"
           ./flashnote >"$LOG" 2>&1 &
           pid=$!
@@ -248,6 +254,10 @@ jobs:
           grep -q FLASHNOTE_NOTE_SAVED "$LOG"
           grep -q FLASHNOTE_FOLDER_CREATED "$LOG"
           grep -q FLASHNOTE_NOTE_MOVED "$LOG"
+          grep -q FLASHNOTE_NOTE_TRASHED "$LOG"
+          grep -q FLASHNOTE_TRASH_NOTE_OPEN "$LOG"
+          grep -q FLASHNOTE_NOTE_RESTORED "$LOG"
+          ! grep -q FLASHNOTE_ACCEPTANCE_TRASH_FAILURE "$LOG"
           grep -q FLASHNOTE_CLOSE_FLUSH_REQUESTED "$LOG"
           grep -q FLASHNOTE_CLOSE_APPROVED "$LOG"
           ! grep -q FLASHNOTE_CLOSE_DISCARDED "$LOG"
@@ -259,6 +269,7 @@ jobs:
           test -n "$folder_id"
           test "$(sqlite3 "$DB" "SELECT name = 'Acceptance Folder' FROM folders WHERE id = '$folder_id';")" = 1
           test "$(sqlite3 "$DB" "SELECT folder_id = '$folder_id' FROM notes WHERE id = '$note_id';")" = 1
+          test "$(sqlite3 "$DB" "SELECT deleted_at IS NULL FROM notes WHERE id = '$note_id';")" = 1
           revision="$(sqlite3 "$DB" "SELECT revision FROM notes WHERE id = '$note_id';")"
           test "$revision" -ge 2
           test "$(sqlite3 "$DB" "SELECT instr(document_json, '$ACCEPTANCE_TEXT') > 0 FROM notes WHERE id = '$note_id';")" = 1
@@ -285,6 +296,7 @@ jobs:
 
           import (
             "context"
+            "errors"
             "fmt"
             "os"
             "github.com/savior714/flashnote/internal/persistence"
@@ -299,29 +311,47 @@ jobs:
             folderID := os.Getenv("FLASHNOTE_EXPECTED_FOLDER_ID")
 
             results, err := store.SearchNotes(ctx, "Flashnote")
-            if err != nil { panic(err) }
-            if len(results) != 1 || results[0].ID != expectedID {
-              panic(fmt.Sprintf("unexpected search results: %+v expected_id=%s", results, expectedID))
+            if err != nil || len(results) != 1 || results[0].ID != expectedID {
+              panic(fmt.Sprintf("unexpected pre-trash search: %+v err=%v", results, err))
             }
-
             folderNotes, err := store.ListFolderNotes(ctx, folderID)
-            if err != nil { panic(err) }
-            if len(folderNotes) != 1 || folderNotes[0].ID != expectedID {
-              panic(fmt.Sprintf("unexpected folder notes: %+v expected_id=%s", folderNotes, expectedID))
+            if err != nil || len(folderNotes) != 1 || folderNotes[0].ID != expectedID {
+              panic(fmt.Sprintf("unexpected pre-trash folder notes: %+v err=%v", folderNotes, err))
             }
             rootNotes, err := store.ListRootNotes(ctx)
-            if err != nil { panic(err) }
-            if len(rootNotes) != 0 {
-              panic(fmt.Sprintf("expected empty root after move, got %+v", rootNotes))
+            if err != nil || len(rootNotes) != 0 {
+              panic(fmt.Sprintf("expected empty root after move: %+v err=%v", rootNotes, err))
             }
-            fmt.Printf("search_match id=%s folder=%s title=%q\n", results[0].ID, folderID, results[0].DisplayTitle)
+
+            if err := store.MoveNoteToTrash(ctx, expectedID); err != nil { panic(err) }
+            folderNotes, err = store.ListFolderNotes(ctx, folderID)
+            if err != nil || len(folderNotes) != 0 { panic(fmt.Sprintf("trash leaked into folder list: %+v err=%v", folderNotes, err)) }
+            results, err = store.SearchNotes(ctx, "Flashnote")
+            if err != nil || len(results) != 0 { panic(fmt.Sprintf("trash leaked into search: %+v err=%v", results, err)) }
+            recent, err := store.SearchNotes(ctx, "")
+            if err != nil || len(recent) != 0 { panic(fmt.Sprintf("trash leaked into recent: %+v err=%v", recent, err)) }
+            if _, err := store.OpenNote(ctx, expectedID); !errors.Is(err, persistence.ErrNoteNotFound) { panic(fmt.Sprintf("normal open allowed trash note: %v", err)) }
+            trashed, err := store.OpenTrashNote(ctx, expectedID)
+            if err != nil || trashed.ID != expectedID { panic(fmt.Sprintf("trash open failed: %+v err=%v", trashed, err)) }
+            trashNotes, err := store.ListTrashNotes(ctx)
+            if err != nil || len(trashNotes) != 1 || trashNotes[0].ID != expectedID { panic(fmt.Sprintf("trash list mismatch: %+v err=%v", trashNotes, err)) }
+
+            if err := store.RestoreNote(ctx, expectedID); err != nil { panic(err) }
+            restored, err := store.OpenNote(ctx, expectedID)
+            if err != nil || restored.ID != expectedID { panic(fmt.Sprintf("restored open failed: %+v err=%v", restored, err)) }
+            folderNotes, err = store.ListFolderNotes(ctx, folderID)
+            if err != nil || len(folderNotes) != 1 || folderNotes[0].ID != expectedID { panic(fmt.Sprintf("restored folder mismatch: %+v err=%v", folderNotes, err)) }
+            results, err = store.SearchNotes(ctx, "Flashnote")
+            if err != nil || len(results) != 1 || results[0].ID != expectedID { panic(fmt.Sprintf("restored search mismatch: %+v err=%v", results, err)) }
+            fmt.Printf("trash_roundtrip id=%s folder=%s title=%q\n", expectedID, folderID, results[0].DisplayTitle)
           }
           PROBE
           FLASHNOTE_ACCEPTANCE_DB="$DB" FLASHNOTE_EXPECTED_NOTE_ID="$note_id" FLASHNOTE_EXPECTED_FOLDER_ID="$folder_id" \
             go run ./internal/acceptanceprobe | tee "$RUNNER_TEMP/search-roundtrip.log"
           rm -rf internal/acceptanceprobe
 
-          test "$(sqlite3 "$DB" "SELECT value = '1' FROM app_meta WHERE key = 'search_index_version';")" = 1
+          test "$(sqlite3 "$DB" "SELECT value = '2' FROM app_meta WHERE key = 'search_index_version';")" = 1
+          test "$(sqlite3 "$DB" "SELECT deleted_at IS NULL FROM notes WHERE id = '$note_id';")" = 1
 
           cp "$LOG" "$RUNNER_TEMP/note-roundtrip-first.log.saved"
           cp "$REOPEN_LOG" "$RUNNER_TEMP/note-roundtrip-reopen.log.saved"

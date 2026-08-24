@@ -129,7 +129,7 @@ func (s *Store) MoveNote(ctx context.Context, noteID, folderID string) error {
 	if folderID != "" {
 		folderValue = folderID
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE notes SET folder_id = ? WHERE id = ?`, folderValue, noteID)
+	result, err := tx.ExecContext(ctx, `UPDATE notes SET folder_id = ? WHERE id = ? AND deleted_at IS NULL`, folderValue, noteID)
 	if err != nil {
 		return fmt.Errorf("move note: %w", err)
 	}
@@ -153,14 +153,14 @@ func (s *Store) listNotesByFolder(ctx context.Context, folderID string, root boo
 		rows, err = s.db.QueryContext(ctx, `
 			SELECT id, title, document_json
 			FROM notes
-			WHERE folder_id IS NULL
+			WHERE folder_id IS NULL AND deleted_at IS NULL
 			ORDER BY updated_at DESC, id ASC
 		`)
 	} else {
 		rows, err = s.db.QueryContext(ctx, `
 			SELECT id, title, document_json
 			FROM notes
-			WHERE folder_id = ?
+			WHERE folder_id = ? AND deleted_at IS NULL
 			ORDER BY updated_at DESC, id ASC
 		`, folderID)
 	}

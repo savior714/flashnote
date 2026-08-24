@@ -121,6 +121,15 @@ func (s *AppService) ListFolderNotes(folderID string) ([]string, []string, error
 	return ids, displayTitles, nil
 }
 
+func (s *AppService) ListTrashNotes() ([]string, []string, error) {
+	summaries, err := s.store.ListTrashNotes(context.Background())
+	if err != nil {
+		return nil, nil, err
+	}
+	ids, displayTitles := noteSummaryArrays(summaries)
+	return ids, displayTitles, nil
+}
+
 func (s *AppService) MoveNote(noteID string, folderID string) (bool, error) {
 	if err := s.store.MoveNote(context.Background(), noteID, folderID); err != nil {
 		return false, err
@@ -130,6 +139,30 @@ func (s *AppService) MoveNote(noteID string, folderID string) (bool, error) {
 	} else {
 		log.Printf("FLASHNOTE_NOTE_MOVED id=%s folder=%s", noteID, folderID)
 	}
+	return true, nil
+}
+
+func (s *AppService) MoveNoteToTrash(noteID string) (bool, error) {
+	if err := s.store.MoveNoteToTrash(context.Background(), noteID); err != nil {
+		return false, err
+	}
+	log.Printf("FLASHNOTE_NOTE_TRASHED id=%s", noteID)
+	return true, nil
+}
+
+func (s *AppService) RestoreNote(noteID string) (bool, error) {
+	if err := s.store.RestoreNote(context.Background(), noteID); err != nil {
+		return false, err
+	}
+	log.Printf("FLASHNOTE_NOTE_RESTORED id=%s", noteID)
+	return true, nil
+}
+
+func (s *AppService) PermanentlyDeleteNote(noteID string) (bool, error) {
+	if err := s.store.PermanentlyDeleteNote(context.Background(), noteID); err != nil {
+		return false, err
+	}
+	log.Printf("FLASHNOTE_NOTE_PERMANENTLY_DELETED id=%s", noteID)
 	return true, nil
 }
 
@@ -168,6 +201,15 @@ func (s *AppService) OpenNote(noteID string) (string, string, string, int64, boo
 		return "", "", "", 0, false, err
 	}
 	log.Printf("FLASHNOTE_NOTE_OPEN id=%s revision=%d created=false", note.ID, note.Revision)
+	return note.ID, note.Title, note.DocumentJSON, note.Revision, false, nil
+}
+
+func (s *AppService) OpenTrashNote(noteID string) (string, string, string, int64, bool, error) {
+	note, err := s.store.OpenTrashNote(context.Background(), noteID)
+	if err != nil {
+		return "", "", "", 0, false, err
+	}
+	log.Printf("FLASHNOTE_TRASH_NOTE_OPEN id=%s revision=%d", note.ID, note.Revision)
 	return note.ID, note.Title, note.DocumentJSON, note.Revision, false, nil
 }
 

@@ -14,7 +14,7 @@ import (
 
 const (
 	searchIndexVersionKey = "search_index_version"
-	searchIndexVersion    = "1"
+	searchIndexVersion    = "2"
 	searchRecentLimit     = 12
 	searchResultLimit     = 20
 )
@@ -44,7 +44,7 @@ func (s *Store) ensureSearchIndex(ctx context.Context) error {
 		return fmt.Errorf("read search index version: %w", err)
 	}
 
-	rows, err := s.db.QueryContext(ctx, `SELECT id, title, document_json FROM notes ORDER BY id ASC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, title, document_json FROM notes WHERE deleted_at IS NULL ORDER BY id ASC`)
 	if err != nil {
 		return fmt.Errorf("read notes for search index: %w", err)
 	}
@@ -121,7 +121,7 @@ func (s *Store) SearchNotes(ctx context.Context, query string) ([]SearchResult, 
 			COALESCE(snippet(note_search, 3, '', '', ' … ', 18), '')
 		FROM note_search
 		JOIN notes ON notes.id = note_search.note_id
-		WHERE note_search MATCH ?
+		WHERE note_search MATCH ? AND notes.deleted_at IS NULL
 		ORDER BY
 			CASE
 				WHEN instr(lower(note_search.explicit_title), lower(?)) > 0
@@ -164,6 +164,7 @@ func (s *Store) recentNotes(ctx context.Context) ([]SearchResult, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, title, document_json
 		FROM notes
+		WHERE deleted_at IS NULL
 		ORDER BY updated_at DESC, id ASC
 		LIMIT ?
 	`, searchRecentLimit)

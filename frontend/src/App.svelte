@@ -9,9 +9,14 @@
     ListFolderNotes,
     ListFolders,
     ListRootNotes,
+    ListTrashNotes,
     MoveNote,
+    MoveNoteToTrash,
     OpenInitialNote,
     OpenNote,
+    OpenTrashNote,
+    PermanentlyDeleteNote,
+    RestoreNote,
     SaveNote,
     SearchNotes,
   } from '../bindings/github.com/savior714/flashnote/appservice'
@@ -19,6 +24,7 @@
 
   const autosaveDelayMs = 400
   const retryDelayMs = 1500
+  const undoDelayMs = 6000
   const acceptanceText = import.meta.env.VITE_FLASHNOTE_ACCEPTANCE_TEXT ?? ''
 
   let noteID = ''
@@ -42,6 +48,12 @@
   let contextNoteID = ''
   let contextMenuX = 0
   let contextMenuY = 0
+
+  let trashView = false
+  let trashNotes: NoteSummary[] = []
+  let permanentDeleteTargetID = ''
+  let undoTrashNoteID = ''
+  let undoTimer: ReturnType<typeof setTimeout> | undefined
 
   let searchOpen = false
   let searchQuery = ''
@@ -81,6 +93,16 @@
     operationError = ''
   }
 
+  function clearOpenedNote() {
+    noteID = ''
+    title = ''
+    documentJSON = ''
+    revision = 0
+    draftSequence = 0
+    durableSequence = 0
+    saveError = ''
+  }
+
   function formatError(error: unknown): string {
     return error instanceof Error ? error.message : String(error)
   }
@@ -114,6 +136,11 @@
     rootNotes = noteSummaries(rootIDs, rootTitles)
     folders = nextFolders
 
+    if (trashView) {
+      currentFolderID = ''
+      return
+    }
+
     let locatedFolderID = ''
     for (const folder of nextFolders) {
       if (folder.notes.some((note) => note.id === noteID)) {
@@ -125,6 +152,11 @@
     if (locatedFolderID && !expandedFolderIDs.includes(locatedFolderID)) {
       expandedFolderIDs = [...expandedFolderIDs, locatedFolderID]
     }
+  }
+
+  async function refreshTrash() {
+    const [ids, displayTitles] = (await ListTrashNotes()) as [string[], string[]]
+    trashNotes = noteSummaries(ids, displayTitles)
   }
 
   async function runSearch(query = searchQuery) {
@@ -196,9 +228,16 @@
     }
   }
 
+  function clearUndoTimer() {
+    if (undoTimer !== undefined) {
+      clearTimeout(undoTimer)
+      undoTimer = undefined
+    }
+  }
+
   function scheduleSave(delay = autosaveDelayMs) {
     clearSaveTimer()
-    if (!noteID || durableSequence >= draftSequence) {
+    if (!noteID || trashView || durableSequence >= draftSequence) {
       return
     }
     saveTimer = setTimeout(() => {
@@ -209,7 +248,7 @@
 
   function scheduleRetry() {
     clearRetryTimer()
-    if (!noteID || durableSequence >= draftSequence) {
+    if (!noteID || trashView || durableSequence >= draftSequence) {
       return
     }
     retryTimer = setTimeout(() => {
@@ -219,7 +258,7 @@
   }
 
   async function persistLatest(): Promise<boolean> {
-    if (!noteID || durableSequence >= draftSequence) {
+    if (!noteID || trashView || durableSequence >= draftSequence) {
       return true
     }
 
@@ -244,7 +283,7 @@
       capturedRevision,
     )
       .then((newRevision) => {
-        if (noteID !== capturedID) {
+        if (noteID !== capturedID || trashView) {
           return false
         }
         revision = newRevision
@@ -263,7 +302,7 @@
         return true
       })
       .catch((error: unknown) => {
-        if (noteID === capturedID) {
+        if (noteID === capturedID && !trashView) {
           saveError = formatError(error)
           scheduleRetry()
         }
@@ -281,7 +320,7 @@
     clearSaveTimer()
     clearRetryTimer()
 
-    while (durableSequence < draftSequence) {
+    while (!trashView && durableSequence < draftSequence) {
       const saved = await persistLatest()
       if (!saved) {
         return false
@@ -291,6 +330,9 @@
   }
 
   function markDirty() {
+    if (trashView) {
+      return
+    }
     draftSequence += 1
     scheduleSave()
   }
@@ -314,6 +356,9 @@
   }
 
   function toggleCreateMenu() {
+    if (trashView) {
+      return
+    }
     createMenuOpen = !createMenuOpen
     contextNoteID = ''
   }
@@ -362,7 +407,7 @@
   }
 
   async function createNote() {
-    if (loading || noteTransitionActive) {
+    if (loading || noteTransitionActive || trashView) {
       return
     }
 
@@ -376,6 +421,7 @@
       const snapshot = currentFolderID
         ? ((await CreateNoteInFolder(currentFolderID)) as NoteTuple)
         : ((await CreateNote()) as NoteTuple)
+      trashView = false
       applyNote(snapshot)
       await refreshSidebar()
       await tick()
@@ -391,7 +437,7 @@
     if (loading || noteTransitionActive || !nextNoteID) {
       return false
     }
-    if (nextNoteID === noteID) {
+    if (!trashView && nextNoteID === noteID) {
       return true
     }
 
@@ -401,13 +447,60 @@
       if (!(await flushPendingSave())) {
         return false
       }
-      applyNote((await OpenNote(nextNoteID)) as NoteTuple)
+      const snapshot = (await OpenNote(nextNoteID)) as NoteTuple
+      trashView = false
+      applyNote(snapshot)
       await refreshSidebar()
       await tick()
       return true
     } catch (error) {
       operationError = `Could not open note: ${formatError(error)}`
       return false
+    } finally {
+      noteTransitionActive = false
+    }
+  }
+
+  async function enterTrashView() {
+    if (loading || noteTransitionActive) {
+      return
+    }
+
+    noteTransitionActive = true
+    operationError = ''
+    createMenuOpen = false
+    contextNoteID = ''
+    closeSearch()
+    try {
+      if (!trashView && !(await flushPendingSave())) {
+        return
+      }
+      trashView = true
+      currentFolderID = ''
+      await refreshTrash()
+      if (trashNotes.length > 0) {
+        applyNote((await OpenTrashNote(trashNotes[0].id)) as NoteTuple)
+      } else {
+        clearOpenedNote()
+      }
+    } catch (error) {
+      operationError = `Could not open Trash: ${formatError(error)}`
+    } finally {
+      noteTransitionActive = false
+    }
+  }
+
+  async function selectTrashNote(nextNoteID: string) {
+    if (!trashView || loading || noteTransitionActive || !nextNoteID || nextNoteID === noteID) {
+      return
+    }
+
+    noteTransitionActive = true
+    operationError = ''
+    try {
+      applyNote((await OpenTrashNote(nextNoteID)) as NoteTuple)
+    } catch (error) {
+      operationError = `Could not open trashed note: ${formatError(error)}`
     } finally {
       noteTransitionActive = false
     }
@@ -420,17 +513,43 @@
   }
 
   function openNoteContext(event: MouseEvent, targetNoteID: string) {
+    if (trashView) {
+      return
+    }
     event.preventDefault()
     createMenuOpen = false
     contextNoteID = targetNoteID
     contextMenuX = Math.min(event.clientX, window.innerWidth - 190)
-    contextMenuY = Math.min(event.clientY, window.innerHeight - 220)
+    contextMenuY = Math.min(event.clientY, window.innerHeight - 260)
   }
 
   function folderForNote(targetNoteID: string): string {
     for (const folder of folders) {
       if (folder.notes.some((note) => note.id === targetNoteID)) {
         return folder.id
+      }
+    }
+    return ''
+  }
+
+  function preferredSurvivor(targetNoteID: string, sourceFolderID: string): string {
+    const sameLocation = sourceFolderID
+      ? folders.find((folder) => folder.id === sourceFolderID)?.notes ?? []
+      : rootNotes
+    const sameLocationSurvivor = sameLocation.find((note) => note.id !== targetNoteID)
+    if (sameLocationSurvivor) {
+      return sameLocationSurvivor.id
+    }
+    for (const note of rootNotes) {
+      if (note.id !== targetNoteID) {
+        return note.id
+      }
+    }
+    for (const folder of folders) {
+      for (const note of folder.notes) {
+        if (note.id !== targetNoteID) {
+          return note.id
+        }
       }
     }
     return ''
@@ -454,6 +573,131 @@
       await refreshSidebar()
     } catch (error) {
       operationError = `Could not move note: ${formatError(error)}`
+    } finally {
+      noteTransitionActive = false
+    }
+  }
+
+  function offerTrashUndo(targetNoteID: string) {
+    clearUndoTimer()
+    undoTrashNoteID = targetNoteID
+    undoTimer = setTimeout(() => {
+      undoTrashNoteID = ''
+      undoTimer = undefined
+    }, undoDelayMs)
+  }
+
+  async function moveContextNoteToTrash() {
+    const targetNoteID = contextNoteID
+    if (!targetNoteID || noteTransitionActive || trashView) {
+      contextNoteID = ''
+      return
+    }
+
+    const sourceFolderID = folderForNote(targetNoteID)
+    const survivorID = preferredSurvivor(targetNoteID, sourceFolderID)
+    const wasCurrent = targetNoteID === noteID
+    contextNoteID = ''
+    noteTransitionActive = true
+    operationError = ''
+    try {
+      if (wasCurrent && !(await flushPendingSave())) {
+        return
+      }
+      await MoveNoteToTrash(targetNoteID)
+      offerTrashUndo(targetNoteID)
+      await Promise.all([refreshSidebar(), refreshTrash()])
+
+      if (wasCurrent) {
+        if (survivorID) {
+          trashView = false
+          applyNote((await OpenNote(survivorID)) as NoteTuple)
+        } else {
+          const snapshot = sourceFolderID
+            ? ((await CreateNoteInFolder(sourceFolderID)) as NoteTuple)
+            : ((await CreateNote()) as NoteTuple)
+          trashView = false
+          applyNote(snapshot)
+          await tick()
+          document.querySelector<HTMLInputElement>('.title')?.focus()
+        }
+        await refreshSidebar()
+      }
+    } catch (error) {
+      operationError = `Could not move note to Trash: ${formatError(error)}`
+    } finally {
+      noteTransitionActive = false
+    }
+  }
+
+  async function undoTrash() {
+    const targetNoteID = undoTrashNoteID
+    if (!targetNoteID || noteTransitionActive) {
+      return
+    }
+
+    clearUndoTimer()
+    undoTrashNoteID = ''
+    noteTransitionActive = true
+    operationError = ''
+    try {
+      await RestoreNote(targetNoteID)
+      if (trashView && noteID === targetNoteID) {
+        const snapshot = (await OpenNote(targetNoteID)) as NoteTuple
+        trashView = false
+        applyNote(snapshot)
+      }
+      await Promise.all([refreshSidebar(), refreshTrash()])
+    } catch (error) {
+      operationError = `Could not restore note: ${formatError(error)}`
+    } finally {
+      noteTransitionActive = false
+    }
+  }
+
+  async function restoreCurrentTrash() {
+    if (!trashView || !noteID || noteTransitionActive) {
+      return
+    }
+
+    const targetNoteID = noteID
+    noteTransitionActive = true
+    operationError = ''
+    try {
+      await RestoreNote(targetNoteID)
+      const snapshot = (await OpenNote(targetNoteID)) as NoteTuple
+      trashView = false
+      applyNote(snapshot)
+      await Promise.all([refreshSidebar(), refreshTrash()])
+    } catch (error) {
+      operationError = `Could not restore note: ${formatError(error)}`
+    } finally {
+      noteTransitionActive = false
+    }
+  }
+
+  async function confirmPermanentDelete() {
+    const targetNoteID = permanentDeleteTargetID
+    if (!targetNoteID || !trashView || noteTransitionActive) {
+      return
+    }
+
+    permanentDeleteTargetID = ''
+    noteTransitionActive = true
+    operationError = ''
+    try {
+      await PermanentlyDeleteNote(targetNoteID)
+      await refreshTrash()
+      if (noteID === targetNoteID) {
+        if (trashNotes.length > 0) {
+          applyNote((await OpenTrashNote(trashNotes[0].id)) as NoteTuple)
+        } else {
+          clearOpenedNote()
+        }
+      }
+      await refreshSidebar()
+    } catch (error) {
+      operationError = `Could not permanently delete note: ${formatError(error)}`
     } finally {
       noteTransitionActive = false
     }
@@ -591,6 +835,39 @@
     return note.id === noteID ? displayTitle() : note.displayTitle
   }
 
+  async function runAcceptanceTrashLifecycle() {
+    if (!(await flushPendingSave())) {
+      throw new Error('acceptance save flush failed')
+    }
+    const expectedID = noteID
+    const [folderID] = (await CreateFolder('Acceptance Folder')) as [string, string]
+    await MoveNote(expectedID, folderID)
+    await MoveNoteToTrash(expectedID)
+
+    const [trashIDs] = (await ListTrashNotes()) as [string[], string[]]
+    if (!trashIDs.includes(expectedID)) {
+      throw new Error('acceptance Trash listing missed note')
+    }
+    const [hiddenIDs] = (await SearchNotes('Flashnote')) as [string[], string[], string[]]
+    if (hiddenIDs.includes(expectedID)) {
+      throw new Error('acceptance Search exposed trashed note')
+    }
+    const trashSnapshot = (await OpenTrashNote(expectedID)) as NoteTuple
+    if (trashSnapshot[0] !== expectedID) {
+      throw new Error('acceptance trash open mismatch')
+    }
+
+    await RestoreNote(expectedID)
+    const restoredSnapshot = (await OpenNote(expectedID)) as NoteTuple
+    const [restoredIDs] = (await SearchNotes('Flashnote')) as [string[], string[], string[]]
+    if (!restoredIDs.includes(expectedID)) {
+      throw new Error('acceptance Search missed restored note')
+    }
+    trashView = false
+    applyNote(restoredSnapshot)
+    await refreshSidebar()
+  }
+
   async function initialise() {
     await tick()
     const shell = document.querySelector('main.shell')
@@ -599,11 +876,12 @@
     }
 
     const info = await GetRuntimeInfo()
-    if (!info.databaseReady || info.schemaVersion < 4) {
+    if (!info.databaseReady || info.schemaVersion < 5) {
       throw new Error('Flashnote runtime bridge returned invalid diagnostics')
     }
 
     const snapshot = (await OpenInitialNote()) as NoteTuple
+    trashView = false
     applyNote(snapshot)
     await refreshSidebar()
     loading = false
@@ -622,9 +900,9 @@
       setTimeout(() => {
         void (async () => {
           try {
-            const [folderID] = (await CreateFolder('Acceptance Folder')) as [string, string]
-            await MoveNote(noteID, folderID)
-            await refreshSidebar()
+            await runAcceptanceTrashLifecycle()
+          } catch (error) {
+            console.error('FLASHNOTE_ACCEPTANCE_TRASH_FAILURE', error)
           } finally {
             await Window.Close()
           }
@@ -644,6 +922,7 @@
     return () => {
       clearSaveTimer()
       clearRetryTimer()
+      clearUndoTimer()
       removeCloseListener?.()
       window.removeEventListener('keydown', handleGlobalKeydown)
       window.removeEventListener('click', handleWindowClick)
@@ -661,7 +940,7 @@
           type="button"
           aria-label="Create"
           aria-expanded={createMenuOpen}
-          disabled={loading || noteTransitionActive}
+          disabled={loading || noteTransitionActive || trashView}
           onclick={toggleCreateMenu}
         >+</button>
         {#if createMenuOpen}
@@ -675,6 +954,23 @@
 
     {#if loading}
       <div class="sidebar-placeholder">Opening…</div>
+    {:else if trashView}
+      <nav class="note-list trash-list" aria-label="Trash notes">
+        <div class="trash-heading">Trash</div>
+        {#each trashNotes as note (note.id)}
+          <button
+            class="note-row"
+            class:active={note.id === noteID}
+            type="button"
+            aria-current={note.id === noteID ? 'page' : undefined}
+            disabled={noteTransitionActive}
+            onclick={() => void selectTrashNote(note.id)}
+          >{sidebarTitle(note)}</button>
+        {/each}
+        {#if trashNotes.length === 0}
+          <div class="sidebar-placeholder">Trash is empty</div>
+        {/if}
+      </nav>
     {:else}
       <nav class="note-list" aria-label="Note list">
         {#each rootNotes as note (note.id)}
@@ -733,13 +1029,62 @@
       </nav>
     {/if}
 
-    <div class="trash-row">Trash</div>
+    <button
+      class="trash-row"
+      class:active={trashView}
+      type="button"
+      aria-current={trashView ? 'page' : undefined}
+      disabled={loading || noteTransitionActive}
+      onclick={() => void enterTrashView()}
+    >Trash</button>
   </aside>
 
-  <section class="document" aria-label="Editor">
+  <section class="document" aria-label={trashView ? 'Trash viewer' : 'Editor'}>
     <div class="document-inner">
       {#if loading}
         <div class="editor-loading">Opening note…</div>
+      {:else if trashView}
+        {#if noteID}
+          <div class="trash-actions">
+            <span>Read-only in Trash</span>
+            <div>
+              <button
+                type="button"
+                class="secondary-button"
+                disabled={noteTransitionActive}
+                onclick={() => void restoreCurrentTrash()}
+              >Restore</button>
+              <button
+                type="button"
+                class="danger-button"
+                disabled={noteTransitionActive}
+                onclick={() => (permanentDeleteTargetID = noteID)}
+              >Delete permanently…</button>
+            </div>
+          </div>
+          <input
+            class="title"
+            aria-label="Note title"
+            value={title}
+            readonly
+          />
+          {#key noteID}
+            <NoteEditor
+              {documentJSON}
+              onDocumentChange={handleDocumentChange}
+              acceptanceText=""
+              editable={false}
+            />
+          {/key}
+        {:else}
+          <div class="trash-empty">
+            <h2>Trash is empty</h2>
+            <p>Deleted notes stay here until you restore or permanently delete them.</p>
+          </div>
+        {/if}
+        {#if operationError}
+          <div class="save-error" role="status">{operationError}</div>
+        {/if}
       {:else if noteID}
         <input
           class="title"
@@ -786,6 +1131,19 @@
         onclick={() => void moveContextNote(folder.id)}
       >{folder.name}</button>
     {/each}
+    <div class="context-menu-separator"></div>
+    <button
+      type="button"
+      class="context-danger"
+      onclick={() => void moveContextNoteToTrash()}
+    >Move to Trash</button>
+  </div>
+{/if}
+
+{#if undoTrashNoteID}
+  <div class="undo-trash" role="status">
+    <span>Note moved to Trash</span>
+    <button type="button" onclick={() => void undoTrash()}>Undo</button>
   </div>
 {/if}
 
@@ -822,6 +1180,19 @@
         {/if}
       </div>
     </div>
+  </div>
+{/if}
+
+{#if permanentDeleteTargetID}
+  <div class="modal-backdrop" role="presentation">
+    <section class="close-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-note-title">
+      <h2 id="delete-note-title">Delete this note permanently?</h2>
+      <p>This cannot be undone.</p>
+      <div class="dialog-actions">
+        <button type="button" class="secondary-button" onclick={() => (permanentDeleteTargetID = '')}>Cancel</button>
+        <button type="button" class="danger-button" onclick={() => void confirmPermanentDelete()}>Delete permanently</button>
+      </div>
+    </section>
   </div>
 {/if}
 

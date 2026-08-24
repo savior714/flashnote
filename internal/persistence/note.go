@@ -35,6 +35,7 @@ func (s *Store) ListNotes(ctx context.Context) ([]NoteSummary, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, title, document_json
 		FROM notes
+		WHERE deleted_at IS NULL
 		ORDER BY updated_at DESC, id ASC
 	`)
 	if err != nil {
@@ -171,7 +172,7 @@ func (s *Store) SaveNote(ctx context.Context, noteID, title, documentJSON string
 			document_json = ?,
 			revision = revision + 1,
 			updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now')
-		WHERE id = ? AND revision = ?
+		WHERE id = ? AND revision = ? AND deleted_at IS NULL
 	`, title, normalizedDocument, noteID, expectedRevision)
 	if err != nil {
 		return 0, fmt.Errorf("update note: %w", err)
@@ -183,7 +184,7 @@ func (s *Store) SaveNote(ctx context.Context, noteID, title, documentJSON string
 	}
 	if rowsAffected != 1 {
 		var currentRevision int64
-		err := tx.QueryRowContext(ctx, `SELECT revision FROM notes WHERE id = ?`, noteID).Scan(&currentRevision)
+		err := tx.QueryRowContext(ctx, `SELECT revision FROM notes WHERE id = ? AND deleted_at IS NULL`, noteID).Scan(&currentRevision)
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 			return 0, fmt.Errorf("%w: %s", ErrNoteNotFound, noteID)
@@ -228,7 +229,7 @@ func loadNoteTx(ctx context.Context, tx *sql.Tx, noteID string) (Note, error) {
 	err := tx.QueryRowContext(ctx, `
 		SELECT id, title, document_json, revision
 		FROM notes
-		WHERE id = ?
+		WHERE id = ? AND deleted_at IS NULL
 	`, noteID).Scan(&note.ID, &note.Title, &note.DocumentJSON, &note.Revision)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Note{}, fmt.Errorf("%w: %s", ErrNoteNotFound, noteID)
