@@ -414,6 +414,7 @@
             {documentJSON}
             onDocumentChange={handleDocumentChange}
             {acceptanceText}
+            editable={!noteTransitionActive}
           />
         {/key}
         {#if saveError}
