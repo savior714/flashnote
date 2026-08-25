@@ -6,6 +6,7 @@ import {
   openExternalUrl,
   setExternalLinkOpenerForTest,
 } from './linkHelper'
+import { dispatchPasteEvent, runRichPasteAcceptance } from './richPasteAcceptance'
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -192,9 +193,6 @@ export async function runSlashAcceptance(
 
     // Set up clean content for formatting tests
     // Text: "Flashnote provides fast writing tools"
-    // Positions:
-    // doc: from 0 to 42
-    // paragraph: from 1 to 41
     editor.commands.setContent({
       type: 'doc',
       content: [
@@ -333,7 +331,6 @@ export async function runSlashAcceptance(
     }
 
     // F. Link creation: select "Flashnote", click Link, enter example.com, Apply -> normalized https://example.com
-    // "Flashnote" is pos 1..10
     editor.commands.setTextSelection({ from: 1, to: 10 })
     await tick()
     await delay(50)
@@ -531,73 +528,75 @@ export async function runSlashAcceptance(
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // COMBINED FINAL PERSISTENCE DOCUMENT
+    // E3 RICH PASTE NORMALIZATION ACCEPTANCE
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    await runRichPasteAcceptance(editor)
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // COMBINED FINAL PERSISTENCE DOCUMENT VIA REAL RICH PASTE
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    // Build the complete document with:
-    // 1. Heading 2 ("Acceptance Heading")
-    // 2. Formatted paragraph with link mark ("https://example.com")
-    // 3. Task list items (including acceptanceText)
+    // Construct the canonical persisted fixture through REAL ClipboardEvent paste
     editor.commands.setContent({
       type: 'doc',
+      content: [{ type: 'paragraph' }],
+    })
+    editor.commands.focus('start')
+    await tick()
+    await delay(30)
+
+    dispatchPasteEvent(editor, {
+      html: `
+        <h2 class="legacy-h2" style="color: blue; font-size: 32px">Acceptance Heading</h2>
+        <p class="source-p" style="margin: 20px">
+          <strong style="font-weight: 700"><a href="example.com" class="link-styled" style="color: red">Flashnote</a></strong> is
+          <em>fast</em>,
+          <del style="text-decoration: line-through">slow</del>, and
+          <code>reliable</code>.
+        </p>
+        <table class="data-table" style="border: 1px solid black">
+          <thead>
+            <tr><th>Feature</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Rich Paste</td><td>Normalized</td></tr>
+          </tbody>
+        </table>
+      `,
+      text: 'Acceptance Heading\nFlashnote is fast, slow, and reliable.\nFeature | Status\nRich Paste | Normalized',
+    })
+    await tick()
+    await delay(50)
+
+    // Append task list items for acceptanceText round trip
+    editor.commands.focus('end')
+    editor.commands.insertContent({
+      type: 'taskList',
       content: [
         {
-          type: 'heading',
-          attrs: { level: 2 },
-          content: [{ type: 'text', text: 'Acceptance Heading' }],
-        },
-        {
-          type: 'paragraph',
+          type: 'taskItem',
+          attrs: { checked: false },
           content: [
             {
-              type: 'text',
-              marks: [
-                { type: 'bold' },
-                { type: 'link', attrs: { href: 'https://example.com' } },
-              ],
-              text: 'Flashnote',
-            },
-            { type: 'text', text: ' is ' },
-            {
-              type: 'text',
-              marks: [{ type: 'italic' }],
-              text: 'fast',
-            },
-            { type: 'text', text: ' and ' },
-            {
-              type: 'text',
-              marks: [{ type: 'code' }],
-              text: 'reliable',
+              type: 'paragraph',
+              content: [{ type: 'text', text: acceptanceText }],
             },
           ],
         },
         {
-          type: 'taskList',
+          type: 'taskItem',
+          attrs: { checked: true },
           content: [
             {
-              type: 'taskItem',
-              attrs: { checked: false },
-              content: [
-                {
-                  type: 'paragraph',
-                  content: [{ type: 'text', text: acceptanceText }],
-                },
-              ],
-            },
-            {
-              type: 'taskItem',
-              attrs: { checked: true },
-              content: [
-                {
-                  type: 'paragraph',
-                  content: [{ type: 'text', text: 'Completed checklist item' }],
-                },
-              ],
+              type: 'paragraph',
+              content: [{ type: 'text', text: 'Completed checklist item' }],
             },
           ],
         },
       ],
     })
+    await tick()
+    await delay(30)
 
     onDocumentChange(
       JSON.stringify({
@@ -608,9 +607,11 @@ export async function runSlashAcceptance(
 
     console.log('FLASHNOTE_SLASH_ACCEPTANCE_SUCCESS')
     console.log('FLASHNOTE_E2_ACCEPTANCE_SUCCESS')
+    console.log('FLASHNOTE_E3_ACCEPTANCE_SUCCESS')
   } catch (error) {
     console.error('FLASHNOTE_SLASH_ACCEPTANCE_FAILURE', error)
     throw error
   }
 }
+
 

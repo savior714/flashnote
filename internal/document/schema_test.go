@@ -225,3 +225,109 @@ func TestValidateAndNormalizeJSONRejectsInvalidLink(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateAndNormalizeJSONAcceptsNormalizedRichPasteDocument(t *testing.T) {
+	fixture := `{
+		"schemaVersion": 1,
+		"doc": {
+			"type": "doc",
+			"content": [
+				{
+					"type": "heading",
+					"attrs": { "level": 2 },
+					"content": [{ "type": "text", "text": "Acceptance Heading" }]
+				},
+				{
+					"type": "paragraph",
+					"content": [
+						{
+							"type": "text",
+							"marks": [
+								{ "type": "bold" },
+								{ "type": "link", "attrs": { "href": "https://example.com" } }
+							],
+							"text": "Flashnote"
+						},
+						{ "type": "text", "text": " is " },
+						{
+							"type": "text",
+							"marks": [{ "type": "italic" }],
+							"text": "fast"
+						},
+						{ "type": "text", "text": ", " },
+						{
+							"type": "text",
+							"marks": [{ "type": "strike" }],
+							"text": "slow"
+						},
+						{ "type": "text", "text": ", and " },
+						{
+							"type": "text",
+							"marks": [{ "type": "code" }],
+							"text": "reliable"
+						},
+						{ "type": "text", "text": "." }
+					]
+				},
+				{
+					"type": "paragraph",
+					"content": [{ "type": "text", "text": "Feature | Status" }]
+				},
+				{
+					"type": "paragraph",
+					"content": [{ "type": "text", "text": "Rich Paste | Normalized" }]
+				},
+				{
+					"type": "taskList",
+					"content": [
+						{
+							"type": "taskItem",
+							"attrs": { "checked": false },
+							"content": [
+								{
+									"type": "paragraph",
+									"content": [{ "type": "text", "text": "Flashnote durable vertical slice" }]
+								}
+							]
+						},
+						{
+							"type": "taskItem",
+							"attrs": { "checked": true },
+							"content": [
+								{
+									"type": "paragraph",
+									"content": [{ "type": "text", "text": "Completed checklist item" }]
+								}
+							]
+						}
+					]
+				}
+			]
+		}
+	}`
+
+	normalized, err := ValidateAndNormalizeJSON(fixture)
+	if err != nil {
+		t.Fatalf("ValidateAndNormalizeJSON(rich paste fixture) error = %v", err)
+	}
+	for _, expected := range []string{
+		`"type":"heading"`,
+		`"level":2`,
+		`"text":"Acceptance Heading"`,
+		`"text":"Flashnote"`,
+		`"href":"https://example.com"`,
+		`"type":"bold"`,
+		`"type":"italic"`,
+		`"type":"strike"`,
+		`"type":"code"`,
+		`"text":"Feature | Status"`,
+		`"text":"Rich Paste | Normalized"`,
+		`"type":"taskList"`,
+		`"checked":false`,
+		`"checked":true`,
+	} {
+		if !strings.Contains(normalized, expected) {
+			t.Fatalf("normalized document missing %s: %s", expected, normalized)
+		}
+	}
+}

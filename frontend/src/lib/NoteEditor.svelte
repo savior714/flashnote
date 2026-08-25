@@ -7,6 +7,7 @@
   import { AttachmentImage, attachmentImageContent } from './attachmentImage'
   import FormattingBubble from './FormattingBubble.svelte'
   import { isValidExternalWebUrl, openExternalUrl } from './linkHelper'
+  import { RichPasteNormalization } from './richPaste'
   import SlashMenu from './SlashMenu.svelte'
   import { runSlashAcceptance } from './slashAcceptance'
   import {
@@ -225,6 +226,7 @@
         TaskItem,
         AttachmentImage,
         slashExtension,
+        RichPasteNormalization,
         BubbleMenu.configure({
           pluginKey: 'formattingBubble',
           element: bubbleElement,
