@@ -43,7 +43,8 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping sqlite database: %w", err)
 	}
-	if err := store.migrate(ctx); err != nil {
+	migrationBackupDir := filepath.Join(filepath.Dir(path), "backups", "migrations")
+	if err := store.migrate(ctx, migrationBackupDir); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate sqlite database: %w", err)
 	}

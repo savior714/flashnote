@@ -14,7 +14,7 @@ import (
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
-func (s *Store) migrate(ctx context.Context) error {
+func (s *Store) migrate(ctx context.Context, migrationBackupDir string) error {
 	if _, err := s.db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version INTEGER PRIMARY KEY,
@@ -50,6 +50,13 @@ func (s *Store) migrate(ctx context.Context) error {
 	}
 	sort.Slice(migrations, func(i, j int) bool { return migrations[i].version < migrations[j].version })
 
+	var appliedMigrationCount int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&appliedMigrationCount); err != nil {
+		return fmt.Errorf("count applied migrations: %w", err)
+	}
+	needsSafetyBackup := appliedMigrationCount > 0
+	safetyBackupCreated := false
+
 	seen := map[int]struct{}{}
 	for _, migration := range migrations {
 		if _, duplicate := seen[migration.version]; duplicate {
@@ -64,6 +71,16 @@ func (s *Store) migrate(ctx context.Context) error {
 		}
 		if applied != 0 {
 			continue
+		}
+
+		if needsSafetyBackup && !safetyBackupCreated {
+			if migrationBackupDir == "" {
+				return fmt.Errorf("create pre-migration safety backup: backup directory is required")
+			}
+			if _, err := s.createMigrationSafetyBackup(ctx, migrationBackupDir); err != nil {
+				return fmt.Errorf("create pre-migration safety backup: %w", err)
+			}
+			safetyBackupCreated = true
 		}
 
 		script, err := migrationFS.ReadFile("migrations/" + migration.name)

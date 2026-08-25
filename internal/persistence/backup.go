@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	backupFilenamePrefix = "flashnote-"
-	backupFilenameSuffix = ".db"
-	backupStepPages      = int32(128)
+	backupFilenamePrefix          = "flashnote-"
+	migrationBackupFilenamePrefix = "flashnote-migration-"
+	backupFilenameSuffix          = ".db"
+	backupStepPages               = int32(128)
 )
 
 type sqliteBackupConnection interface {
@@ -31,6 +32,24 @@ func (s *Store) CreateRollingBackup(ctx context.Context, backupDir string, reten
 	if retention < 1 {
 		return "", errors.New("backup retention must be positive")
 	}
+
+	finalPath, err := s.createValidatedBackup(ctx, backupDir, backupFilenamePrefix)
+	if err != nil {
+		return "", err
+	}
+	if err := pruneRollingBackups(backupDir, retention); err != nil {
+		return finalPath, fmt.Errorf("prune rolling backups: %w", err)
+	}
+	return finalPath, nil
+}
+
+// createMigrationSafetyBackup creates one validated snapshot that is retained
+// independently from the ordinary rolling-backup set.
+func (s *Store) createMigrationSafetyBackup(ctx context.Context, backupDir string) (string, error) {
+	return s.createValidatedBackup(ctx, backupDir, migrationBackupFilenamePrefix)
+}
+
+func (s *Store) createValidatedBackup(ctx context.Context, backupDir, filenamePrefix string) (string, error) {
 	if err := os.MkdirAll(backupDir, 0o700); err != nil {
 		return "", fmt.Errorf("create backup directory: %w", err)
 	}
@@ -65,16 +84,12 @@ func (s *Store) CreateRollingBackup(ctx context.Context, backupDir string, reten
 	}
 
 	randomToken := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(tempPath), ".flashnote-backup-"), ".tmp")
-	finalName := fmt.Sprintf("%s%019d-%s%s", backupFilenamePrefix, time.Now().UTC().UnixNano(), randomToken, backupFilenameSuffix)
+	finalName := fmt.Sprintf("%s%019d-%s%s", filenamePrefix, time.Now().UTC().UnixNano(), randomToken, backupFilenameSuffix)
 	finalPath := filepath.Join(backupDir, finalName)
 	if err := os.Rename(tempPath, finalPath); err != nil {
 		return "", fmt.Errorf("promote backup snapshot: %w", err)
 	}
 	cleanupTemp = false
-
-	if err := pruneRollingBackups(backupDir, retention); err != nil {
-		return finalPath, fmt.Errorf("prune rolling backups: %w", err)
-	}
 	return finalPath, nil
 }
 
