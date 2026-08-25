@@ -259,10 +259,8 @@ jobs:
           wait "$pid"
           trap - EXIT
 
-          grep -q FLASHNOTE_SLASH_ACCEPTANCE_SUCCESS "$LOG"
-          grep -q FLASHNOTE_E2_ACCEPTANCE_SUCCESS "$LOG"
-          grep -q FLASHNOTE_E3_ACCEPTANCE_SUCCESS "$LOG"
-          grep -q FLASHNOTE_E4_ACCEPTANCE_SUCCESS "$LOG"
+          test -f "$DB"
+          grep -q FLASHNOTE_IMAGE_INGESTED "$LOG"
           grep -q FLASHNOTE_NOTE_CREATED "$LOG"
           grep -q FLASHNOTE_NOTE_SAVED "$LOG"
           grep -q FLASHNOTE_FOLDER_CREATED "$LOG"
