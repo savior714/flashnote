@@ -242,14 +242,14 @@ func validateMark(mark map[string]any) error {
 		if !ok {
 			return errors.New("link mark requires attributes")
 		}
-		if err := validateKeys(attrs, "href", "target", "rel", "class"); err != nil {
+		if err := validateKeys(attrs, "href", "target", "rel", "class", "title"); err != nil {
 			return fmt.Errorf("link attributes: %w", err)
 		}
 		href, ok := attrs["href"].(string)
 		if !ok || href == "" {
 			return errors.New("link href must be a non-empty string")
 		}
-		for _, key := range []string{"target", "rel", "class"} {
+		for _, key := range []string{"target", "rel", "class", "title"} {
 			if value, exists := attrs[key]; exists && value != nil {
 				if _, ok := value.(string); !ok {
 					return fmt.Errorf("link %s must be a string or null", key)

@@ -1,9 +1,12 @@
 <script lang="ts">
-  import { Editor, type JSONContent, type Range } from '@tiptap/core'
+  import { Editor, isTextSelection, type JSONContent, type Range } from '@tiptap/core'
+  import BubbleMenu from '@tiptap/extension-bubble-menu'
   import StarterKit from '@tiptap/starter-kit'
   import { onDestroy, onMount } from 'svelte'
   import { IngestImage } from '../../bindings/github.com/savior714/flashnote/appservice'
   import { AttachmentImage, attachmentImageContent } from './attachmentImage'
+  import FormattingBubble from './FormattingBubble.svelte'
+  import { isValidExternalWebUrl, openExternalUrl } from './linkHelper'
   import SlashMenu from './SlashMenu.svelte'
   import { runSlashAcceptance } from './slashAcceptance'
   import {
@@ -30,6 +33,7 @@
     onAcceptanceReady,
   }: Props = $props()
   let element!: HTMLDivElement
+  let bubbleElement!: HTMLDivElement
   let editor = $state<Editor | null>(null)
   let imageError = $state('')
 
@@ -193,6 +197,18 @@
     }
   }
 
+  function handleEditorDomClick(event: MouseEvent) {
+    const target = event.target as HTMLElement | null
+    const anchor = target?.closest('a')
+    if (anchor) {
+      event.preventDefault()
+      const href = anchor.getAttribute('href')
+      if (href) {
+        void openExternalUrl(href)
+      }
+    }
+  }
+
   $effect(() => {
     editor?.setEditable(editable, false)
     if (!editable && slashOpen) {
@@ -207,11 +223,32 @@
         StarterKit.configure({
           heading: { levels: [1, 2, 3] },
           underline: false,
+          link: {
+            autolink: true,
+            linkOnPaste: true,
+            defaultProtocol: 'https',
+            openOnClick: false,
+            protocols: ['http', 'https'],
+            isAllowedUri: (url) => isValidExternalWebUrl(url),
+          },
         }),
         TaskList,
         TaskItem,
         AttachmentImage,
         slashExtension,
+        BubbleMenu.configure({
+          element: bubbleElement,
+          updateDelay: 0,
+          shouldShow: ({ editor: currentEditor, state, from, to }) => {
+            if (!currentEditor.isEditable) return false
+            const { doc, selection } = state
+            if (selection.empty) return false
+            if (!isTextSelection(selection)) return false
+            if (!doc.textBetween(from, to).length) return false
+            if (currentEditor.isActive('codeBlock')) return false
+            return true
+          },
+        }),
       ],
       content: persistedDoc(),
       editable,
@@ -227,6 +264,19 @@
         attributes: {
           class: 'prose-editor',
           spellcheck: 'true',
+        },
+        handleClick: (_view, _pos, event) => {
+          const target = event.target as HTMLElement | null
+          const anchor = target?.closest('a')
+          if (anchor) {
+            event.preventDefault()
+            const href = anchor.getAttribute('href')
+            if (href) {
+              void openExternalUrl(href)
+            }
+            return true
+          }
+          return false
         },
         handlePaste: (_view, event) => {
           if (!editable) {
@@ -256,6 +306,8 @@
       },
     })
 
+    element.addEventListener('click', handleEditorDomClick)
+
     if (acceptanceText) {
       queueMicrotask(() => {
         if (!editor) return
@@ -271,12 +323,16 @@
   })
 
   onDestroy(() => {
+    element?.removeEventListener('click', handleEditorDomClick)
     editor?.destroy()
     editor = null
   })
 </script>
 
 <div class="editor-host" bind:this={element}></div>
+<div class="bubble-menu-wrapper" bind:this={bubbleElement}>
+  <FormattingBubble {editor} {editable} />
+</div>
 {#if slashOpen && editable}
   <SlashMenu
     items={slashItems}

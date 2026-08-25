@@ -177,3 +177,51 @@ func TestValidateAndNormalizeJSONAcceptsAllSlashCommandStructures(t *testing.T) 
 		})
 	}
 }
+
+func TestValidateAndNormalizeJSONAcceptsLinkMark(t *testing.T) {
+	tests := []struct {
+		name string
+		json string
+	}{
+		{
+			name: "link with full attributes",
+			json: `{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","marks":[{"type":"link","attrs":{"href":"https://example.com","target":"_blank","rel":"noopener noreferrer","class":null,"title":null}}],"text":"link text"}]}]}}`,
+		},
+		{
+			name: "link with href only",
+			json: `{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","marks":[{"type":"link","attrs":{"href":"https://example.com"}}],"text":"link text"}]}]}}`,
+		},
+		{
+			name: "link with multiple inline marks",
+			json: `{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","marks":[{"type":"bold"},{"type":"link","attrs":{"href":"https://example.com"}}],"text":"bold link"}]}]}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			normalized, err := ValidateAndNormalizeJSON(tt.json)
+			if err != nil {
+				t.Fatalf("ValidateAndNormalizeJSON(%s) error = %v", tt.name, err)
+			}
+			if !strings.Contains(normalized, "https://example.com") {
+				t.Fatalf("normalized link missing href: %s", normalized)
+			}
+		})
+	}
+}
+
+func TestValidateAndNormalizeJSONRejectsInvalidLink(t *testing.T) {
+	tests := []string{
+		`{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","marks":[{"type":"link"}],"text":"no attrs"}]}]}}`,
+		`{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","marks":[{"type":"link","attrs":{}}],"text":"empty attrs"}]}]}}`,
+		`{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","marks":[{"type":"link","attrs":{"href":""}}],"text":"empty href"}]}]}}`,
+		`{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","marks":[{"type":"link","attrs":{"href":123}}],"text":"non-string href"}]}]}}`,
+		`{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","marks":[{"type":"link","attrs":{"href":"https://example.com","extra":"invalid"}}],"text":"unknown attr"}]}]}}`,
+	}
+
+	for _, input := range tests {
+		if _, err := ValidateAndNormalizeJSON(input); !errors.Is(err, ErrInvalidDocument) {
+			t.Fatalf("expected ErrInvalidDocument for %s, got %v", input, err)
+		}
+	}
+}
