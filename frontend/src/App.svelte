@@ -29,6 +29,7 @@
   } from '../bindings/github.com/savior714/flashnote/appservice'
   import NoteEditor from './lib/NoteEditor.svelte'
   import SettingsDialog from './lib/SettingsDialog.svelte'
+  import { runNewNoteShortcutAcceptance } from './lib/newNoteShortcutAcceptance'
   import {
     applyEditorFontSize,
     applyTheme,
@@ -42,6 +43,7 @@
   const retryDelayMs = 1500
   const undoDelayMs = 6000
   const acceptanceText = import.meta.env.VITE_FLASHNOTE_ACCEPTANCE_TEXT ?? ''
+  let editorAcceptanceConsumed = false
 
   let settings = loadSettings()
   let settingsOpen = false
@@ -541,13 +543,13 @@
       trashView = false
       applyNote(snapshot)
       await refreshSidebar()
-      await tick()
-      document.querySelector<HTMLInputElement>('.title')?.focus()
     } catch (error) {
       operationError = `Could not create note: ${formatError(error)}`
     } finally {
       noteTransitionActive = false
     }
+    await tick()
+    document.querySelector<HTMLInputElement>('.title')?.focus()
   }
 
   async function selectNote(nextNoteID: string): Promise<boolean> {
@@ -992,6 +994,21 @@
   function handleGlobalKeydown(event: KeyboardEvent) {
     const modifier = event.metaKey || event.ctrlKey
 
+    if (modifier && !event.shiftKey && !event.altKey && !event.isComposing && event.key.toLowerCase() === 'n') {
+      event.preventDefault()
+      if (trashView) {
+        return
+      }
+      if (settingsOpen) {
+        closeSettings()
+      }
+      if (searchOpen) {
+        closeSearch()
+      }
+      void createNote()
+      return
+    }
+
     if (modifier && !event.shiftKey && !event.altKey && event.key === '\\') {
       event.preventDefault()
       toggleSidebar()
@@ -1172,6 +1189,41 @@
     if (trashSnapshot[0] !== expectedID) {
       throw new Error('acceptance trash open mismatch')
     }
+
+    await enterTrashView()
+    const [rootNotesBeforeTrashCmdN] = (await ListRootNotes()) as [string[], string[]]
+    const [trashNotesBeforeTrashCmdN] = (await ListTrashNotes()) as [string[], string[]]
+    const noteIDInTrashBefore = noteID
+    const isMac = typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac')
+    const trashCmdNEvent = new KeyboardEvent('keydown', {
+      key: 'n',
+      bubbles: true,
+      cancelable: true,
+      metaKey: isMac,
+      ctrlKey: !isMac,
+    })
+    window.dispatchEvent(trashCmdNEvent)
+    await tick()
+    await new Promise((resolve) => setTimeout(resolve, 30))
+
+    if (!trashCmdNEvent.defaultPrevented) {
+      throw new Error('acceptance S3: Cmd/Ctrl+N while in Trash was not default-prevented')
+    }
+    if (!trashView) {
+      throw new Error('acceptance S3: Cmd/Ctrl+N while in Trash unexpectedly exited trashView')
+    }
+    if (noteID !== noteIDInTrashBefore) {
+      throw new Error('acceptance S3: Cmd/Ctrl+N while in Trash unexpectedly changed noteID')
+    }
+    const [rootNotesAfterTrashCmdN] = (await ListRootNotes()) as [string[], string[]]
+    const [trashNotesAfterTrashCmdN] = (await ListTrashNotes()) as [string[], string[]]
+    if (
+      rootNotesAfterTrashCmdN.length !== rootNotesBeforeTrashCmdN.length ||
+      trashNotesAfterTrashCmdN.length !== trashNotesBeforeTrashCmdN.length
+    ) {
+      throw new Error('acceptance S3: Cmd/Ctrl+N while in Trash altered note counts')
+    }
+
     await RestoreNote(expectedID)
 
     const sibling = (await CreateNoteInFolder(folderID)) as NoteTuple
@@ -1210,13 +1262,26 @@
   }
 
   function handleAcceptanceReady() {
+    editorAcceptanceConsumed = true
     setTimeout(() => {
       void (async () => {
         try {
+          await runNewNoteShortcutAcceptance({
+            getNoteID: () => noteID,
+            getTitle: () => title,
+            getDocumentJSON: () => documentJSON,
+            isSidebarVisible: () => sidebarVisible,
+            getCurrentFolderID: () => currentFolderID,
+            isSettingsOpen: () => settingsOpen,
+            isNoteTransitionActive: () => noteTransitionActive,
+            applyNote,
+            refreshSidebar,
+          })
           await runAcceptanceTrashLifecycle()
+          console.log('FLASHNOTE_ACCEPTANCE_FULL_PIPELINE_SUCCESS')
           await Window.Close()
         } catch (error) {
-          console.error('FLASHNOTE_ACCEPTANCE_TRASH_FAILURE', error)
+          console.error('FLASHNOTE_ACCEPTANCE_FAILURE', error)
         }
       })()
     }, 200)
@@ -1559,7 +1624,7 @@
           <NoteEditor
             {documentJSON}
             onDocumentChange={handleDocumentChange}
-            {acceptanceText}
+            acceptanceText={editorAcceptanceConsumed ? '' : acceptanceText}
             editable={!noteTransitionActive}
             spellcheck={settings.spellcheck}
             onAcceptanceReady={handleAcceptanceReady}
