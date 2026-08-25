@@ -229,6 +229,152 @@ jobs:
           cleanup
           trap - EXIT
 
+      - name: Autosave failure and close guard
+        run: |
+          set -euo pipefail
+
+          seed_database() {
+            local seed_home="$1"
+            local seed_log="$2"
+            rm -rf "$seed_home"
+            mkdir -p "$seed_home"
+            HOME="$seed_home" "$RUNNER_TEMP/flashnote-normal" >"$seed_log" 2>&1 &
+            local seed_pid=$!
+            for _ in {1..30}; do
+              if grep -q FLASHNOTE_NOTE_OPEN "$seed_log"; then break; fi
+              kill -0 "$seed_pid"
+              sleep 1
+            done
+            grep -q FLASHNOTE_NOTE_OPEN "$seed_log"
+            kill "$seed_pid" 2>/dev/null || true
+            wait "$seed_pid" 2>/dev/null || true
+          }
+
+          RECOVERY_HOME="$RUNNER_TEMP/flashnote-p1b-recovery-home"
+          RECOVERY_SEED_LOG="$RUNNER_TEMP/p1b-recovery-seed.log"
+          seed_database "$RECOVERY_HOME" "$RECOVERY_SEED_LOG"
+          RECOVERY_DB="$RECOVERY_HOME/Library/Application Support/Flashnote/flashnote.db"
+          recovery_note_id="$(sqlite3 "$RECOVERY_DB" 'SELECT id FROM notes WHERE deleted_at IS NULL LIMIT 1;')"
+          recovery_base_revision="$(sqlite3 "$RECOVERY_DB" "SELECT revision FROM notes WHERE id = '$recovery_note_id';")"
+          test -n "$recovery_note_id"
+          sqlite3 "$RECOVERY_DB" <<'SQL'
+          CREATE TRIGGER flashnote_acceptance_fail_p1b
+          BEFORE UPDATE ON notes
+          WHEN NEW.title LIKE 'P1B recovery %'
+          BEGIN
+            SELECT RAISE(ABORT, 'flashnote acceptance forced save failure');
+          END;
+          SQL
+
+          rm -rf .task frontend/dist flashnote
+          VITE_FLASHNOTE_ACCEPTANCE_TEXT="P1B recovery bootstrap" \
+            VITE_FLASHNOTE_DATA_SAFETY_ACCEPTANCE=recovery \
+            wails3 build
+          test -x ./flashnote
+
+          RECOVERY_LOG="$RUNNER_TEMP/p1b-recovery.log"
+          HOME="$RECOVERY_HOME" ./flashnote >"$RECOVERY_LOG" 2>&1 &
+          pid=$!
+          cleanup() { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
+          trap cleanup EXIT
+          for _ in {1..30}; do
+            if grep -q "FLASHNOTE_NOTE_SAVE_FAILED id=$recovery_note_id" "$RECOVERY_LOG"; then break; fi
+            kill -0 "$pid"
+            sleep 1
+          done
+          grep -q "FLASHNOTE_NOTE_SAVE_FAILED id=$recovery_note_id" "$RECOVERY_LOG"
+          grep -q 'flashnote acceptance forced save failure' "$RECOVERY_LOG"
+          sqlite3 "$RECOVERY_DB" 'DROP TRIGGER flashnote_acceptance_fail_p1b;'
+
+          for _ in {1..30}; do
+            if ! kill -0 "$pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if kill -0 "$pid" 2>/dev/null; then
+            echo "P1B recovery acceptance did not close after persistence recovered" >&2
+            cat "$RECOVERY_LOG" >&2 || true
+            exit 1
+          fi
+          wait "$pid"
+          trap - EXIT
+
+          grep -q "FLASHNOTE_NOTE_SAVED id=$recovery_note_id" "$RECOVERY_LOG"
+          grep -q FLASHNOTE_CLOSE_FLUSH_REQUESTED "$RECOVERY_LOG"
+          grep -q FLASHNOTE_CLOSE_APPROVED "$RECOVERY_LOG"
+          ! grep -q FLASHNOTE_CLOSE_DISCARDED "$RECOVERY_LOG"
+          test "$(sqlite3 "$RECOVERY_DB" "SELECT title FROM notes WHERE id = '$recovery_note_id';")" = 'P1B recovery latest draft'
+          recovery_revision="$(sqlite3 "$RECOVERY_DB" "SELECT revision FROM notes WHERE id = '$recovery_note_id';")"
+          test "$recovery_revision" -gt "$recovery_base_revision"
+          test "$(sqlite3 "$RECOVERY_DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name='flashnote_acceptance_fail_p1b';")" = 0
+          cp "$RECOVERY_LOG" "$RUNNER_TEMP/p1b-recovery.log.saved"
+
+          DISCARD_HOME="$RUNNER_TEMP/flashnote-p1b-discard-home"
+          DISCARD_SEED_LOG="$RUNNER_TEMP/p1b-discard-seed.log"
+          seed_database "$DISCARD_HOME" "$DISCARD_SEED_LOG"
+          DISCARD_DB="$DISCARD_HOME/Library/Application Support/Flashnote/flashnote.db"
+          discard_note_id="$(sqlite3 "$DISCARD_DB" 'SELECT id FROM notes WHERE deleted_at IS NULL LIMIT 1;')"
+          discard_base_title="$(sqlite3 "$DISCARD_DB" "SELECT title FROM notes WHERE id = '$discard_note_id';")"
+          test -n "$discard_note_id"
+          sqlite3 "$DISCARD_DB" <<'SQL'
+          CREATE TRIGGER flashnote_acceptance_fail_p1b
+          BEFORE UPDATE ON notes
+          WHEN NEW.title LIKE 'P1B discard %'
+          BEGIN
+            SELECT RAISE(ABORT, 'flashnote acceptance forced save failure');
+          END;
+          SQL
+
+          rm -rf .task frontend/dist flashnote
+          VITE_FLASHNOTE_ACCEPTANCE_TEXT="P1B discard bootstrap" \
+            VITE_FLASHNOTE_DATA_SAFETY_ACCEPTANCE=discard \
+            wails3 build
+          test -x ./flashnote
+
+          DISCARD_LOG="$RUNNER_TEMP/p1b-discard.log"
+          HOME="$DISCARD_HOME" ./flashnote >"$DISCARD_LOG" 2>&1 &
+          pid=$!
+          cleanup() { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
+          trap cleanup EXIT
+          for _ in {1..30}; do
+            if ! kill -0 "$pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if kill -0 "$pid" 2>/dev/null; then
+            echo "P1B discard acceptance did not exit through explicit discard" >&2
+            cat "$DISCARD_LOG" >&2 || true
+            exit 1
+          fi
+          wait "$pid"
+          trap - EXIT
+
+          failure_count="$(grep -c "FLASHNOTE_NOTE_SAVE_FAILED id=$discard_note_id" "$DISCARD_LOG")"
+          test "$failure_count" -ge 4
+          close_request_count="$(grep -c FLASHNOTE_CLOSE_FLUSH_REQUESTED "$DISCARD_LOG")"
+          test "$close_request_count" -ge 2
+          grep -q FLASHNOTE_CLOSE_DISCARDED "$DISCARD_LOG"
+          ! grep -q FLASHNOTE_CLOSE_APPROVED "$DISCARD_LOG"
+          test "$(sqlite3 "$DISCARD_DB" "SELECT title FROM notes WHERE id = '$discard_note_id';")" = "$discard_base_title"
+          test "$(sqlite3 "$DISCARD_DB" "SELECT COUNT(*) FROM notes WHERE id = '$discard_note_id' AND title LIKE 'P1B discard %';")" = 0
+          sqlite3 "$DISCARD_DB" 'DROP TRIGGER flashnote_acceptance_fail_p1b;'
+
+          REOPEN_LOG="$RUNNER_TEMP/p1b-discard-reopen.log"
+          HOME="$DISCARD_HOME" "$RUNNER_TEMP/flashnote-normal" >"$REOPEN_LOG" 2>&1 &
+          pid=$!
+          cleanup() { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
+          trap cleanup EXIT
+          for _ in {1..30}; do
+            if grep -q "FLASHNOTE_NOTE_OPEN id=$discard_note_id" "$REOPEN_LOG"; then break; fi
+            kill -0 "$pid"
+            sleep 1
+          done
+          grep -q "FLASHNOTE_NOTE_OPEN id=$discard_note_id" "$REOPEN_LOG"
+          grep -q 'created=false' "$REOPEN_LOG"
+          test "$(sqlite3 "$DISCARD_DB" "SELECT title FROM notes WHERE id = '$discard_note_id';")" = "$discard_base_title"
+          cleanup
+          trap - EXIT
+          cp "$DISCARD_LOG" "$RUNNER_TEMP/p1b-discard.log.saved"
+          cp "$REOPEN_LOG" "$RUNNER_TEMP/p1b-discard-reopen.log.saved"
+
       - name: Durable note round trip
         env:
           ACCEPTANCE_TEXT: Flashnote durable vertical slice
@@ -450,6 +596,11 @@ jobs:
             ${{ runner.temp }}/first-startup.log
             ${{ runner.temp }}/wails-dev.log.saved
             ${{ runner.temp }}/second-startup.log
+            ${{ runner.temp }}/p1b-recovery-seed.log
+            ${{ runner.temp }}/p1b-recovery.log.saved
+            ${{ runner.temp }}/p1b-discard-seed.log
+            ${{ runner.temp }}/p1b-discard.log.saved
+            ${{ runner.temp }}/p1b-discard-reopen.log.saved
             ${{ runner.temp }}/note-roundtrip-first.log
             ${{ runner.temp }}/note-roundtrip-first.log.saved
             ${{ runner.temp }}/note-roundtrip-reopen.log.saved

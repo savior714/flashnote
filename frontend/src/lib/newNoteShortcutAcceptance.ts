@@ -11,6 +11,7 @@ import {
   PermanentlyDeleteFolder,
   PermanentlyDeleteNote,
 } from '../../bindings/github.com/savior714/flashnote/appservice'
+import { runDataSafetyAcceptance } from './dataSafetyAcceptance'
 
 type NoteTuple = [string, string, string, number, boolean]
 
@@ -94,6 +95,11 @@ export async function runNewNoteShortcutAcceptance(
   const primaryModifier = isMac ? { metaKey: true } : { ctrlKey: true }
 
   try {
+    const dataSafetyAcceptanceMode = import.meta.env.VITE_FLASHNOTE_DATA_SAFETY_ACCEPTANCE ?? ''
+    if (dataSafetyAcceptanceMode) {
+      await runDataSafetyAcceptance(dataSafetyAcceptanceMode)
+    }
+
     const originalNoteID = getNoteID()
     if (!originalNoteID) {
       throw new Error('acceptance S3: no note is currently open')

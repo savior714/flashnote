@@ -295,6 +295,7 @@ func (s *AppService) SaveNote(noteID string, title string, documentJSON string, 
 	}
 	revision, err := s.store.SaveNote(ctx, noteID, title, documentJSON, expectedRevision)
 	if err != nil {
+		log.Printf("FLASHNOTE_NOTE_SAVE_FAILED id=%s revision=%d error=%v", noteID, expectedRevision, err)
 		return 0, err
 	}
 	s.reconcileAttachments("save")
