@@ -177,4 +177,3 @@ func TestValidateAndNormalizeJSONAcceptsAllSlashCommandStructures(t *testing.T) 
 		})
 	}
 }
-

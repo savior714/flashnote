@@ -5,6 +5,7 @@
   import { IngestImage } from '../../bindings/github.com/savior714/flashnote/appservice'
   import { AttachmentImage, attachmentImageContent } from './attachmentImage'
   import SlashMenu from './SlashMenu.svelte'
+  import { runSlashAcceptance } from './slashAcceptance'
   import {
     createSlashExtension,
     filterSlashCommands,
@@ -250,31 +251,8 @@
 
     if (acceptanceText) {
       queueMicrotask(() => {
-        editor?.commands.insertContent({
-          type: 'taskList',
-          content: [
-            {
-              type: 'taskItem',
-              attrs: { checked: false },
-              content: [
-                {
-                  type: 'paragraph',
-                  content: [{ type: 'text', text: acceptanceText }],
-                },
-              ],
-            },
-            {
-              type: 'taskItem',
-              attrs: { checked: true },
-              content: [
-                {
-                  type: 'paragraph',
-                  content: [{ type: 'text', text: 'Completed checklist item' }],
-                },
-              ],
-            },
-          ],
-        })
+        if (!editor) return
+        void runSlashAcceptance(editor, acceptanceText, onDocumentChange)
       })
     }
   })

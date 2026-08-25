@@ -259,6 +259,8 @@ jobs:
           trap - EXIT
 
           test -f "$DB"
+          grep -q FLASHNOTE_SLASH_ACCEPTANCE_SUCCESS "$LOG"
+          ! grep -q FLASHNOTE_SLASH_ACCEPTANCE_FAILURE "$LOG"
           grep -q FLASHNOTE_NOTE_CREATED "$LOG"
           grep -q FLASHNOTE_NOTE_SAVED "$LOG"
           grep -q FLASHNOTE_FOLDER_CREATED "$LOG"
@@ -286,6 +288,7 @@ jobs:
           revision="$(sqlite3 "$DB" "SELECT revision FROM notes WHERE id = '$note_id';")"
           test "$revision" -ge 2
           test "$(sqlite3 "$DB" "SELECT instr(document_json, '$ACCEPTANCE_TEXT') > 0 FROM notes WHERE id = '$note_id';")" = 1
+          test "$(sqlite3 "$DB" "SELECT instr(document_json, '\"heading\"') > 0 FROM notes WHERE id = '$note_id';")" = 1
           test "$(sqlite3 "$DB" "SELECT value = '$note_id' FROM app_meta WHERE key = 'last_note_id';")" = 1
 
           cp "$RUNNER_TEMP/flashnote-normal" ./flashnote
