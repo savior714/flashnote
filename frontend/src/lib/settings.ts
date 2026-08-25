@@ -27,7 +27,7 @@ export function sanitizeAppearance(value: unknown): AppearanceMode {
 }
 
 export function sanitizeFontSize(value: unknown): number {
-  if (typeof value === 'number' && !isNaN(value)) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
     const rounded = Math.round(value)
     return Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, rounded))
   }

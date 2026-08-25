@@ -333,11 +333,11 @@
       queueMicrotask(() => {
         if (!editor) return
         void runSlashAcceptance(editor, acceptanceText, onDocumentChange)
+          .then(() => {
+            onAcceptanceReady?.()
+          })
           .catch((error) => {
             console.error('FLASHNOTE_SLASH_ACCEPTANCE_FAILURE', error)
-          })
-          .finally(() => {
-            onAcceptanceReady?.()
           })
       })
     }

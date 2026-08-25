@@ -1196,10 +1196,9 @@
       void (async () => {
         try {
           await runAcceptanceTrashLifecycle()
+          await Window.Close()
         } catch (error) {
           console.error('FLASHNOTE_ACCEPTANCE_TRASH_FAILURE', error)
-        } finally {
-          await Window.Close()
         }
       })()
     }, 200)

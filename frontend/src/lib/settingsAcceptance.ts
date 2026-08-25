@@ -1,5 +1,6 @@
 import type { Editor } from '@tiptap/core'
 import { tick } from 'svelte'
+import { setLibraryExporterForTest } from './libraryExport'
 import {
   applyEditorFontSize,
   applyTheme,
@@ -54,7 +55,7 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
       throw new Error(`acceptance: default settings mismatch: ${JSON.stringify(defaults)}`)
     }
 
-    // Test malformed storage parsing
+    // 1. Malformed JSON -> defaults
     localStorage.setItem(SETTINGS_STORAGE_KEY, '{ invalid json')
     const fallbackFromMalformed = loadSettings()
     if (
@@ -65,18 +66,68 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
       throw new Error('acceptance: malformed stored json did not fallback to defaults')
     }
 
-    // Test out-of-range / invalid field sanitization
+    // 2. Unknown appearance -> system, invalid font size -> 16, invalid spellcheck -> true
     localStorage.setItem(
       SETTINGS_STORAGE_KEY,
-      JSON.stringify({ appearance: 'neon-cyberpunk', editorFontSize: 999, spellcheck: 'not-bool' }),
+      JSON.stringify({ appearance: 'neon-cyberpunk', editorFontSize: 'invalid-size', spellcheck: 'not-bool' }),
     )
-    const sanitized = loadSettings()
+    const sanitizedInvalidTypes = loadSettings()
     if (
-      sanitized.appearance !== 'system' ||
-      sanitized.editorFontSize !== 16 ||
-      sanitized.spellcheck !== true
+      sanitizedInvalidTypes.appearance !== 'system' ||
+      sanitizedInvalidTypes.editorFontSize !== 16 ||
+      sanitizedInvalidTypes.spellcheck !== true
     ) {
-      throw new Error(`acceptance: invalid field values failed to sanitize: ${JSON.stringify(sanitized)}`)
+      throw new Error(`acceptance: invalid field types failed to sanitize: ${JSON.stringify(sanitizedInvalidTypes)}`)
+    }
+
+    // 3. Finite too-large font size: 999 -> 22
+    localStorage.setItem(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify({ appearance: 'dark', editorFontSize: 999, spellcheck: false }),
+    )
+    const sanitizedTooLarge = loadSettings()
+    if (
+      sanitizedTooLarge.appearance !== 'dark' ||
+      sanitizedTooLarge.editorFontSize !== 22 ||
+      sanitizedTooLarge.spellcheck !== false
+    ) {
+      throw new Error(`acceptance: 999 font size was not clamped to 22: ${JSON.stringify(sanitizedTooLarge)}`)
+    }
+
+    // 4. Finite too-small font size: 1 -> 14
+    localStorage.setItem(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify({ appearance: 'light', editorFontSize: 1, spellcheck: true }),
+    )
+    const sanitizedTooSmall = loadSettings()
+    if (
+      sanitizedTooSmall.appearance !== 'light' ||
+      sanitizedTooSmall.editorFontSize !== 14 ||
+      sanitizedTooSmall.spellcheck !== true
+    ) {
+      throw new Error(`acceptance: 1 font size was not clamped to 14: ${JSON.stringify(sanitizedTooSmall)}`)
+    }
+
+    // 5. Non-finite values tested directly against sanitizer -> 16
+    if (sanitizeFontSize(Infinity) !== 16) {
+      throw new Error('acceptance: sanitizeFontSize(Infinity) did not return 16')
+    }
+    if (sanitizeFontSize(-Infinity) !== 16) {
+      throw new Error('acceptance: sanitizeFontSize(-Infinity) did not return 16')
+    }
+    if (sanitizeFontSize(NaN) !== 16) {
+      throw new Error('acceptance: sanitizeFontSize(NaN) did not return 16')
+    }
+    if (sanitizeFontSize(undefined) !== 16) {
+      throw new Error('acceptance: sanitizeFontSize(undefined) did not return 16')
+    }
+
+    // Direct unit assertions on other sanitizers
+    if (sanitizeAppearance('unknown') !== 'system') {
+      throw new Error('acceptance: sanitizeAppearance("unknown") did not return "system"')
+    }
+    if (sanitizeSpellcheck(12345) !== true) {
+      throw new Error('acceptance: sanitizeSpellcheck(12345) did not return true')
     }
 
     localStorage.removeItem(SETTINGS_STORAGE_KEY)
@@ -285,6 +336,54 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     // Verify button text and action readiness
     if (!exportButton.textContent?.includes('Export all')) {
       throw new Error(`acceptance: unexpected export button label: "${exportButton.textContent}"`)
+    }
+
+    // Prove production boundary test seam with in-flight debounce and success feedback
+    let exportCallCount = 0
+    let resolveExport!: (path: string) => void
+    setLibraryExporterForTest(() => {
+      exportCallCount++
+      return new Promise<string>((resolve) => {
+        resolveExport = resolve
+      })
+    })
+
+    try {
+      exportButton.click()
+      await tick()
+      await delay(20)
+
+      if (exportCallCount !== 1) {
+        throw new Error(`acceptance: expected 1 export call on click, got ${exportCallCount}`)
+      }
+      if (!exportButton.disabled) {
+        throw new Error('acceptance: export button was not disabled while export in-flight')
+      }
+
+      // Duplicate click while in-flight must NOT trigger a second export call
+      exportButton.click()
+      await tick()
+      await delay(20)
+
+      if (exportCallCount !== 1) {
+        throw new Error(`acceptance: duplicate click while in-flight triggered second export call (${exportCallCount})`)
+      }
+
+      // Resolve export with valid path
+      resolveExport('/path/to/exported-library')
+      await tick()
+      await delay(40)
+
+      if (exportButton.disabled) {
+        throw new Error('acceptance: export button remained disabled after export resolved')
+      }
+
+      const feedbackEl = dialog.querySelector<HTMLElement>('.export-feedback.is-success')
+      if (!feedbackEl || !feedbackEl.textContent?.includes('successfully')) {
+        throw new Error(`acceptance: export success feedback missing or incorrect: "${feedbackEl?.textContent}"`)
+      }
+    } finally {
+      setLibraryExporterForTest(null)
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

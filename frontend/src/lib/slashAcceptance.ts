@@ -540,6 +540,11 @@ export async function runSlashAcceptance(
     const imageResult = await runImageResizeAcceptance(editor)
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // S1 SETTINGS + APPEARANCE ACCEPTANCE
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    await runSettingsAcceptance(editor)
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // COMBINED FINAL PERSISTENCE DOCUMENT VIA REAL RICH PASTE & RESIZE
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -627,15 +632,12 @@ export async function runSlashAcceptance(
       }),
     )
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // S1 SETTINGS + APPEARANCE ACCEPTANCE
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    await runSettingsAcceptance(editor)
-
     console.log('FLASHNOTE_SLASH_ACCEPTANCE_SUCCESS')
     console.log('FLASHNOTE_E2_ACCEPTANCE_SUCCESS')
     console.log('FLASHNOTE_E3_ACCEPTANCE_SUCCESS')
     console.log('FLASHNOTE_E4_ACCEPTANCE_SUCCESS')
+    console.log('FLASHNOTE_S1_ACCEPTANCE_SUCCESS')
+    console.log('FLASHNOTE_SETTINGS_ACCEPTANCE_SUCCESS')
   } catch (error) {
     console.error('FLASHNOTE_SLASH_ACCEPTANCE_FAILURE', error)
     throw error

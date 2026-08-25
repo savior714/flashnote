@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ExportLibraryMarkdown } from '../../bindings/github.com/savior714/flashnote/exportservice'
+  import { exportLibraryMarkdown } from './libraryExport'
   import {
     type AppearanceMode,
     type Settings,
@@ -45,7 +45,7 @@
     exportMessage = ''
     onExportTriggered?.()
     try {
-      const exportPath = await ExportLibraryMarkdown()
+      const exportPath = await exportLibraryMarkdown()
       if (exportPath) {
         exportStatus = 'success'
         exportMessage = 'Library exported successfully.'
