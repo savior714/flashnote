@@ -55,6 +55,7 @@
   let documentJSON = ''
   let revision = 0
   let loading = true
+  let sidebarVisible = true
   let noteTransitionActive = false
   let saveError = ''
   let operationError = ''
@@ -457,6 +458,17 @@
     }
     event.preventDefault()
     document.querySelector<HTMLElement>('.prose-editor')?.focus()
+  }
+
+  function toggleSidebar() {
+    sidebarVisible = !sidebarVisible
+    createMenuOpen = false
+    contextNoteID = ''
+    contextFolderID = ''
+    if (folderNaming) {
+      folderNaming = false
+      newFolderName = ''
+    }
   }
 
   function toggleCreateMenu() {
@@ -980,6 +992,12 @@
   function handleGlobalKeydown(event: KeyboardEvent) {
     const modifier = event.metaKey || event.ctrlKey
 
+    if (modifier && !event.shiftKey && !event.altKey && event.key === '\\') {
+      event.preventDefault()
+      toggleSidebar()
+      return
+    }
+
     if (modifier && !event.shiftKey && !event.altKey && event.key === ',') {
       event.preventDefault()
       if (settingsOpen) {
@@ -1254,11 +1272,26 @@
   })
 </script>
 
-<main class="shell">
-  <aside class="sidebar" aria-label="Notes">
-    <div class="brand-row">
-      <strong>Flashnote</strong>
-      <div class="create-controls">
+<main class="shell" class:sidebar-hidden={!sidebarVisible}>
+  {#if sidebarVisible}
+    <aside id="sidebar" class="sidebar" aria-label="Notes">
+      <div class="brand-row">
+        <div class="brand-left">
+          <button
+            class="quiet-button hide-sidebar-button"
+            type="button"
+            aria-label="Hide sidebar"
+            aria-controls="sidebar"
+            onclick={toggleSidebar}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect width="18" height="18" x="3" y="3" rx="2" />
+              <path d="M9 3v18" />
+            </svg>
+          </button>
+          <strong>Flashnote</strong>
+        </div>
+        <div class="create-controls">
         <button
           class="quiet-button"
           type="button"
@@ -1409,9 +1442,24 @@
       >Settings</button>
     </div>
   </aside>
+{/if}
 
-  <section class="document" aria-label={trashView ? 'Trash viewer' : 'Editor'}>
-    <div class="document-inner">
+<section class="document" aria-label={trashView ? 'Trash viewer' : 'Editor'}>
+  {#if !sidebarVisible}
+    <button
+      class="quiet-button show-sidebar-button"
+      type="button"
+      aria-label="Show sidebar"
+      aria-controls="sidebar"
+      onclick={toggleSidebar}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect width="18" height="18" x="3" y="3" rx="2" />
+        <path d="M9 3v18" />
+      </svg>
+    </button>
+  {/if}
+  <div class="document-inner">
       {#if loading}
         <div class="editor-loading">Opening note…</div>
       {:else if trashView}

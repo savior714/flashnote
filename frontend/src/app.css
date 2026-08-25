@@ -135,6 +135,10 @@ input {
   background: var(--surface-shell);
 }
 
+.shell.sidebar-hidden {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .sidebar {
   display: flex;
   flex-direction: column;
@@ -151,19 +155,33 @@ input {
   padding: 6px 6px 16px;
 }
 
+.brand-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.brand-left strong {
+  font-size: 14px;
+}
+
 .quiet-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 28px;
   height: 28px;
   border: 0;
   border-radius: 7px;
   background: transparent;
-  color: inherit;
+  color: var(--text-secondary);
   cursor: pointer;
 }
 
 .quiet-button:hover,
 .quiet-button:focus-visible {
   background: var(--surface-hover);
+  color: var(--text-primary);
   outline: none;
 }
 
@@ -244,9 +262,17 @@ input {
 }
 
 .document {
+  position: relative;
   min-width: 0;
   overflow: auto;
   background: var(--surface-shell);
+}
+
+.show-sidebar-button {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 10;
 }
 
 .document-inner {

@@ -9,6 +9,7 @@ import {
 import { dispatchPasteEvent, runRichPasteAcceptance } from './richPasteAcceptance'
 import { runImageResizeAcceptance } from './imageResizeAcceptance'
 import { runSettingsAcceptance } from './settingsAcceptance'
+import { runNavigationShellAcceptance } from './navigationShellAcceptance'
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -545,6 +546,11 @@ export async function runSlashAcceptance(
     await runSettingsAcceptance(editor)
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // S2 NAVIGATION SHELL ACCEPTANCE
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    await runNavigationShellAcceptance(editor)
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // COMBINED FINAL PERSISTENCE DOCUMENT VIA REAL RICH PASTE & RESIZE
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -638,6 +644,8 @@ export async function runSlashAcceptance(
     console.log('FLASHNOTE_E4_ACCEPTANCE_SUCCESS')
     console.log('FLASHNOTE_S1_ACCEPTANCE_SUCCESS')
     console.log('FLASHNOTE_SETTINGS_ACCEPTANCE_SUCCESS')
+    console.log('FLASHNOTE_S2_ACCEPTANCE_SUCCESS')
+    console.log('FLASHNOTE_NAVIGATION_SHELL_ACCEPTANCE_SUCCESS')
   } catch (error) {
     console.error('FLASHNOTE_SLASH_ACCEPTANCE_FAILURE', error)
     throw error
