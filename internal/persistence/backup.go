@@ -26,19 +26,33 @@ type sqliteBackupConnection interface {
 	NewBackup(string) (*sqlite.Backup, error)
 }
 
-// CreateRollingBackup creates one validated SQLite snapshot and retains only the
-// newest retention finalized snapshots in backupDir.
+// CreateRollingBackup creates one validated SQLite snapshot and a matching
+// attachment recovery manifest. Attachment bytes are content-addressed and
+// shared across retained snapshots.
 func (s *Store) CreateRollingBackup(ctx context.Context, backupDir string, retention int) (string, error) {
 	if retention < 1 {
 		return "", errors.New("backup retention must be positive")
 	}
 
+	// Keep attachment ingest/reconciliation from deleting immutable bytes between
+	// the SQLite snapshot and construction of its companion recovery manifest.
+	s.attachmentMu.Lock()
+	defer s.attachmentMu.Unlock()
+
 	finalPath, err := s.createValidatedBackup(ctx, backupDir, backupFilenamePrefix)
 	if err != nil {
 		return "", err
 	}
+	if err := s.createRecoverySet(ctx, finalPath, backupDir); err != nil {
+		_ = os.Remove(finalPath)
+		_ = pruneRecoveryAttachmentArchive(backupDir)
+		return "", fmt.Errorf("create coherent recovery set: %w", err)
+	}
 	if err := pruneRollingBackups(backupDir, retention); err != nil {
 		return finalPath, fmt.Errorf("prune rolling backups: %w", err)
+	}
+	if err := pruneRecoveryAttachmentArchive(backupDir); err != nil {
+		return finalPath, fmt.Errorf("prune recovery attachment archive: %w", err)
 	}
 	return finalPath, nil
 }
@@ -182,8 +196,13 @@ func pruneRollingBackups(backupDir string, retention int) error {
 		return nil
 	}
 	for _, name := range snapshots[retention:] {
-		if err := os.Remove(filepath.Join(backupDir, name)); err != nil {
+		path := filepath.Join(backupDir, name)
+		if err := os.Remove(path); err != nil {
 			return fmt.Errorf("remove expired backup %q: %w", name, err)
+		}
+		snapshotID := strings.TrimSuffix(name, backupFilenameSuffix)
+		if err := os.Remove(recoveryManifestPath(backupDir, snapshotID)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove expired recovery manifest %q: %w", snapshotID, err)
 		}
 	}
 	return nil

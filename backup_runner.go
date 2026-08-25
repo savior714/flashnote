@@ -70,6 +70,12 @@ func rollingBackupDue(backupDir string, now time.Time, interval time.Duration) b
 		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "flashnote-") || !strings.HasSuffix(entry.Name(), ".db") {
 			continue
 		}
+		snapshotID := strings.TrimSuffix(entry.Name(), ".db")
+		if !persistence.RecoverySnapshotPublished(backupDir, snapshotID) {
+			// Legacy DB-only or partially published snapshots do not postpone the
+			// first coherent database+attachment recovery set.
+			continue
+		}
 		info, err := entry.Info()
 		if err != nil {
 			return true
