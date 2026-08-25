@@ -1,0 +1,18 @@
+.root-note-drop-zone {
+  min-height: 6px;
+  border-radius: 6px;
+}
+
+.root-note-drop-zone.drop-target,
+.folder-block.drop-target > .folder-row {
+  background: var(--surface-hover);
+}
+
+.note-row[draggable='true'] {
+  cursor: grab;
+}
+
+.note-row.dragging {
+  opacity: 0.55;
+  cursor: grabbing;
+}
