@@ -7,6 +7,7 @@ import {
   setExternalLinkOpenerForTest,
 } from './linkHelper'
 import { dispatchPasteEvent, runRichPasteAcceptance } from './richPasteAcceptance'
+import { runImageResizeAcceptance } from './imageResizeAcceptance'
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -533,7 +534,12 @@ export async function runSlashAcceptance(
     await runRichPasteAcceptance(editor)
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // COMBINED FINAL PERSISTENCE DOCUMENT VIA REAL RICH PASTE
+    // E4 IMAGE RESIZE ACCEPTANCE
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    const imageResult = await runImageResizeAcceptance(editor)
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // COMBINED FINAL PERSISTENCE DOCUMENT VIA REAL RICH PASTE & RESIZE
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     // Construct the canonical persisted fixture through REAL ClipboardEvent paste
@@ -567,6 +573,21 @@ export async function runSlashAcceptance(
     })
     await tick()
     await delay(50)
+
+    // Insert the verified resized attachment image node
+    editor.commands.focus('end')
+    editor.commands.insertContent({
+      type: 'image',
+      attrs: {
+        attachmentId: imageResult.attachmentId,
+        alt: 'acceptance-test-image.png',
+        title: null,
+        width: imageResult.width,
+        height: imageResult.height,
+      },
+    })
+    await tick()
+    await delay(30)
 
     // Append task list items for acceptanceText round trip
     editor.commands.focus('end')
@@ -608,6 +629,7 @@ export async function runSlashAcceptance(
     console.log('FLASHNOTE_SLASH_ACCEPTANCE_SUCCESS')
     console.log('FLASHNOTE_E2_ACCEPTANCE_SUCCESS')
     console.log('FLASHNOTE_E3_ACCEPTANCE_SUCCESS')
+    console.log('FLASHNOTE_E4_ACCEPTANCE_SUCCESS')
   } catch (error) {
     console.error('FLASHNOTE_SLASH_ACCEPTANCE_FAILURE', error)
     throw error

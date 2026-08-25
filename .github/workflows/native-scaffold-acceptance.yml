@@ -258,7 +258,10 @@ jobs:
           wait "$pid"
           trap - EXIT
 
-          test -f "$DB"
+          grep -q FLASHNOTE_SLASH_ACCEPTANCE_SUCCESS "$LOG"
+          grep -q FLASHNOTE_E2_ACCEPTANCE_SUCCESS "$LOG"
+          grep -q FLASHNOTE_E3_ACCEPTANCE_SUCCESS "$LOG"
+          grep -q FLASHNOTE_E4_ACCEPTANCE_SUCCESS "$LOG"
           grep -q FLASHNOTE_NOTE_CREATED "$LOG"
           grep -q FLASHNOTE_NOTE_SAVED "$LOG"
           grep -q FLASHNOTE_FOLDER_CREATED "$LOG"
@@ -287,6 +290,10 @@ jobs:
           test "$revision" -ge 2
           test "$(sqlite3 "$DB" "SELECT instr(document_json, '$ACCEPTANCE_TEXT') > 0 FROM notes WHERE id = '$note_id';")" = 1
           test "$(sqlite3 "$DB" "SELECT instr(document_json, '\"heading\"') > 0 FROM notes WHERE id = '$note_id';")" = 1
+          test "$(sqlite3 "$DB" "SELECT instr(document_json, '\"image\"') > 0 FROM notes WHERE id = '$note_id';")" = 1
+          test "$(sqlite3 "$DB" "SELECT instr(document_json, '\"width\":') > 0 FROM notes WHERE id = '$note_id';")" = 1
+          test "$(sqlite3 "$DB" "SELECT instr(document_json, '\"height\":') > 0 FROM notes WHERE id = '$note_id';")" = 1
+          test "$(sqlite3 "$DB" "SELECT COUNT(*) >= 1 FROM attachments;")" = 1
           test "$(sqlite3 "$DB" "SELECT value = '$note_id' FROM app_meta WHERE key = 'last_note_id';")" = 1
 
           cp "$RUNNER_TEMP/flashnote-normal" ./flashnote
@@ -405,6 +412,9 @@ jobs:
             if err != nil || noteCount != 0 || folderCount != 0 { panic(fmt.Sprintf("trash not empty notes=%d folders=%d err=%v", noteCount, folderCount, err)) }
             restored, err := store.OpenNote(ctx, expectedID)
             if err != nil || restored.ID != expectedID { panic(fmt.Sprintf("normal note lost after EmptyTrash: %+v err=%v", restored, err)) }
+            if err := store.ValidateDocumentAttachments(ctx, restored.DocumentJSON); err != nil {
+              panic(fmt.Sprintf("document attachment validation failed: %v", err))
+            }
 
             fmt.Printf("trash_roundtrip id=%s folder=%s grouped=2 empty_trash=1/1 title=%q\n", expectedID, folderID, results[0].DisplayTitle)
           }
