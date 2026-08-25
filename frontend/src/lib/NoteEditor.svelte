@@ -19,9 +19,16 @@
     onDocumentChange: (documentJSON: string) => void
     acceptanceText?: string
     editable?: boolean
+    onAcceptanceReady?: () => void
   }
 
-  let { documentJSON, onDocumentChange, acceptanceText = '', editable = true }: Props = $props()
+  let {
+    documentJSON,
+    onDocumentChange,
+    acceptanceText = '',
+    editable = true,
+    onAcceptanceReady,
+  }: Props = $props()
   let element!: HTMLDivElement
   let editor = $state<Editor | null>(null)
   let imageError = $state('')
@@ -253,6 +260,12 @@
       queueMicrotask(() => {
         if (!editor) return
         void runSlashAcceptance(editor, acceptanceText, onDocumentChange)
+          .then(() => {
+            onAcceptanceReady?.()
+          })
+          .catch((error) => {
+            console.error('FLASHNOTE_SLASH_ACCEPTANCE_FAILURE', error)
+          })
       })
     }
   })

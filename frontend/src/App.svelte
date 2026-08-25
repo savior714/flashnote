@@ -1133,6 +1133,20 @@
     await refreshSidebar()
   }
 
+  function handleAcceptanceReady() {
+    setTimeout(() => {
+      void (async () => {
+        try {
+          await runAcceptanceTrashLifecycle()
+        } catch (error) {
+          console.error('FLASHNOTE_ACCEPTANCE_TRASH_FAILURE', error)
+        } finally {
+          await Window.Close()
+        }
+      })()
+    }, 200)
+  }
+
   async function initialise() {
     await tick()
     const shell = document.querySelector('main.shell')
@@ -1160,20 +1174,6 @@
       void handleCloseRequested()
     })
     await Events.Emit('flashnote:frontend-ready', null)
-
-    if (acceptanceText) {
-      setTimeout(() => {
-        void (async () => {
-          try {
-            await runAcceptanceTrashLifecycle()
-          } catch (error) {
-            console.error('FLASHNOTE_ACCEPTANCE_TRASH_FAILURE', error)
-          } finally {
-            await Window.Close()
-          }
-        })()
-      }, 550)
-    }
   }
 
   onMount(() => {
@@ -1443,6 +1443,7 @@
             onDocumentChange={handleDocumentChange}
             {acceptanceText}
             editable={!noteTransitionActive}
+            onAcceptanceReady={handleAcceptanceReady}
           />
         {/key}
         {#if saveError}

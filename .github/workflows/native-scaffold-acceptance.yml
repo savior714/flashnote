@@ -247,7 +247,7 @@ jobs:
           pid=$!
           cleanup() { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
           trap cleanup EXIT
-          for _ in {1..35}; do
+          for _ in {1..60}; do
             if ! kill -0 "$pid" 2>/dev/null; then break; fi
             sleep 1
           done
