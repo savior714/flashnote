@@ -32,6 +32,38 @@ function createPngFile(filename = 'acceptance-test-image.png'): File {
   return new File([bytes], filename, { type: 'image/png' })
 }
 
+export function dispatchImagePasteEvent(editor: Editor, file: File): boolean {
+  const dt = new DataTransfer()
+  try {
+    dt.items.add(file)
+  } catch {}
+
+  const event = new Event('paste', {
+    bubbles: true,
+    cancelable: true,
+  }) as ClipboardEvent
+
+  const clipboardData = {
+    files: [file],
+    items: [
+      {
+        kind: 'file',
+        type: file.type,
+        getAsFile: () => file,
+      },
+    ],
+    getData: () => '',
+  }
+
+  Object.defineProperty(event, 'clipboardData', {
+    value: clipboardData,
+    configurable: true,
+  })
+
+  editor.view.dom.dispatchEvent(event)
+  return event.defaultPrevented
+}
+
 export async function runImageResizeAcceptance(editor: Editor): Promise<{ attachmentId: string; width: number; height: number }> {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 1. CANONICAL INGEST PATH PROOF
@@ -45,14 +77,7 @@ export async function runImageResizeAcceptance(editor: Editor): Promise<{ attach
   await delay(20)
 
   const pngFile = createPngFile()
-  const dataTransfer = new DataTransfer()
-  dataTransfer.items.add(pngFile)
-  const pasteEvent = new ClipboardEvent('paste', {
-    clipboardData: dataTransfer,
-    bubbles: true,
-    cancelable: true,
-  })
-  editor.view.dom.dispatchEvent(pasteEvent)
+  dispatchImagePasteEvent(editor, pngFile)
 
   let attachmentId = ''
   for (let i = 0; i < 60; i++) {

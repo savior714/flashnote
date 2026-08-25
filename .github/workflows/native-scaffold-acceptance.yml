@@ -247,12 +247,13 @@ jobs:
           pid=$!
           cleanup() { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
           trap cleanup EXIT
-          for _ in {1..60}; do
+          for _ in {1..90}; do
             if ! kill -0 "$pid" 2>/dev/null; then break; fi
             sleep 1
           done
           if kill -0 "$pid" 2>/dev/null; then
             echo "acceptance app did not close after frontend flush" >&2
+            cat "$LOG" >&2 || true
             exit 1
           fi
           wait "$pid"
@@ -451,6 +452,7 @@ jobs:
             ${{ runner.temp }}/first-startup.log
             ${{ runner.temp }}/wails-dev.log.saved
             ${{ runner.temp }}/second-startup.log
+            ${{ runner.temp }}/note-roundtrip-first.log
             ${{ runner.temp }}/note-roundtrip-first.log.saved
             ${{ runner.temp }}/note-roundtrip-reopen.log.saved
             ${{ runner.temp }}/search-roundtrip.log

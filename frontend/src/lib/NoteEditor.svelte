@@ -161,7 +161,28 @@
     if (!dataTransfer) {
       return []
     }
-    return Array.from(dataTransfer.files).filter(isImageCandidate)
+    if (dataTransfer.files && dataTransfer.files.length > 0) {
+      const fromFiles = Array.from(dataTransfer.files).filter(isImageCandidate)
+      if (fromFiles.length > 0) {
+        return fromFiles
+      }
+    }
+    if (dataTransfer.items && dataTransfer.items.length > 0) {
+      const fromItems: File[] = []
+      for (let i = 0; i < dataTransfer.items.length; i++) {
+        const item = dataTransfer.items[i]
+        if (item.kind === 'file') {
+          const file = item.getAsFile?.()
+          if (file && isImageCandidate(file)) {
+            fromItems.push(file)
+          }
+        }
+      }
+      if (fromItems.length > 0) {
+        return fromItems
+      }
+    }
+    return []
   }
 
   function bytesToBase64(bytes: Uint8Array): string {
