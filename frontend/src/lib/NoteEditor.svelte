@@ -1,9 +1,16 @@
 <script lang="ts">
-  import { Editor, type JSONContent } from '@tiptap/core'
+  import { Editor, type JSONContent, type Range } from '@tiptap/core'
   import StarterKit from '@tiptap/starter-kit'
   import { onDestroy, onMount } from 'svelte'
   import { IngestImage } from '../../bindings/github.com/savior714/flashnote/appservice'
   import { AttachmentImage, attachmentImageContent } from './attachmentImage'
+  import SlashMenu from './SlashMenu.svelte'
+  import {
+    createSlashExtension,
+    filterSlashCommands,
+    slashCommands,
+    type SlashCommandItem,
+  } from './slashCommands'
   import { TaskItem, TaskList } from './taskList'
 
   type Props = {
@@ -17,6 +24,103 @@
   let element!: HTMLDivElement
   let editor = $state<Editor | null>(null)
   let imageError = $state('')
+
+  let slashOpen = $state(false)
+  let slashItems = $state<SlashCommandItem[]>(slashCommands)
+  let slashSelectedIndex = $state(0)
+  let slashRange = $state<Range | null>(null)
+  let slashX = $state(0)
+  let slashY = $state(0)
+
+  function updateSlashPosition(clientRect?: (() => DOMRect | null) | null) {
+    const rect = clientRect?.()
+    if (!rect) return
+    const menuWidth = 200
+    const menuHeight = 240
+    const padding = 12
+
+    let x = rect.left
+    if (x + menuWidth > window.innerWidth - padding) {
+      x = Math.max(padding, window.innerWidth - menuWidth - padding)
+    }
+
+    let y = rect.bottom + 4
+    if (y + menuHeight > window.innerHeight - padding) {
+      y = Math.max(padding, rect.top - menuHeight - 4)
+    }
+
+    slashX = x
+    slashY = y
+  }
+
+  function closeSlash() {
+    slashOpen = false
+    slashRange = null
+    slashSelectedIndex = 0
+  }
+
+  function executeSlash(item: SlashCommandItem) {
+    const currentEditor = editor
+    const currentRange = slashRange
+    if (!currentEditor || !currentRange) {
+      closeSlash()
+      return
+    }
+    item.execute(currentEditor, currentRange)
+    closeSlash()
+  }
+
+  const slashExtension = createSlashExtension({
+    onStart: (props) => {
+      slashOpen = true
+      slashItems = filterSlashCommands(props.query)
+      slashSelectedIndex = 0
+      slashRange = props.range
+      updateSlashPosition(props.clientRect)
+    },
+    onUpdate: (props) => {
+      slashItems = filterSlashCommands(props.query)
+      if (slashSelectedIndex >= slashItems.length) {
+        slashSelectedIndex = Math.max(0, slashItems.length - 1)
+      }
+      slashRange = props.range
+      updateSlashPosition(props.clientRect)
+    },
+    onKeyDown: ({ event }) => {
+      if (!slashOpen) return false
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        if (slashItems.length > 0) {
+          slashSelectedIndex = (slashSelectedIndex + 1) % slashItems.length
+        }
+        return true
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        if (slashItems.length > 0) {
+          slashSelectedIndex = (slashSelectedIndex - 1 + slashItems.length) % slashItems.length
+        }
+        return true
+      }
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        if (slashItems.length > 0 && slashItems[slashSelectedIndex]) {
+          executeSlash(slashItems[slashSelectedIndex])
+          return true
+        }
+        return false
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeSlash()
+        return true
+      }
+      return false
+    },
+    onExit: () => {
+      closeSlash()
+    },
+  })
 
   function persistedDoc(): JSONContent {
     const envelope = JSON.parse(documentJSON) as {
@@ -83,6 +187,9 @@
 
   $effect(() => {
     editor?.setEditable(editable, false)
+    if (!editable && slashOpen) {
+      closeSlash()
+    }
   })
 
   onMount(() => {
@@ -96,6 +203,7 @@
         TaskList,
         TaskItem,
         AttachmentImage,
+        slashExtension,
       ],
       content: persistedDoc(),
       editable,
@@ -178,6 +286,16 @@
 </script>
 
 <div class="editor-host" bind:this={element}></div>
+{#if slashOpen && editable}
+  <SlashMenu
+    items={slashItems}
+    selectedIndex={slashSelectedIndex}
+    x={slashX}
+    y={slashY}
+    onSelect={executeSlash}
+    onHover={(index) => (slashSelectedIndex = index)}
+  />
+{/if}
 {#if imageError}
   <div class="image-error" role="status">{imageError}</div>
 {/if}

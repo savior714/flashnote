@@ -117,3 +117,64 @@ func TestValidateAndNormalizeJSONRejectsInvalidHeadingLevel(t *testing.T) {
 		t.Fatalf("expected ErrInvalidDocument, got %v", err)
 	}
 }
+
+func TestValidateAndNormalizeJSONAcceptsAllSlashCommandStructures(t *testing.T) {
+	structures := []struct {
+		name string
+		json string
+	}{
+		{
+			name: "paragraph (text)",
+			json: `{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Plain text"}]}]}}`,
+		},
+		{
+			name: "heading 1",
+			json: `{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"heading","attrs":{"level":1},"content":[{"type":"text","text":"H1 Title"}]}]}}`,
+		},
+		{
+			name: "heading 2",
+			json: `{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"heading","attrs":{"level":2},"content":[{"type":"text","text":"H2 Subtitle"}]}]}}`,
+		},
+		{
+			name: "heading 3",
+			json: `{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"heading","attrs":{"level":3},"content":[{"type":"text","text":"H3 Section"}]}]}}`,
+		},
+		{
+			name: "bullet list",
+			json: `{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"bulletList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"Bullet item"}]}]}]}]}}`,
+		},
+		{
+			name: "ordered list",
+			json: `{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"orderedList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"Numbered item"}]}]}]}]}}`,
+		},
+		{
+			name: "todo list",
+			json: `{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"taskList","content":[{"type":"taskItem","attrs":{"checked":false},"content":[{"type":"paragraph","content":[{"type":"text","text":"Todo item"}]}]}]}]}}`,
+		},
+		{
+			name: "quote (blockquote)",
+			json: `{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"blockquote","content":[{"type":"paragraph","content":[{"type":"text","text":"Quote text"}]}]}]}}`,
+		},
+		{
+			name: "code block",
+			json: `{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"codeBlock","content":[{"type":"text","text":"const x = 42"}]}]}}`,
+		},
+		{
+			name: "divider (horizontalRule)",
+			json: `{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"paragraph"},{"type":"horizontalRule"},{"type":"paragraph"}]}}`,
+		},
+	}
+
+	for _, tt := range structures {
+		t.Run(tt.name, func(t *testing.T) {
+			normalized, err := ValidateAndNormalizeJSON(tt.json)
+			if err != nil {
+				t.Fatalf("ValidateAndNormalizeJSON(%s) error = %v", tt.name, err)
+			}
+			if normalized == "" {
+				t.Fatalf("ValidateAndNormalizeJSON(%s) returned empty string", tt.name)
+			}
+		})
+	}
+}
+
