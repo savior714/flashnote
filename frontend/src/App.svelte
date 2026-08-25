@@ -30,6 +30,7 @@
   import NoteEditor from './lib/NoteEditor.svelte'
   import SettingsDialog from './lib/SettingsDialog.svelte'
   import { runNewNoteShortcutAcceptance } from './lib/newNoteShortcutAcceptance'
+  import { runSidebarDragDropAcceptance } from './lib/sidebarDragDropAcceptance'
   import {
     applyEditorFontSize,
     applyTheme,
@@ -76,6 +77,8 @@
   let contextMenuX = 0
   let contextMenuY = 0
   let folderDeleteTargetID = ''
+  let draggedNoteID = ''
+  let dragTargetFolderID: string | null = null
 
   let trashView = false
   let trashNotes: NoteSummary[] = []
@@ -342,6 +345,11 @@
     }
   }
 
+  function clearNoteDrag() {
+    draggedNoteID = ''
+    dragTargetFolderID = null
+  }
+
   function scheduleSave(delay = autosaveDelayMs) {
     clearSaveTimer()
     if (!noteID || trashView || durableSequence >= draftSequence) {
@@ -467,6 +475,7 @@
     createMenuOpen = false
     contextNoteID = ''
     contextFolderID = ''
+    clearNoteDrag()
     if (folderNaming) {
       folderNaming = false
       newFolderName = ''
@@ -591,6 +600,7 @@
     createMenuOpen = false
     contextNoteID = ''
     contextFolderID = ''
+    clearNoteDrag()
     closeSearch()
     closeSettings()
     try {
@@ -692,6 +702,84 @@
     return ''
   }
 
+  async function moveNoteToFolder(targetNoteID: string, targetFolderID: string): Promise<boolean> {
+    if (
+      !targetNoteID ||
+      noteTransitionActive ||
+      trashView ||
+      folderForNote(targetNoteID) === targetFolderID
+    ) {
+      return false
+    }
+
+    noteTransitionActive = true
+    operationError = ''
+    try {
+      if (targetNoteID === noteID && !(await flushPendingSave())) {
+        return false
+      }
+      await MoveNote(targetNoteID, targetFolderID)
+      await refreshSidebar()
+      return true
+    } catch (error) {
+      operationError = `Could not move note: ${formatError(error)}`
+      return false
+    } finally {
+      noteTransitionActive = false
+    }
+  }
+
+  async function moveContextNote(targetFolderID: string) {
+    const targetNoteID = contextNoteID
+    contextNoteID = ''
+    if (targetNoteID) {
+      await moveNoteToFolder(targetNoteID, targetFolderID)
+    }
+  }
+
+  function handleNoteDragStart(event: DragEvent, targetNoteID: string) {
+    if (loading || noteTransitionActive || trashView || !targetNoteID) {
+      event.preventDefault()
+      return
+    }
+    draggedNoteID = targetNoteID
+    dragTargetFolderID = null
+    createMenuOpen = false
+    contextNoteID = ''
+    contextFolderID = ''
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move'
+      event.dataTransfer.setData('text/plain', targetNoteID)
+    }
+  }
+
+  function handleNoteDragOver(event: DragEvent, targetFolderID: string) {
+    if (!draggedNoteID || trashView) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    dragTargetFolderID = targetFolderID
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'move'
+    }
+  }
+
+  function handleNoteDrop(event: DragEvent, targetFolderID: string) {
+    if (!draggedNoteID || trashView) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    const targetNoteID = draggedNoteID
+    clearNoteDrag()
+    void moveNoteToFolder(targetNoteID, targetFolderID)
+  }
+
+  function handleNoteDragEnd() {
+    clearNoteDrag()
+  }
+
   function preferredSurvivor(targetNoteID: string, sourceFolderID: string): string {
     const sameLocation = sourceFolderID
       ? folders.find((folder) => folder.id === sourceFolderID)?.notes ?? []
@@ -728,29 +816,6 @@
       }
     }
     return ''
-  }
-
-  async function moveContextNote(targetFolderID: string) {
-    const targetNoteID = contextNoteID
-    if (!targetNoteID || noteTransitionActive || folderForNote(targetNoteID) === targetFolderID) {
-      contextNoteID = ''
-      return
-    }
-
-    contextNoteID = ''
-    noteTransitionActive = true
-    operationError = ''
-    try {
-      if (targetNoteID === noteID && !(await flushPendingSave())) {
-        return
-      }
-      await MoveNote(targetNoteID, targetFolderID)
-      await refreshSidebar()
-    } catch (error) {
-      operationError = `Could not move note: ${formatError(error)}`
-    } finally {
-      noteTransitionActive = false
-    }
   }
 
   function offerTrashUndo(targetNoteID: string) {
@@ -1277,6 +1342,7 @@
             applyNote,
             refreshSidebar,
           })
+          await runSidebarDragDropAcceptance({ refreshSidebar })
           await runAcceptanceTrashLifecycle()
           console.log('FLASHNOTE_ACCEPTANCE_FULL_PIPELINE_SUCCESS')
           await Window.Close()
@@ -1329,6 +1395,7 @@
       clearSaveTimer()
       clearRetryTimer()
       clearUndoTimer()
+      clearNoteDrag()
       removeCloseListener?.()
       cleanupSettingsListener?.()
       window.removeEventListener('keydown', handleGlobalKeydown)
@@ -1432,17 +1499,29 @@
       </nav>
     {:else}
       <nav class="note-list" aria-label="Note list">
-        {#each rootNotes as note (note.id)}
-          <button
-            class="note-row"
-            class:active={note.id === noteID}
-            type="button"
-            aria-current={note.id === noteID ? 'page' : undefined}
-            disabled={noteTransitionActive}
-            onclick={() => void selectNote(note.id)}
-            oncontextmenu={(event) => openNoteContext(event, note.id)}
-          >{sidebarTitle(note)}</button>
-        {/each}
+        <div
+          class="root-note-drop-zone"
+          class:drop-target={dragTargetFolderID === ''}
+          ondragover={(event) => handleNoteDragOver(event, '')}
+          ondrop={(event) => handleNoteDrop(event, '')}
+        >
+          {#each rootNotes as note (note.id)}
+            <button
+              class="note-row"
+              class:active={note.id === noteID}
+              class:dragging={note.id === draggedNoteID}
+              type="button"
+              data-note-id={note.id}
+              aria-current={note.id === noteID ? 'page' : undefined}
+              disabled={noteTransitionActive}
+              draggable={!noteTransitionActive}
+              onclick={() => void selectNote(note.id)}
+              oncontextmenu={(event) => openNoteContext(event, note.id)}
+              ondragstart={(event) => handleNoteDragStart(event, note.id)}
+              ondragend={handleNoteDragEnd}
+            >{sidebarTitle(note)}</button>
+          {/each}
+        </div>
 
         {#if folderNaming}
           <input
@@ -1456,7 +1535,13 @@
         {/if}
 
         {#each folders as folder (folder.id)}
-          <div class="folder-block">
+          <div
+            class="folder-block"
+            class:drop-target={dragTargetFolderID === folder.id}
+            data-folder-id={folder.id}
+            ondragover={(event) => handleNoteDragOver(event, folder.id)}
+            ondrop={(event) => handleNoteDrop(event, folder.id)}
+          >
             <button
               class="folder-row"
               type="button"
@@ -1475,11 +1560,16 @@
                   <button
                     class="note-row nested"
                     class:active={note.id === noteID}
+                    class:dragging={note.id === draggedNoteID}
                     type="button"
+                    data-note-id={note.id}
                     aria-current={note.id === noteID ? 'page' : undefined}
                     disabled={noteTransitionActive}
+                    draggable={!noteTransitionActive}
                     onclick={() => void selectNote(note.id)}
                     oncontextmenu={(event) => openNoteContext(event, note.id)}
+                    ondragstart={(event) => handleNoteDragStart(event, note.id)}
+                    ondragend={handleNoteDragEnd}
                   >{sidebarTitle(note)}</button>
                 {/each}
               </div>

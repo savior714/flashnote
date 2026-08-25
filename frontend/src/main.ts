@@ -3,6 +3,7 @@ import App from './App.svelte'
 import './app.css'
 import './folder.css'
 import './trash.css'
+import './sidebar-dnd.css'
 import { installMarkdownExportShortcut } from './lib/export-shortcut'
 
 const target = document.getElementById('app')
