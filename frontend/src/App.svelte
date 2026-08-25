@@ -28,11 +28,27 @@
     TrashCounts,
   } from '../bindings/github.com/savior714/flashnote/appservice'
   import NoteEditor from './lib/NoteEditor.svelte'
+  import SettingsDialog from './lib/SettingsDialog.svelte'
+  import {
+    applyEditorFontSize,
+    applyTheme,
+    initSettingsListener,
+    loadSettings,
+    saveSettings,
+    type Settings,
+  } from './lib/settings'
 
   const autosaveDelayMs = 400
   const retryDelayMs = 1500
   const undoDelayMs = 6000
   const acceptanceText = import.meta.env.VITE_FLASHNOTE_ACCEPTANCE_TEXT ?? ''
+
+  let settings = loadSettings()
+  let settingsOpen = false
+  let cleanupSettingsListener: (() => void) | null = null
+
+  applyTheme(settings.appearance)
+  applyEditorFontSize(settings.editorFontSize)
 
   let noteID = ''
   let title = ''
@@ -253,10 +269,30 @@
     }
   }
 
+  function openSettings() {
+    createMenuOpen = false
+    contextNoteID = ''
+    contextFolderID = ''
+    closeSearch()
+    settingsOpen = true
+  }
+
+  function closeSettings() {
+    settingsOpen = false
+  }
+
+  function updateSettings(updater: (prev: Settings) => Settings) {
+    settings = updater(settings)
+    saveSettings(settings)
+    applyTheme(settings.appearance)
+    applyEditorFontSize(settings.editorFontSize)
+  }
+
   async function openSearch() {
     createMenuOpen = false
     contextNoteID = ''
     contextFolderID = ''
+    closeSettings()
     searchOpen = true
     searchQuery = ''
     searchResults = []
@@ -542,6 +578,7 @@
     contextNoteID = ''
     contextFolderID = ''
     closeSearch()
+    closeSettings()
     try {
       if (!trashView && !(await flushPendingSave())) {
         return
@@ -941,11 +978,32 @@
   }
 
   function handleGlobalKeydown(event: KeyboardEvent) {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+    const modifier = event.metaKey || event.ctrlKey
+
+    if (modifier && !event.shiftKey && !event.altKey && event.key === ',') {
+      event.preventDefault()
+      if (settingsOpen) {
+        closeSettings()
+      } else {
+        openSettings()
+      }
+      return
+    }
+
+    if (modifier && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'k') {
       event.preventDefault()
       void openSearch()
       return
     }
+
+    if (settingsOpen && !event.isComposing) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeSettings()
+        return
+      }
+    }
+
     if (!searchOpen || event.isComposing) {
       return
     }
@@ -1179,6 +1237,7 @@
   onMount(() => {
     window.addEventListener('keydown', handleGlobalKeydown)
     window.addEventListener('click', handleWindowClick)
+    cleanupSettingsListener = initSettingsListener(() => settings.appearance)
     void initialise().catch((error: unknown) => {
       loading = false
       operationError = `Flashnote could not open your note: ${formatError(error)}`
@@ -1189,6 +1248,7 @@
       clearRetryTimer()
       clearUndoTimer()
       removeCloseListener?.()
+      cleanupSettingsListener?.()
       window.removeEventListener('keydown', handleGlobalKeydown)
       window.removeEventListener('click', handleWindowClick)
     }
@@ -1332,14 +1392,23 @@
       </nav>
     {/if}
 
-    <button
-      class="trash-row"
-      class:active={trashView}
-      type="button"
-      aria-current={trashView ? 'page' : undefined}
-      disabled={loading || noteTransitionActive}
-      onclick={() => void enterTrashView()}
-    >Trash</button>
+    <div class="sidebar-footer">
+      <button
+        class="trash-row"
+        class:active={trashView}
+        type="button"
+        aria-current={trashView ? 'page' : undefined}
+        disabled={loading || noteTransitionActive}
+        onclick={() => void enterTrashView()}
+      >Trash</button>
+      <button
+        class="settings-row"
+        type="button"
+        aria-label="Settings"
+        disabled={loading}
+        onclick={openSettings}
+      >Settings</button>
+    </div>
   </aside>
 
   <section class="document" aria-label={trashView ? 'Trash viewer' : 'Editor'}>
@@ -1378,6 +1447,7 @@
                 onDocumentChange={handleDocumentChange}
                 acceptanceText=""
                 editable={false}
+                spellcheck={settings.spellcheck}
               />
             {/key}
           {:else}
@@ -1416,6 +1486,7 @@
               onDocumentChange={handleDocumentChange}
               acceptanceText=""
               editable={false}
+              spellcheck={settings.spellcheck}
             />
           {/key}
         {:else}
@@ -1443,6 +1514,7 @@
             onDocumentChange={handleDocumentChange}
             {acceptanceText}
             editable={!noteTransitionActive}
+            spellcheck={settings.spellcheck}
             onAcceptanceReady={handleAcceptanceReady}
           />
         {/key}
@@ -1600,4 +1672,12 @@
       </div>
     </div>
   </div>
+{/if}
+
+{#if settingsOpen}
+  <SettingsDialog
+    {settings}
+    onUpdate={updateSettings}
+    onClose={closeSettings}
+  />
 {/if}

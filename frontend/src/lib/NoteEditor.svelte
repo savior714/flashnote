@@ -23,6 +23,7 @@
     onDocumentChange: (documentJSON: string) => void
     acceptanceText?: string
     editable?: boolean
+    spellcheck?: boolean
     onAcceptanceReady?: () => void
   }
 
@@ -31,6 +32,7 @@
     onDocumentChange,
     acceptanceText = '',
     editable = true,
+    spellcheck = true,
     onAcceptanceReady,
   }: Props = $props()
   let element!: HTMLDivElement
@@ -227,6 +229,12 @@
     }
   })
 
+  $effect(() => {
+    if (editor && !editor.isDestroyed) {
+      editor.view.dom.setAttribute('spellcheck', spellcheck ? 'true' : 'false')
+    }
+  })
+
   onMount(() => {
     editor = new Editor({
       element,
@@ -276,7 +284,7 @@
       editorProps: {
         attributes: {
           class: 'prose-editor',
-          spellcheck: 'true',
+          spellcheck: spellcheck ? 'true' : 'false',
         },
         handleDOMEvents: {
           click: (_view, event) => {
@@ -325,11 +333,11 @@
       queueMicrotask(() => {
         if (!editor) return
         void runSlashAcceptance(editor, acceptanceText, onDocumentChange)
-          .then(() => {
-            onAcceptanceReady?.()
-          })
           .catch((error) => {
             console.error('FLASHNOTE_SLASH_ACCEPTANCE_FAILURE', error)
+          })
+          .finally(() => {
+            onAcceptanceReady?.()
           })
       })
     }

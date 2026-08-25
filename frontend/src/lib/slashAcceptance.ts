@@ -8,6 +8,7 @@ import {
 } from './linkHelper'
 import { dispatchPasteEvent, runRichPasteAcceptance } from './richPasteAcceptance'
 import { runImageResizeAcceptance } from './imageResizeAcceptance'
+import { runSettingsAcceptance } from './settingsAcceptance'
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -625,6 +626,11 @@ export async function runSlashAcceptance(
         doc: editor.getJSON(),
       }),
     )
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // S1 SETTINGS + APPEARANCE ACCEPTANCE
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    await runSettingsAcceptance(editor)
 
     console.log('FLASHNOTE_SLASH_ACCEPTANCE_SUCCESS')
     console.log('FLASHNOTE_E2_ACCEPTANCE_SUCCESS')

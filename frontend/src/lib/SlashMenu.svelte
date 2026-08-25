@@ -58,10 +58,10 @@
     max-width: 240px;
     max-height: 280px;
     overflow-y: auto;
-    background: #ffffff;
-    border: 1px solid rgba(41, 40, 36, 0.12);
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-dialog);
     border-radius: 8px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+    box-shadow: var(--shadow-menu);
     padding: 4px;
     display: flex;
     flex-direction: column;
@@ -76,7 +76,7 @@
   .slash-menu-empty {
     padding: 8px 12px;
     font-size: 0.85rem;
-    color: #89857d;
+    color: var(--text-muted);
   }
 
   .slash-menu-item {
@@ -87,7 +87,7 @@
     border: 0;
     border-radius: 5px;
     background: transparent;
-    color: #292824;
+    color: var(--text-primary);
     font-size: 0.875rem;
     text-align: left;
     cursor: pointer;
@@ -97,40 +97,15 @@
 
   .slash-menu-item:hover,
   .slash-menu-item.is-selected {
-    background: rgba(41, 40, 36, 0.07);
+    background: var(--surface-hover);
   }
 
   .slash-menu-item:focus-visible {
     outline: none;
-    background: rgba(41, 40, 36, 0.09);
+    background: var(--surface-active);
   }
 
   .item-label {
     flex: 1;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .slash-menu {
-      background: #25231f;
-      border-color: rgba(255, 255, 255, 0.1);
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-    }
-
-    .slash-menu-empty {
-      color: #aaa59b;
-    }
-
-    .slash-menu-item {
-      color: #e9e6df;
-    }
-
-    .slash-menu-item:hover,
-    .slash-menu-item.is-selected {
-      background: rgba(255, 255, 255, 0.08);
-    }
-
-    .slash-menu-item:focus-visible {
-      background: rgba(255, 255, 255, 0.12);
-    }
   }
 </style>

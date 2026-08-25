@@ -17,3 +17,4 @@ frontend/dist/*
 coverage/
 /flashnote
 /flashnote.exe
+.task/

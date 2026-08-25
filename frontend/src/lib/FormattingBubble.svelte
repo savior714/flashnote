@@ -277,10 +277,10 @@
   .formatting-bubble {
     display: flex;
     flex-direction: column;
-    background: #ffffff;
-    border: 1px solid rgba(41, 40, 36, 0.12);
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-dialog);
     border-radius: 8px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+    box-shadow: var(--shadow-menu);
     padding: 3px;
     user-select: none;
     z-index: 1000;
@@ -302,7 +302,7 @@
     border: 0;
     border-radius: 5px;
     background: transparent;
-    color: #292824;
+    color: var(--text-primary);
     font-size: 0.85rem;
     cursor: pointer;
     line-height: 1;
@@ -310,19 +310,19 @@
   }
 
   .bubble-btn:hover {
-    background: rgba(41, 40, 36, 0.08);
+    background: var(--surface-hover);
   }
 
   .bubble-btn.is-active {
-    background: rgba(41, 40, 36, 0.12);
-    color: #1a1917;
+    background: var(--surface-active);
+    color: var(--text-primary);
     font-weight: 600;
   }
 
   .bubble-divider {
     width: 1px;
     height: 16px;
-    background: rgba(41, 40, 36, 0.12);
+    background: var(--border-subtle);
     margin: 0 2px;
   }
 
@@ -345,7 +345,7 @@
   }
 
   .code-text {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-family: var(--font-mono, monospace);
     font-size: 0.78rem;
   }
 
@@ -366,16 +366,16 @@
     width: 200px;
     padding: 4px 8px;
     font-size: 0.85rem;
-    border: 1px solid rgba(41, 40, 36, 0.2);
+    border: 1px solid var(--border-input);
     border-radius: 4px;
-    background: #ffffff;
-    color: #292824;
+    background: var(--surface-app);
+    color: var(--text-primary);
     outline: none;
   }
 
   .link-input:focus {
-    border-color: rgba(41, 40, 36, 0.5);
-    box-shadow: 0 0 0 1px rgba(41, 40, 36, 0.3);
+    border-color: var(--border-input-focus);
+    box-shadow: 0 0 0 1px var(--border-input-focus);
   }
 
   .link-btn {
@@ -384,102 +384,37 @@
     border: 0;
     border-radius: 4px;
     background: transparent;
-    color: #292824;
+    color: var(--text-primary);
     cursor: pointer;
     line-height: 1.2;
     transition: background-color 0.1s ease;
   }
 
   .link-btn:hover {
-    background: rgba(41, 40, 36, 0.08);
+    background: var(--surface-hover);
   }
 
   .link-apply-btn {
-    background: rgba(41, 40, 36, 0.1);
+    background: var(--surface-active);
     font-weight: 600;
   }
 
   .link-apply-btn:hover {
-    background: rgba(41, 40, 36, 0.16);
+    background: var(--surface-hover);
   }
 
   .link-remove-btn {
-    color: #b3261e;
+    color: var(--danger-text-strong);
   }
 
   .link-remove-btn:hover {
-    background: rgba(179, 38, 30, 0.08);
+    background: var(--danger-bg);
   }
 
   .link-error {
     font-size: 0.75rem;
-    color: #b3261e;
+    color: var(--danger-text-strong);
     padding: 0 4px;
     line-height: 1.3;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .formatting-bubble {
-      background: #25231f;
-      border-color: rgba(255, 255, 255, 0.1);
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-    }
-
-    .bubble-btn {
-      color: #e9e6df;
-    }
-
-    .bubble-btn:hover {
-      background: rgba(255, 255, 255, 0.08);
-    }
-
-    .bubble-btn.is-active {
-      background: rgba(255, 255, 255, 0.16);
-      color: #ffffff;
-    }
-
-    .bubble-divider {
-      background: rgba(255, 255, 255, 0.12);
-    }
-
-    .link-input {
-      background: #1a1917;
-      border-color: rgba(255, 255, 255, 0.2);
-      color: #e9e6df;
-    }
-
-    .link-input:focus {
-      border-color: rgba(255, 255, 255, 0.5);
-      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3);
-    }
-
-    .link-btn {
-      color: #e9e6df;
-    }
-
-    .link-btn:hover {
-      background: rgba(255, 255, 255, 0.08);
-    }
-
-    .link-apply-btn {
-      background: rgba(255, 255, 255, 0.14);
-      color: #ffffff;
-    }
-
-    .link-apply-btn:hover {
-      background: rgba(255, 255, 255, 0.22);
-    }
-
-    .link-remove-btn {
-      color: #ff8a80;
-    }
-
-    .link-remove-btn:hover {
-      background: rgba(255, 138, 128, 0.12);
-    }
-
-    .link-error {
-      color: #ff8a80;
-    }
   }
 </style>
