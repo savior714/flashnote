@@ -59,6 +59,11 @@
     updateActiveMarks()
   }
 
+  function repositionBubble() {
+    if (!editor || editor.isDestroyed) return
+    editor.view.dispatch(editor.state.tr.setMeta('formattingBubble', 'updatePosition'))
+  }
+
   function handleStartLink() {
     if (!editor || !editable) return
     const { from, to } = editor.state.selection
@@ -69,6 +74,7 @@
     isEditingLink = true
 
     void tick().then(() => {
+      repositionBubble()
       inputElement?.focus()
       inputElement?.select()
     })
@@ -77,11 +83,13 @@
   function handleApplyLink() {
     if (!editor || !editable || !savedRange) {
       isEditingLink = false
+      void tick().then(repositionBubble)
       return
     }
     const normalized = normalizeExternalUrl(linkUrl)
     if (!normalized) {
       linkError = 'Please enter a valid web URL (http:// or https://)'
+      void tick().then(repositionBubble)
       return
     }
 
@@ -96,11 +104,13 @@
     linkError = ''
     savedRange = null
     updateActiveMarks()
+    void tick().then(repositionBubble)
   }
 
   function handleRemoveLink() {
     if (!editor || !editable || !savedRange) {
       isEditingLink = false
+      void tick().then(repositionBubble)
       return
     }
     editor
@@ -114,6 +124,7 @@
     linkError = ''
     savedRange = null
     updateActiveMarks()
+    void tick().then(repositionBubble)
   }
 
   function handleCancelLink() {
@@ -124,6 +135,7 @@
       savedRange = null
     }
     updateActiveMarks()
+    void tick().then(repositionBubble)
   }
 
   function handleInputKeyDown(event: KeyboardEvent) {

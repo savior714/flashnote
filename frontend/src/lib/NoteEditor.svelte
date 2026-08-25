@@ -197,17 +197,6 @@
     }
   }
 
-  function handleEditorDomClick(event: MouseEvent) {
-    const target = event.target as HTMLElement | null
-    const anchor = target?.closest('a')
-    if (anchor) {
-      event.preventDefault()
-      const href = anchor.getAttribute('href')
-      if (href) {
-        void openExternalUrl(href)
-      }
-    }
-  }
 
   $effect(() => {
     editor?.setEditable(editable, false)
@@ -237,6 +226,7 @@
         AttachmentImage,
         slashExtension,
         BubbleMenu.configure({
+          pluginKey: 'formattingBubble',
           element: bubbleElement,
           updateDelay: 0,
           shouldShow: ({ editor: currentEditor, state, from, to }) => {
@@ -265,18 +255,20 @@
           class: 'prose-editor',
           spellcheck: 'true',
         },
-        handleClick: (_view, _pos, event) => {
-          const target = event.target as HTMLElement | null
-          const anchor = target?.closest('a')
-          if (anchor) {
-            event.preventDefault()
-            const href = anchor.getAttribute('href')
-            if (href) {
-              void openExternalUrl(href)
+        handleDOMEvents: {
+          click: (_view, event) => {
+            const target = event.target as HTMLElement | null
+            const anchor = target?.closest('a')
+            if (anchor) {
+              event.preventDefault()
+              const href = anchor.getAttribute('href')
+              if (href) {
+                void openExternalUrl(href)
+              }
+              return true
             }
-            return true
-          }
-          return false
+            return false
+          },
         },
         handlePaste: (_view, event) => {
           if (!editable) {
@@ -306,8 +298,6 @@
       },
     })
 
-    element.addEventListener('click', handleEditorDomClick)
-
     if (acceptanceText) {
       queueMicrotask(() => {
         if (!editor) return
@@ -323,7 +313,6 @@
   })
 
   onDestroy(() => {
-    element?.removeEventListener('click', handleEditorDomClick)
     editor?.destroy()
     editor = null
   })
@@ -348,6 +337,12 @@
 {/if}
 
 <style>
+  .bubble-menu-wrapper {
+    visibility: hidden;
+    opacity: 0;
+    position: absolute;
+  }
+
   .image-error {
     margin-top: 10px;
     font-size: 0.85rem;

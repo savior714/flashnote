@@ -207,36 +207,55 @@ export async function runSlashAcceptance(
     await tick()
     await delay(30)
 
-    // A. Bubble visibility on non-empty selection
-    // Select "fast" (index in text is 19..23, doc pos is 20..24)
+    // A. Initial bubble visibility negative proof: before any non-empty selection, bubble is NOT visually exposed
+    const initialBubbleWrapper = document.querySelector<HTMLElement>('.bubble-menu-wrapper')
+    if (initialBubbleWrapper && initialBubbleWrapper.isConnected) {
+      const computedInitial = window.getComputedStyle(initialBubbleWrapper)
+      if (computedInitial.visibility !== 'hidden' || computedInitial.opacity !== '0') {
+        throw new Error(
+          `acceptance: initial bubble wrapper visually exposed before selection (visibility=${computedInitial.visibility}, opacity=${computedInitial.opacity})`,
+        )
+      }
+    }
+
+    // B. Bubble visibility on non-empty selection: select "fast" (doc pos 20..24)
     editor.commands.setTextSelection({ from: 20, to: 24 })
     await tick()
     await delay(50)
 
-    const bubble = document.querySelector<HTMLElement>('.formatting-bubble')
-    if (!bubble) {
-      throw new Error('acceptance: formatting bubble not rendered for non-empty text selection')
+    const bubbleWrapper = document.querySelector<HTMLElement>('.bubble-menu-wrapper')
+    if (!bubbleWrapper || !bubbleWrapper.isConnected) {
+      throw new Error('acceptance: bubble menu wrapper not connected on non-empty selection')
     }
-    const boldBtn = bubble.querySelector<HTMLButtonElement>('.bubble-btn-bold')
-    const italicBtn = bubble.querySelector<HTMLButtonElement>('.bubble-btn-italic')
-    const strikeBtn = bubble.querySelector<HTMLButtonElement>('.bubble-btn-strike')
-    const codeBtn = bubble.querySelector<HTMLButtonElement>('.bubble-btn-code')
-    const linkBtn = bubble.querySelector<HTMLButtonElement>('.bubble-btn-link')
+    const computedBubble = window.getComputedStyle(bubbleWrapper)
+    if (computedBubble.visibility !== 'visible' || computedBubble.opacity !== '1') {
+      throw new Error(
+        `acceptance: bubble menu wrapper not visibly shown on non-empty selection (visibility=${computedBubble.visibility}, opacity=${computedBubble.opacity})`,
+      )
+    }
+
+    const boldBtn = bubbleWrapper.querySelector<HTMLButtonElement>('.bubble-btn-bold')
+    const italicBtn = bubbleWrapper.querySelector<HTMLButtonElement>('.bubble-btn-italic')
+    const strikeBtn = bubbleWrapper.querySelector<HTMLButtonElement>('.bubble-btn-strike')
+    const codeBtn = bubbleWrapper.querySelector<HTMLButtonElement>('.bubble-btn-code')
+    const linkBtn = bubbleWrapper.querySelector<HTMLButtonElement>('.bubble-btn-link')
     if (!boldBtn || !italicBtn || !strikeBtn || !codeBtn || !linkBtn) {
       throw new Error('acceptance: formatting bubble missing one or more required action buttons')
     }
 
-    // B. Empty selection negative: collapse selection -> bubble hidden / detached
+    // C. Empty selection negative: collapse selection -> bubble hidden / detached
     editor.commands.setTextSelection(1)
     await tick()
     await delay(50)
-    const bubbleWrapper = document.querySelector<HTMLElement>('.bubble-menu-wrapper')
-    const bubbleElement = document.querySelector<HTMLElement>('.formatting-bubble')
-    if (bubbleElement && bubbleElement.style.visibility === 'visible' && bubbleElement.offsetParent !== null) {
-      throw new Error('acceptance: formatting bubble unexpectedly visible for empty caret selection')
+    const collapsedWrapper = document.querySelector<HTMLElement>('.bubble-menu-wrapper')
+    if (collapsedWrapper && collapsedWrapper.isConnected) {
+      const computedCollapsed = window.getComputedStyle(collapsedWrapper)
+      if (computedCollapsed.visibility !== 'hidden' || computedCollapsed.opacity !== '0') {
+        throw new Error('acceptance: formatting bubble unexpectedly visible for empty caret selection')
+      }
     }
 
-    // C. Bold: select "fast", activate Bold button through DOM interaction, prove mark, toggle
+    // D. Bold: select "fast", activate Bold button through DOM interaction, prove mark, toggle
     editor.commands.setTextSelection({ from: 20, to: 24 })
     await tick()
     await delay(50)
@@ -272,7 +291,7 @@ export async function runSlashAcceptance(
     await tick()
     await delay(30)
 
-    // D. Italic / Strike / Inline code: exercise shared real button path
+    // E. Italic / Strike / Inline code: exercise shared real button path
     // Select "provides" (doc pos 11..19) -> Italic
     editor.commands.setTextSelection({ from: 11, to: 19 })
     await tick()
@@ -313,7 +332,7 @@ export async function runSlashAcceptance(
       throw new Error(`acceptance: expected code mark on "tools", got ${JSON.stringify(paragraphContent)}`)
     }
 
-    // E. Link creation: select "Flashnote", click Link, enter example.com, Apply -> normalized https://example.com
+    // F. Link creation: select "Flashnote", click Link, enter example.com, Apply -> normalized https://example.com
     // "Flashnote" is pos 1..10
     editor.commands.setTextSelection({ from: 1, to: 10 })
     await tick()
@@ -347,7 +366,7 @@ export async function runSlashAcceptance(
       throw new Error(`acceptance: expected link mark normalized to https://example.com, got ${JSON.stringify(linkMark)}`)
     }
 
-    // F. Link editing and removal: select existing linked text, verify pre-fill, remove link
+    // G. Link editing and removal: select existing linked text, verify pre-fill, remove link
     editor.commands.setTextSelection({ from: 1, to: 10 })
     await tick()
     await delay(50)
@@ -376,7 +395,7 @@ export async function runSlashAcceptance(
       throw new Error('acceptance: link mark failed to be removed')
     }
 
-    // G. Invalid URL validation: enter javascript:alert(1) -> rejected, error shown, no mark
+    // H. Invalid URL validation: enter javascript:alert(1) -> rejected, error shown, no mark
     editor.commands.setTextSelection({ from: 1, to: 10 })
     await tick()
     await delay(50)
@@ -418,7 +437,7 @@ export async function runSlashAcceptance(
     await tick()
     await delay(30)
 
-    // H. Autolink proof: insert text with ordinary web link
+    // I. REAL autolink proof: start from plain unmarked paragraph and insert URL text with trailing delimiter
     editor.commands.setContent({
       type: 'doc',
       content: [
@@ -431,25 +450,23 @@ export async function runSlashAcceptance(
               text: 'Flashnote',
             },
             { type: 'text', text: ' has docs at ' },
-            {
-              type: 'text',
-              marks: [{ type: 'link', attrs: { href: 'https://tiptap.dev' } }],
-              text: 'https://tiptap.dev',
-            },
           ],
         },
       ],
     })
+    editor.commands.focus('end')
+    editor.commands.insertContent('https://tiptap.dev ')
     await tick()
-    await delay(30)
+    await delay(50)
 
     doc = editor.getJSON()
-    const autoLinkNode = findTextNode(doc.content?.[0]?.content, 'https://tiptap.dev')
+    const autoLinkParagraphNodes = doc.content?.[0]?.content
+    const autoLinkNode = findTextNode(autoLinkParagraphNodes, 'https://tiptap.dev')
     if (!autoLinkNode?.marks?.some((m) => m.type === 'link' && m.attrs?.href === 'https://tiptap.dev')) {
-      throw new Error(`acceptance: expected autolink mark on https://tiptap.dev, got ${JSON.stringify(doc)}`)
+      throw new Error(`acceptance: expected real autolink mark generated on https://tiptap.dev, got ${JSON.stringify(autoLinkParagraphNodes)}`)
     }
 
-    // I. Search shortcut regression check: prove Mod-K / Cmd-K does not open link editing
+    // J. Search shortcut regression check: prove Mod-K / Cmd-K does not open link editing
     const docBeforeK = editor.getJSON()
     dispatchKey(editor, 'k', { metaKey: true })
     await tick()
@@ -469,36 +486,49 @@ export async function runSlashAcceptance(
     await tick()
     await delay(30)
 
-    // J. Default browser / click intercept test:
-    let openedExternalUrl = ''
+    // K. Default browser / click intercept test:
+    const openedCalls: string[] = []
     setExternalLinkOpenerForTest(async (url) => {
-      openedExternalUrl = url
+      openedCalls.push(url)
     })
+    try {
+      const anchorEl = document.querySelector<HTMLAnchorElement>('.prose-editor a[href]')
+      if (!anchorEl) {
+        throw new Error('acceptance: anchor element not found in editor DOM for click test')
+      }
+      const docBeforeClick = JSON.stringify(editor.getJSON())
+      const clickEvent = new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+      })
+      anchorEl.dispatchEvent(clickEvent)
+      await tick()
+      await delay(30)
 
-    const anchorEl = document.querySelector<HTMLAnchorElement>('.prose-editor a[href]')
-    if (!anchorEl) {
-      throw new Error('acceptance: anchor element not found in editor DOM for click test')
+      if (!clickEvent.defaultPrevented) {
+        throw new Error('acceptance: anchor click event was not default-prevented')
+      }
+      if (openedCalls.length !== 1) {
+        throw new Error(`acceptance: expected exactly 1 external opener call, got ${openedCalls.length} (${JSON.stringify(openedCalls)})`)
+      }
+      const expectedHref = anchorEl.getAttribute('href')
+      if (openedCalls[0] !== expectedHref) {
+        throw new Error(`acceptance: expected opener called with ${expectedHref}, got ${openedCalls[0]}`)
+      }
+      const docAfterClick = JSON.stringify(editor.getJSON())
+      if (docBeforeClick !== docAfterClick) {
+        throw new Error('acceptance: anchor click unexpectedly mutated editor document')
+      }
+
+      // Prove invalid schemes never reach the opener
+      const openerCountBefore = openedCalls.length
+      const invalidResult = await openExternalUrl('javascript:alert(1)')
+      if (invalidResult || openedCalls.length !== openerCountBefore) {
+        throw new Error('acceptance: openExternalUrl unexpectedly called opener for javascript: scheme')
+      }
+    } finally {
+      setExternalLinkOpenerForTest(null)
     }
-    const clickEvent = new MouseEvent('click', {
-      bubbles: true,
-      cancelable: true,
-    })
-    anchorEl.dispatchEvent(clickEvent)
-    await tick()
-    await delay(30)
-
-    if (openedExternalUrl !== 'https://example.com' && openedExternalUrl !== 'https://tiptap.dev') {
-      throw new Error(`acceptance: expected external link opener called on anchor click, got "${openedExternalUrl}"`)
-    }
-
-    // Test safety against invalid scheme
-    const invalidResult = await openExternalUrl('javascript:alert(1)')
-    if (invalidResult) {
-      throw new Error('acceptance: openExternalUrl unexpectedly returned true for javascript: scheme')
-    }
-
-    // Reset test opener
-    setExternalLinkOpenerForTest(null)
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // COMBINED FINAL PERSISTENCE DOCUMENT
