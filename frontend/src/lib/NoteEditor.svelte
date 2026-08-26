@@ -16,6 +16,7 @@
     slashCommands,
     type SlashCommandItem,
   } from './slashCommands'
+  import { runChecklistInteractionAcceptance } from './checklistAcceptance'
   import { TaskItem, TaskList } from './taskList'
 
   type Props = {
@@ -333,11 +334,16 @@
       queueMicrotask(() => {
         if (!editor) return
         void runSlashAcceptance(editor, acceptanceText, onDocumentChange)
-          .then(() => {
+          .then(async () => {
+            const currentEditor = editor
+            if (!currentEditor) {
+              throw new Error('Flashnote checklist acceptance lost the editor instance')
+            }
+            await runChecklistInteractionAcceptance(currentEditor, acceptanceText)
             onAcceptanceReady?.()
           })
           .catch((error) => {
-            console.error('FLASHNOTE_SLASH_ACCEPTANCE_FAILURE', error)
+            console.error('FLASHNOTE_EDITOR_ACCEPTANCE_FAILURE', error)
           })
       })
     }
