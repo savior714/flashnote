@@ -21,7 +21,7 @@ function findNodeByType(nodes: JSONContent[] | undefined, type: string): JSONCon
 
 // Deterministic 200x100 PNG (aspect ratio 2.0, width: 200, height: 100)
 const DETERMINISTIC_200X100_PNG_BASE64 =
-  'iVBORw0KGgoAAAANSUhEUgAAAMgAAABkCAYAAADDhn8LAAABHUlEQVR4nO3TMRHAIADAQNQhrJrwBwZ6WWH44fcsGfNbG/g3bgfAywwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDtqt1LC/eBjEAAAAAElFTkSuQmCC'
+  'iVBORw0KGgoAAAANSUhEUgAAAMgAAABkCAYAAADDhn8LAAABHUlEQVR4nO3TMRHAIADAQNQhrJrwBwZ6WWH44fcsGfNbG/g3bgfAywwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDALBIBAMAsEgEAwCwSAQDtqt1LC/eBjEAAAAAElFTkSuQmCC'
 
 function createPngFile(filename = 'acceptance-test-image.png'): File {
   const binary = atob(DETERMINISTIC_200X100_PNG_BASE64)
@@ -64,9 +64,43 @@ export function dispatchImagePasteEvent(editor: Editor, file: File): boolean {
   return event.defaultPrevented
 }
 
+export function dispatchImageDropEvent(editor: Editor, file: File): boolean {
+  const rect = editor.view.dom.getBoundingClientRect()
+  const event = new Event('drop', {
+    bubbles: true,
+    cancelable: true,
+  }) as DragEvent
+
+  const dataTransfer = {
+    files: [file],
+    items: [
+      {
+        kind: 'file',
+        type: file.type,
+        getAsFile: () => file,
+      },
+    ],
+    types: ['Files'],
+    dropEffect: 'copy',
+    effectAllowed: 'all',
+    getData: () => '',
+    setData: () => {},
+    clearData: () => {},
+  }
+
+  Object.defineProperties(event, {
+    dataTransfer: { value: dataTransfer, configurable: true },
+    clientX: { value: rect.left + 4, configurable: true },
+    clientY: { value: rect.top + 4, configurable: true },
+  })
+
+  editor.view.dom.dispatchEvent(event)
+  return event.defaultPrevented
+}
+
 export async function runImageResizeAcceptance(editor: Editor): Promise<{ attachmentId: string; width: number; height: number }> {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // 1. CANONICAL INGEST PATH PROOF
+  // 1. CANONICAL PASTE + DROP INGEST PATH PROOF
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   editor.commands.setContent({
     type: 'doc',
@@ -94,6 +128,53 @@ export async function runImageResizeAcceptance(editor: Editor): Promise<{ attach
     throw new Error('acceptance E4: canonical image paste failed to ingest attachment and insert image node')
   }
 
+  const pasteAttachmentId = attachmentId
+  editor.commands.setContent({
+    type: 'doc',
+    content: [{ type: 'paragraph' }],
+  })
+  editor.commands.focus('start')
+  await tick()
+  await delay(20)
+
+  const dropFile = createPngFile('acceptance-drop-image.png')
+  const dropPrevented = dispatchImageDropEvent(editor, dropFile)
+  if (!dropPrevented) {
+    throw new Error('acceptance E4: image drop event was not handled by the editor')
+  }
+
+  let droppedAttachmentId = ''
+  let droppedImage: JSONContent | undefined
+  for (let i = 0; i < 60; i++) {
+    const doc = editor.getJSON()
+    droppedImage = findNodeByType(doc.content, 'image')
+    if (
+      droppedImage &&
+      typeof droppedImage.attrs?.attachmentId === 'string' &&
+      droppedImage.attrs.attachmentId.length > 0
+    ) {
+      droppedAttachmentId = droppedImage.attrs.attachmentId
+      break
+    }
+    await delay(30)
+  }
+
+  if (!droppedAttachmentId) {
+    throw new Error('acceptance E4: image drag/drop failed to ingest attachment and insert image node')
+  }
+  if (droppedAttachmentId === pasteAttachmentId) {
+    throw new Error('acceptance E4: image drop did not perform an independent attachment ingest')
+  }
+  if (
+    droppedImage?.attrs?.alt !== dropFile.name ||
+    droppedImage?.attrs?.width !== null ||
+    droppedImage?.attrs?.height !== null
+  ) {
+    throw new Error(`acceptance E4: dropped image did not use canonical image node attrs: ${JSON.stringify(droppedImage?.attrs)}`)
+  }
+
+  attachmentId = droppedAttachmentId
+  console.log('FLASHNOTE_IMAGE_DROP_ACCEPTANCE_SUCCESS')
   await tick()
   await delay(50)
 
