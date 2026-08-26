@@ -1,0 +1,39 @@
+name: macOS release DMG acceptance
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos-release-dmg:
+    runs-on: macos-15
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.0'
+          cache: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Run canonical macOS DMG acceptance
+        run: |
+          FLASHNOTE_DMG_EVIDENCE_DIR="$RUNNER_TEMP/release-dmg-evidence" ./scripts/accept-macos-release-dmg.sh
+
+      - name: Upload DMG acceptance evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release-dmg-${{ github.sha }}
+          path: ${{ runner.temp }}/release-dmg-evidence/
+          if-no-files-found: error
+          retention-days: 14
