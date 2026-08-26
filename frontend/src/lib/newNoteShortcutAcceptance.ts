@@ -221,6 +221,115 @@ export async function runNewNoteShortcutAcceptance(
       console.log('FLASHNOTE_CHECKLIST_DURABLE_ACCEPTANCE_SUCCESS')
     }
 
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // S3A. CREATE MENU → NEW NOTE CLICK PROOF
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    const [menuBaselineRootIDs] = (await ListRootNotes()) as [string[], string[]]
+    if (!menuBaselineRootIDs.includes(originalNoteID) || getCurrentFolderID() !== '') {
+      throw new Error('acceptance sidebar create: expected the acceptance note at root before New note click proof')
+    }
+
+    const menuCreateButton = document.querySelector<HTMLButtonElement>(
+      '.create-controls > button[aria-label="Create"]',
+    )
+    if (!menuCreateButton || menuCreateButton.disabled) {
+      throw new Error('acceptance sidebar create: Create button is missing or disabled before New note click proof')
+    }
+    menuCreateButton.click()
+    await tick()
+    await delay(30)
+
+    const menu = document.querySelector<HTMLElement>('.create-menu')
+    const menuNewNoteButton = Array.from(menu?.querySelectorAll<HTMLButtonElement>('button') ?? [])
+      .find((button) => button.textContent?.trim() === 'New note')
+    if (!menu || !menuNewNoteButton) {
+      throw new Error('acceptance sidebar create: New note action is missing from the open Create menu')
+    }
+
+    menuNewNoteButton.click()
+    const menuCreatedNoteID = await waitForNoteTransition(
+      getNoteID,
+      isNoteTransitionActive,
+      originalNoteID,
+    )
+    if (document.querySelector('.create-menu') !== null) {
+      throw new Error('acceptance sidebar create: Create menu remained open after New note click')
+    }
+    if (getCurrentFolderID() !== '') {
+      throw new Error('acceptance sidebar create: root New note click created a note outside root')
+    }
+    if (getTitle() !== '') {
+      throw new Error(`acceptance sidebar create: New note click created non-empty title "${getTitle()}"`)
+    }
+    const menuTitleEl = document.querySelector<HTMLInputElement>('.title')
+    if (!menuTitleEl || document.activeElement !== menuTitleEl) {
+      throw new Error('acceptance sidebar create: New note click did not focus the title immediately')
+    }
+
+    const [menuRootIDs, menuRootTitles] = (await ListRootNotes()) as [string[], string[]]
+    const addedRootIDs = menuRootIDs.filter((id) => !menuBaselineRootIDs.includes(id))
+    const menuCreatedIndex = menuRootIDs.indexOf(menuCreatedNoteID)
+    if (
+      menuRootIDs.length !== menuBaselineRootIDs.length + 1 ||
+      addedRootIDs.length !== 1 ||
+      addedRootIDs[0] !== menuCreatedNoteID ||
+      menuCreatedIndex < 0 ||
+      menuRootTitles[menuCreatedIndex] !== 'Untitled'
+    ) {
+      throw new Error('acceptance sidebar create: New note click did not add exactly one Untitled root note')
+    }
+
+    const [menuFolderIDs] = (await ListFolders()) as [string[], string[]]
+    for (const folderID of menuFolderIDs) {
+      const [folderNoteIDs] = (await ListFolderNotes(folderID)) as [string[], string[]]
+      if (folderNoteIDs.includes(menuCreatedNoteID)) {
+        throw new Error(`acceptance sidebar create: New note click leaked into folder ${folderID}`)
+      }
+    }
+
+    const menuCreatedSnapshot = (await OpenNote(menuCreatedNoteID)) as NoteTuple
+    if (
+      menuCreatedSnapshot[0] !== menuCreatedNoteID ||
+      menuCreatedSnapshot[1] !== '' ||
+      menuCreatedSnapshot[3] !== 1
+    ) {
+      throw new Error('acceptance sidebar create: New note click did not produce the canonical empty revision-1 note')
+    }
+    const menuDocumentEnvelope = JSON.parse(menuCreatedSnapshot[2]) as { schemaVersion?: unknown; doc?: unknown }
+    if (menuDocumentEnvelope.schemaVersion !== 1 || !menuDocumentEnvelope.doc || typeof menuDocumentEnvelope.doc !== 'object') {
+      throw new Error('acceptance sidebar create: New note click produced an invalid canonical document envelope')
+    }
+
+    const originalAfterMenuSnapshot = (await OpenNote(originalNoteID)) as NoteTuple
+    if (
+      originalAfterMenuSnapshot[0] !== originalNoteID ||
+      (acceptanceText && !originalAfterMenuSnapshot[2].includes(acceptanceText))
+    ) {
+      throw new Error('acceptance sidebar create: original note was not durable before restoring the fixture')
+    }
+    applyNote(originalAfterMenuSnapshot)
+    await refreshSidebar()
+    await tick()
+    await delay(30)
+    if (getNoteID() !== originalNoteID || getCurrentFolderID() !== '') {
+      throw new Error('acceptance sidebar create: failed to restore original root note after New note click proof')
+    }
+
+    await MoveNoteToTrash(menuCreatedNoteID)
+    await PermanentlyDeleteNote(menuCreatedNoteID)
+    await refreshSidebar()
+    const [menuCleanupRootIDs] = (await ListRootNotes()) as [string[], string[]]
+    if (JSON.stringify(menuCleanupRootIDs) !== JSON.stringify(menuBaselineRootIDs)) {
+      throw new Error('acceptance sidebar create: New note click fixture cleanup did not restore the root baseline')
+    }
+    for (const folderID of menuFolderIDs) {
+      const [folderNoteIDs] = (await ListFolderNotes(folderID)) as [string[], string[]]
+      if (folderNoteIDs.includes(menuCreatedNoteID)) {
+        throw new Error(`acceptance sidebar create: cleaned New note fixture remained in folder ${folderID}`)
+      }
+    }
+    console.log('FLASHNOTE_CREATE_MENU_NEW_NOTE_ACCEPTANCE_SUCCESS')
+
     const plainNEvent = dispatchKey(window, 'n')
     await tick()
     await delay(30)
