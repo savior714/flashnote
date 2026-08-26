@@ -653,6 +653,85 @@ async function proveContextTrashUndo(
     'restored original note selection before fixture cleanup',
   )
 
+  const [crossLocationFolderIDs] = (await ListFolderNotes(folderID)) as [string[], string[]]
+  if (!sameIDs(crossLocationFolderIDs, [currentNoteID])) {
+    throw new Error('acceptance cross-location fallback: current note is not alone in its source folder')
+  }
+  const [crossLocationNormalBefore] = (await ListNotes()) as [string[], string[]]
+  const crossLocationSurvivorIDs = crossLocationNormalBefore.filter((noteID) => noteID !== currentNoteID)
+  if (crossLocationSurvivorIDs.length === 0) {
+    throw new Error('acceptance cross-location fallback: no external normal-note survivor is available')
+  }
+  if (!crossLocationSurvivorIDs.includes(siblingNoteID) || !(await rootContains(siblingNoteID))) {
+    throw new Error('acceptance cross-location fallback: root survivor fixture is unavailable')
+  }
+
+  ;({ menu: contextMenu } = await openCurrentNoteContextMenu())
+  const crossLocationTrashButton = Array.from(
+    contextMenu.querySelectorAll<HTMLButtonElement>('button'),
+  ).find((button) => button.textContent?.trim() === 'Move to Trash')
+  if (!crossLocationTrashButton) {
+    throw new Error('acceptance cross-location fallback: Move to Trash action is missing')
+  }
+
+  let selectedExternalSurvivorID = ''
+  crossLocationTrashButton.click()
+  await waitFor(
+    async () => {
+      const [normalIDs] = (await ListNotes()) as [string[], string[]]
+      const selected = document.querySelector<HTMLElement>('.note-row[aria-current="page"]')
+      const selectedID = selected?.dataset.noteId ?? ''
+      if (
+        !selectedID ||
+        !crossLocationSurvivorIDs.includes(selectedID) ||
+        !sameIDs(normalIDs, crossLocationSurvivorIDs)
+      ) {
+        return false
+      }
+      selectedExternalSurvivorID = selectedID
+      return (await trashContains(currentNoteID)) && document.querySelector('.undo-trash') !== null
+    },
+    'cross-location existing survivor selection without replacement-note creation',
+  )
+
+  if (await folderContains(folderID, selectedExternalSurvivorID)) {
+    throw new Error('acceptance cross-location fallback: selected survivor unexpectedly came from the emptied source folder')
+  }
+  const selectedExternalSnapshot = (await OpenNote(selectedExternalSurvivorID)) as NoteTuple
+  if (selectedExternalSnapshot[0] !== selectedExternalSurvivorID) {
+    throw new Error('acceptance cross-location fallback: selected survivor is not a durable normal note')
+  }
+
+  const crossLocationUndoButton = Array.from(
+    document.querySelectorAll<HTMLButtonElement>('.undo-trash button'),
+  ).find((button) => button.textContent?.trim() === 'Undo')
+  if (!crossLocationUndoButton) {
+    throw new Error('acceptance cross-location fallback: Undo is missing after deleting current note')
+  }
+  crossLocationUndoButton.click()
+  await waitFor(
+    async () => {
+      const [normalIDs] = (await ListNotes()) as [string[], string[]]
+      return (
+        sameIDs(normalIDs, crossLocationNormalBefore) &&
+        (await folderContains(folderID, currentNoteID)) &&
+        !(await trashContains(currentNoteID))
+      )
+    },
+    'cross-location fallback Undo restoring original normal-note state',
+  )
+
+  await refreshSidebar()
+  await tick()
+  await expandFolder(folderID)
+  noteRow(currentNoteID).click()
+  await waitFor(
+    () =>
+      document.querySelector<HTMLElement>('.note-row[aria-current="page"]')?.dataset.noteId === currentNoteID,
+    'restored original note selection after cross-location fallback proof',
+  )
+  console.log('FLASHNOTE_CROSS_LOCATION_TRASH_FALLBACK_SUCCESS')
+
   console.log('FLASHNOTE_CONTEXT_TRASH_UNDO_ACCEPTANCE_SUCCESS')
 }
 
