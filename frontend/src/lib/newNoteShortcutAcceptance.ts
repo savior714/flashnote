@@ -31,6 +31,105 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function nodeText(value: unknown): string {
+  if (!value || typeof value !== 'object') {
+    return ''
+  }
+  const node = value as { text?: unknown; content?: unknown }
+  if (typeof node.text === 'string') {
+    return node.text
+  }
+  if (!Array.isArray(node.content)) {
+    return ''
+  }
+  return node.content.map(nodeText).join('')
+}
+
+function checklistStates(documentJSON: string, acceptanceText: string): boolean[] {
+  const envelope = JSON.parse(documentJSON) as { schemaVersion?: unknown; doc?: unknown }
+  if (envelope.schemaVersion !== 1 || !envelope.doc || typeof envelope.doc !== 'object') {
+    throw new Error('acceptance checklist durability: invalid canonical document envelope')
+  }
+
+  const findTaskList = (value: unknown): unknown[] | null => {
+    if (!value || typeof value !== 'object') {
+      return null
+    }
+    const node = value as { type?: unknown; content?: unknown }
+    if (
+      node.type === 'taskList' &&
+      nodeText(node).includes(acceptanceText) &&
+      Array.isArray(node.content)
+    ) {
+      return node.content
+    }
+    if (!Array.isArray(node.content)) {
+      return null
+    }
+    for (const child of node.content) {
+      const found = findTaskList(child)
+      if (found) {
+        return found
+      }
+    }
+    return null
+  }
+
+  const items = findTaskList(envelope.doc)
+  if (!items || items.length !== 2) {
+    throw new Error('acceptance checklist durability: expected two acceptance task items')
+  }
+
+  return items.map((value) => {
+    if (!value || typeof value !== 'object') {
+      throw new Error('acceptance checklist durability: task item is not an object')
+    }
+    const item = value as { type?: unknown; attrs?: unknown }
+    if (item.type !== 'taskItem' || !item.attrs || typeof item.attrs !== 'object') {
+      throw new Error('acceptance checklist durability: malformed task item')
+    }
+    const checked = (item.attrs as { checked?: unknown }).checked
+    if (typeof checked !== 'boolean') {
+      throw new Error('acceptance checklist durability: task item checked state is not boolean')
+    }
+    return checked
+  })
+}
+
+function sameBooleanStates(left: boolean[], right: boolean[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
+async function waitForDurableChecklist(
+  noteID: string,
+  acceptanceText: string,
+  expectedStates: boolean[],
+  timeoutMs = 4000,
+): Promise<NoteTuple> {
+  const startedAt = Date.now()
+  let lastStates: boolean[] | null = null
+  let lastError: unknown = null
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const snapshot = (await OpenNote(noteID)) as NoteTuple
+    try {
+      lastStates = checklistStates(snapshot[2], acceptanceText)
+      lastError = null
+      if (sameBooleanStates(lastStates, expectedStates)) {
+        return snapshot
+      }
+    } catch (error) {
+      lastError = error
+    }
+    await delay(50)
+  }
+
+  const detail = lastError instanceof Error
+    ? lastError.message
+    : `last durable states=${JSON.stringify(lastStates)}`
+  throw new Error(`acceptance checklist durability: autosave did not persist clicked states (${detail})`)
+}
+
 function dispatchKey(
   target: EventTarget,
   key: string,
@@ -109,6 +208,17 @@ export async function runNewNoteShortcutAcceptance(
     const acceptanceText = import.meta.env.VITE_FLASHNOTE_ACCEPTANCE_TEXT ?? ''
     if (acceptanceText && !originalDocJSON.includes(acceptanceText)) {
       throw new Error('acceptance S3: original note does not contain expected acceptanceText before S3 suite')
+    }
+
+    if (acceptanceText) {
+      const clickedChecklistStates = checklistStates(originalDocJSON, acceptanceText)
+      if (!sameBooleanStates(clickedChecklistStates, [true, false])) {
+        throw new Error(
+          `acceptance checklist durability: unexpected post-click in-memory states ${JSON.stringify(clickedChecklistStates)}`,
+        )
+      }
+      await waitForDurableChecklist(originalNoteID, acceptanceText, clickedChecklistStates)
+      console.log('FLASHNOTE_CHECKLIST_DURABLE_ACCEPTANCE_SUCCESS')
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
