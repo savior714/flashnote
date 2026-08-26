@@ -13,6 +13,7 @@ import {
   OpenNote,
   PermanentlyDeleteFolder,
   PermanentlyDeleteNote,
+  RestoreFolder,
   TrashCounts,
 } from '../../bindings/github.com/savior714/flashnote/appservice'
 
@@ -191,6 +192,7 @@ async function proveContextTrashUndo(
   currentNoteID: string,
   siblingNoteID: string,
   folderID: string,
+  emptyFolderID: string,
   refreshSidebar: () => Promise<void>,
 ): Promise<void> {
   await MoveNote(siblingNoteID, folderID)
@@ -436,6 +438,119 @@ async function proveContextTrashUndo(
   await expandFolder(folderID)
   console.log('FLASHNOTE_PERMANENT_NOTE_DELETE_CONFIRMATION_SUCCESS')
 
+  const trashCountsBeforeEmptyFixture = (await TrashCounts()) as [number, number]
+  await MoveNote(siblingNoteID, '')
+  if (!(await MoveNoteToTrash(siblingNoteID))) {
+    throw new Error('acceptance Empty Trash: standalone note fixture did not move to Trash')
+  }
+  const movedFolderNoteCount = await MoveFolderToTrash(emptyFolderID)
+  if (movedFolderNoteCount !== 0) {
+    throw new Error(
+      `acceptance Empty Trash: empty folder fixture unexpectedly moved ${movedFolderNoteCount} note(s)`,
+    )
+  }
+
+  const expectedEmptyTrashCounts = (await TrashCounts()) as [number, number]
+  if (
+    expectedEmptyTrashCounts[0] !== trashCountsBeforeEmptyFixture[0] + 1 ||
+    expectedEmptyTrashCounts[1] !== trashCountsBeforeEmptyFixture[1] + 1
+  ) {
+    throw new Error('acceptance Empty Trash: fixture setup did not add exactly one note and one folder')
+  }
+
+  await refreshSidebar()
+  await tick()
+  const emptyTrashNav = document.querySelector<HTMLButtonElement>('.trash-row')
+  if (!emptyTrashNav) {
+    throw new Error('acceptance Empty Trash: Trash navigation button is missing')
+  }
+  emptyTrashNav.click()
+  await waitFor(
+    () => document.querySelector('.trash-list') !== null,
+    'Trash view before Empty Trash confirmation',
+  )
+
+  const emptyTrashButton = document.querySelector<HTMLButtonElement>('.trash-empty-button')
+  if (!emptyTrashButton || emptyTrashButton.disabled) {
+    throw new Error('acceptance Empty Trash: Empty Trash… action is missing or disabled with Trash contents')
+  }
+  if (emptyTrashButton.textContent?.trim() !== 'Empty Trash…') {
+    throw new Error('acceptance Empty Trash: bulk destructive action label is unexpected')
+  }
+  emptyTrashButton.click()
+  await tick()
+  await delay(30)
+
+  const emptyTrashDialog = document.querySelector<HTMLElement>(
+    '[role="dialog"][aria-labelledby="empty-trash-title"]',
+  )
+  if (!emptyTrashDialog) {
+    throw new Error('acceptance Empty Trash: destructive confirmation dialog did not open')
+  }
+  const expectedEmptyTrashWarning = `Permanently delete ${expectedEmptyTrashCounts[0]} notes and ${expectedEmptyTrashCounts[1]} folders. This cannot be undone.`
+  if (emptyTrashDialog.querySelector('p')?.textContent?.trim() !== expectedEmptyTrashWarning) {
+    throw new Error('acceptance Empty Trash: dialog did not state exact counts and irreversible consequence')
+  }
+  const emptyTrashConfirmButton = Array.from(
+    emptyTrashDialog.querySelectorAll<HTMLButtonElement>('button'),
+  ).find((button) => button.textContent?.trim() === 'Empty Trash')
+  const emptyTrashCancelButton = Array.from(
+    emptyTrashDialog.querySelectorAll<HTMLButtonElement>('button'),
+  ).find((button) => button.textContent?.trim() === 'Cancel')
+  if (!emptyTrashConfirmButton || !emptyTrashCancelButton) {
+    throw new Error('acceptance Empty Trash: confirmation dialog actions are incomplete')
+  }
+
+  emptyTrashCancelButton.click()
+  await tick()
+  await delay(30)
+  if (document.querySelector('[role="dialog"][aria-labelledby="empty-trash-title"]')) {
+    throw new Error('acceptance Empty Trash: Cancel did not close destructive confirmation')
+  }
+  const countsAfterEmptyCancel = (await TrashCounts()) as [number, number]
+  if (
+    countsAfterEmptyCancel[0] !== expectedEmptyTrashCounts[0] ||
+    countsAfterEmptyCancel[1] !== expectedEmptyTrashCounts[1]
+  ) {
+    throw new Error('acceptance Empty Trash: Cancel changed Trash contents')
+  }
+
+  const emptyTrashNoteRow = Array.from(
+    document.querySelectorAll<HTMLButtonElement>('.trash-list .note-row'),
+  ).find((button) => button.textContent?.trim() === permanentDeleteFixtureTitle)
+  if (!emptyTrashNoteRow) {
+    throw new Error('acceptance Empty Trash: standalone fixture note is missing after Cancel')
+  }
+  emptyTrashNoteRow.click()
+  await waitFor(
+    () => document.querySelector<HTMLInputElement>('.title')?.value === permanentDeleteFixtureTitle,
+    'standalone fixture note selection after Empty Trash Cancel',
+  )
+  const emptyTrashRestoreButton = Array.from(
+    document.querySelectorAll<HTMLButtonElement>('.trash-actions button'),
+  ).find((button) => button.textContent?.trim() === 'Restore')
+  if (!emptyTrashRestoreButton) {
+    throw new Error('acceptance Empty Trash: Restore action is missing for standalone fixture note')
+  }
+  emptyTrashRestoreButton.click()
+  await waitFor(
+    async () => (await rootContains(siblingNoteID)) && !(await trashContains(siblingNoteID)),
+    'restoring standalone fixture note after Empty Trash Cancel',
+  )
+
+  await RestoreFolder(emptyFolderID)
+  await refreshSidebar()
+  await tick()
+  const trashCountsAfterEmptyFixture = (await TrashCounts()) as [number, number]
+  if (
+    trashCountsAfterEmptyFixture[0] !== trashCountsBeforeEmptyFixture[0] ||
+    trashCountsAfterEmptyFixture[1] !== trashCountsBeforeEmptyFixture[1]
+  ) {
+    throw new Error('acceptance Empty Trash: fixture restoration did not return Trash to baseline')
+  }
+  console.log('FLASHNOTE_EMPTY_TRASH_CONFIRMATION_SUCCESS')
+
+  await expandFolder(folderID)
   noteRow(currentNoteID).click()
   await waitFor(
     () =>
@@ -614,7 +729,13 @@ export async function runSidebarDragDropAcceptance({ refreshSidebar }: Acceptanc
       throw new Error('acceptance sidebar DnD: same-location drop changed note ordering')
     }
 
-    await proveContextTrashUndo(resumeNoteID, sourceNoteID, sourceFolderID, refreshSidebar)
+    await proveContextTrashUndo(
+      resumeNoteID,
+      sourceNoteID,
+      sourceFolderID,
+      targetFolderID,
+      refreshSidebar,
+    )
 
     const trashDraggable = document.querySelector('.trash-list .note-row[draggable="true"]')
     if (trashDraggable) {
