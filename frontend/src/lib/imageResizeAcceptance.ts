@@ -179,7 +179,58 @@ export async function runImageResizeAcceptance(editor: Editor): Promise<{ attach
   await delay(50)
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // 2. HANDLE PRESENCE PROOF
+  // 2. IMAGE DELETION PROOF
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const imageBeforeDelete = findNodeByType(editor.getJSON().content, 'image')
+  if (!imageBeforeDelete) {
+    throw new Error('acceptance E4: image missing before deletion proof')
+  }
+
+  let imagePosition: number | null = null
+  editor.state.doc.descendants((node, pos) => {
+    if (
+      imagePosition === null &&
+      node.type.name === 'image' &&
+      node.attrs.attachmentId === attachmentId
+    ) {
+      imagePosition = pos
+      return false
+    }
+    return true
+  })
+  if (imagePosition === null) {
+    throw new Error('acceptance E4: could not locate image node position for deletion proof')
+  }
+
+  editor.commands.setNodeSelection(imagePosition)
+  const deleteEvent = new KeyboardEvent('keydown', {
+    key: 'Backspace',
+    bubbles: true,
+    cancelable: true,
+  })
+  editor.view.dom.dispatchEvent(deleteEvent)
+  await tick()
+  await delay(50)
+
+  if (findNodeByType(editor.getJSON().content, 'image')) {
+    throw new Error('acceptance E4: selected image remained after Backspace deletion')
+  }
+  console.log('FLASHNOTE_IMAGE_DELETE_ACCEPTANCE_SUCCESS')
+
+  editor.commands.setContent({
+    type: 'doc',
+    content: [imageBeforeDelete],
+  })
+  await tick()
+  await delay(50)
+
+  const restoredImage = findNodeByType(editor.getJSON().content, 'image')
+  if (restoredImage?.attrs?.attachmentId !== attachmentId) {
+    throw new Error('acceptance E4: image fixture was not restored after deletion proof')
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 3. HANDLE PRESENCE PROOF
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   const container = editor.view.dom.querySelector<HTMLElement>('[data-resize-container]')
   if (!container) {
@@ -209,7 +260,7 @@ export async function runImageResizeAcceptance(editor: Editor): Promise<{ attach
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // 3. ACTUAL DRAG / RESIZE PROOF
+  // 4. ACTUAL DRAG / RESIZE PROOF
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   let doc = editor.getJSON()
   let imageNode = findNodeByType(doc.content, 'image')
@@ -242,7 +293,7 @@ export async function runImageResizeAcceptance(editor: Editor): Promise<{ attach
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // 4. ASPECT RATIO PROOF
+  // 5. ASPECT RATIO PROOF
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   const aspect = resizedWidth / resizedHeight
   // Natural aspect ratio for 200x100 is 2.0; allow small pixel rounding tolerance
@@ -251,7 +302,7 @@ export async function runImageResizeAcceptance(editor: Editor): Promise<{ attach
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // 5. MINIMUM SIZE PROOF
+  // 6. MINIMUM SIZE PROOF
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Drag right handle drastically inward towards (0, 0)
   rightHandle.dispatchEvent(new MouseEvent('mousedown', { clientX: 300, clientY: 150, bubbles: true, cancelable: true }))
@@ -281,7 +332,7 @@ export async function runImageResizeAcceptance(editor: Editor): Promise<{ attach
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // 6. LEFT HANDLE RESIZE PROOF
+  // 7. LEFT HANDLE RESIZE PROOF
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Drag left handle outward: deltaX = -100 increases width
   leftHandle.dispatchEvent(new MouseEvent('mousedown', { clientX: 200, clientY: 100, bubbles: true, cancelable: true }))
@@ -301,7 +352,7 @@ export async function runImageResizeAcceptance(editor: Editor): Promise<{ attach
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // 7. READ-ONLY & TRANSITION PROOF
+  // 8. READ-ONLY & TRANSITION PROOF
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // A. Transition to non-editable:
   const docBeforeDisable = JSON.stringify(editor.getJSON())
@@ -362,7 +413,7 @@ export async function runImageResizeAcceptance(editor: Editor): Promise<{ attach
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // 8. FINAL CANONICAL RESIZE FOR PERSISTENCE
+  // 9. FINAL CANONICAL RESIZE FOR PERSISTENCE
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Set clean final dimensions (e.g. width: 280, height: 140) through handle drag
   const currentRightHandle = editor.view.dom.querySelector<HTMLElement>('[data-resize-handle="bottom-right"]')
