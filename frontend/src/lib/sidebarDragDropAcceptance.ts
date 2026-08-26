@@ -534,8 +534,16 @@ async function proveContextTrashUndo(
   }
   emptyTrashRestoreButton.click()
   await waitFor(
-    async () => (await rootContains(siblingNoteID)) && !(await trashContains(siblingNoteID)),
-    'restoring standalone fixture note after Empty Trash Cancel',
+    async () => {
+      const trashNavigation = document.querySelector<HTMLButtonElement>('.trash-row')
+      return (
+        (await rootContains(siblingNoteID)) &&
+        !(await trashContains(siblingNoteID)) &&
+        trashNavigation?.disabled === false &&
+        trashNavigation.getAttribute('aria-current') !== 'page'
+      )
+    },
+    'restoring standalone fixture note and completing Trash UI transition',
   )
 
   await RestoreFolder(emptyFolderID)
