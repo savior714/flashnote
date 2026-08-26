@@ -133,6 +133,67 @@ func TestListAndOpenNotesPreserveRecentOrderAndLastSelection(t *testing.T) {
 	}
 }
 
+func TestOpenNoteWaitsForConcurrentWriter(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	store := openTestStore(t)
+	defer store.Close()
+
+	note, _, err := store.OpenInitialNote(ctx)
+	if err != nil {
+		t.Fatalf("OpenInitialNote() error = %v", err)
+	}
+
+	writerTx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin competing writer: %v", err)
+	}
+	defer writerTx.Rollback()
+	if _, err := writerTx.ExecContext(ctx, `
+		INSERT INTO app_meta(key, value, updated_at)
+		VALUES ('concurrent_writer_probe', 'held', CURRENT_TIMESTAMP)
+		ON CONFLICT(key) DO UPDATE SET
+			value = excluded.value,
+			updated_at = CURRENT_TIMESTAMP
+	`); err != nil {
+		t.Fatalf("hold competing writer: %v", err)
+	}
+
+	type openResult struct {
+		note Note
+		err  error
+	}
+	resultCh := make(chan openResult, 1)
+	go func() {
+		opened, openErr := store.OpenNote(ctx, note.ID)
+		resultCh <- openResult{note: opened, err: openErr}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	select {
+	case result := <-resultCh:
+		t.Fatalf("OpenNote returned before competing writer committed: note=%+v err=%v", result.note, result.err)
+	default:
+	}
+
+	if err := writerTx.Commit(); err != nil {
+		t.Fatalf("commit competing writer: %v", err)
+	}
+
+	select {
+	case result := <-resultCh:
+		if result.err != nil {
+			t.Fatalf("OpenNote after competing writer error = %v", result.err)
+		}
+		if result.note.ID != note.ID {
+			t.Fatalf("OpenNote after competing writer ID = %q, want %q", result.note.ID, note.ID)
+		}
+	case <-ctx.Done():
+		t.Fatalf("OpenNote did not resume after competing writer committed: %v", ctx.Err())
+	}
+}
+
 func TestSaveNoteAdvancesRevisionAndRejectsStaleWrite(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)

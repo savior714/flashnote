@@ -28,9 +28,11 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, fmt.Errorf("open sqlite database: %w", err)
 	}
 
-	// Conservative initial pool. These values are implementation tuning, not product contract.
-	db.SetMaxOpenConns(4)
-	db.SetMaxIdleConns(4)
+	// Flashnote owns persistence in one process and SQLite permits only one writer.
+	// Keep one pooled connection so read-then-write transactions cannot race another
+	// pooled writer and fail while upgrading their lock.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 
 	attachmentsDir := filepath.Join(filepath.Dir(path), "attachments")
 	if err := os.MkdirAll(attachmentsDir, 0o700); err != nil {
