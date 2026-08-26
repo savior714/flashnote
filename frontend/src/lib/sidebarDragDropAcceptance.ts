@@ -329,6 +329,113 @@ async function proveContextTrashUndo(
 
   console.log('FLASHNOTE_NONEMPTY_FOLDER_TRASH_CONFIRMATION_SUCCESS')
 
+  const permanentDeleteFixtureTitle = `Permanent delete fixture ${siblingNoteID.slice(0, 8)}`
+  const siblingTitleInput = document.querySelector<HTMLInputElement>('.title')
+  if (!siblingTitleInput) {
+    throw new Error('acceptance permanent delete: title input is missing before fixture rename')
+  }
+  siblingTitleInput.value = permanentDeleteFixtureTitle
+  siblingTitleInput.dispatchEvent(new Event('input', { bubbles: true }))
+  await tick()
+
+  noteRow(currentNoteID).click()
+  await waitFor(
+    async () => {
+      const selected = document.querySelector<HTMLElement>('.note-row[aria-current="page"]')
+      const siblingSnapshot = (await OpenNote(siblingNoteID)) as NoteTuple
+      return selected?.dataset.noteId === currentNoteID && siblingSnapshot[1] === permanentDeleteFixtureTitle
+    },
+    'permanent-delete fixture title flush before Trash transition',
+  )
+
+  await MoveNoteToTrash(siblingNoteID)
+  await refreshSidebar()
+  await tick()
+
+  const trashButton = document.querySelector<HTMLButtonElement>('.trash-row')
+  if (!trashButton) {
+    throw new Error('acceptance permanent delete: Trash navigation button is missing')
+  }
+  trashButton.click()
+  await waitFor(
+    () => document.querySelector('.trash-list') !== null,
+    'Trash view before permanent-delete confirmation',
+  )
+
+  const trashFixtureRow = Array.from(
+    document.querySelectorAll<HTMLButtonElement>('.trash-list .note-row'),
+  ).find((button) => button.textContent?.trim() === permanentDeleteFixtureTitle)
+  if (!trashFixtureRow) {
+    throw new Error('acceptance permanent delete: uniquely titled fixture note is missing from Trash')
+  }
+  trashFixtureRow.click()
+  await waitFor(
+    () => {
+      const title = document.querySelector<HTMLInputElement>('.title')
+      return title?.value === permanentDeleteFixtureTitle && title.readOnly
+    },
+    'read-only trashed fixture note selection',
+  )
+
+  const deletePermanentlyButton = Array.from(
+    document.querySelectorAll<HTMLButtonElement>('.trash-actions button'),
+  ).find((button) => button.textContent?.trim() === 'Delete permanently…')
+  if (!deletePermanentlyButton) {
+    throw new Error('acceptance permanent delete: Delete permanently… action is missing in Trash')
+  }
+  deletePermanentlyButton.click()
+  await tick()
+  await delay(30)
+
+  const permanentDeleteDialog = document.querySelector<HTMLElement>(
+    '[role="dialog"][aria-labelledby="delete-note-title"]',
+  )
+  if (!permanentDeleteDialog) {
+    throw new Error('acceptance permanent delete: destructive confirmation dialog did not open')
+  }
+  if (permanentDeleteDialog.querySelector('p')?.textContent?.trim() !== 'This cannot be undone.') {
+    throw new Error('acceptance permanent delete: dialog did not state that deletion cannot be undone')
+  }
+  const permanentDeleteConfirmButton = Array.from(
+    permanentDeleteDialog.querySelectorAll<HTMLButtonElement>('button'),
+  ).find((button) => button.textContent?.trim() === 'Delete permanently')
+  const permanentDeleteCancelButton = Array.from(
+    permanentDeleteDialog.querySelectorAll<HTMLButtonElement>('button'),
+  ).find((button) => button.textContent?.trim() === 'Cancel')
+  if (!permanentDeleteConfirmButton || !permanentDeleteCancelButton) {
+    throw new Error('acceptance permanent delete: confirmation dialog actions are incomplete')
+  }
+
+  permanentDeleteCancelButton.click()
+  await tick()
+  await delay(30)
+  if (document.querySelector('[role="dialog"][aria-labelledby="delete-note-title"]')) {
+    throw new Error('acceptance permanent delete: Cancel did not close destructive confirmation')
+  }
+  if (!(await trashContains(siblingNoteID))) {
+    throw new Error('acceptance permanent delete: Cancel unexpectedly removed the trashed note')
+  }
+
+  const restoreButton = Array.from(
+    document.querySelectorAll<HTMLButtonElement>('.trash-actions button'),
+  ).find((button) => button.textContent?.trim() === 'Restore')
+  if (!restoreButton) {
+    throw new Error('acceptance permanent delete: Restore action is missing after Cancel')
+  }
+  restoreButton.click()
+  await waitFor(
+    async () =>
+      (await folderContains(folderID, siblingNoteID)) &&
+      !(await trashContains(siblingNoteID)) &&
+      document.querySelector('.trash-row.active') === null,
+    'restoring permanent-delete fixture after confirmation Cancel',
+  )
+
+  await refreshSidebar()
+  await tick()
+  await expandFolder(folderID)
+  console.log('FLASHNOTE_PERMANENT_NOTE_DELETE_CONFIRMATION_SUCCESS')
+
   noteRow(currentNoteID).click()
   await waitFor(
     () =>
