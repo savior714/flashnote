@@ -2,8 +2,9 @@
   import { Editor, isTextSelection, type JSONContent, type Range } from '@tiptap/core'
   import BubbleMenu from '@tiptap/extension-bubble-menu'
   import StarterKit from '@tiptap/starter-kit'
+  import { Window } from '@wailsio/runtime'
   import { onDestroy, onMount } from 'svelte'
-  import { IngestImage } from '../../bindings/github.com/savior714/flashnote/appservice'
+  import { IngestImage, SearchNotes } from '../../bindings/github.com/savior714/flashnote/appservice'
   import { AttachmentImage, attachmentImageContent } from './attachmentImage'
   import FormattingBubble from './FormattingBubble.svelte'
   import { isValidExternalWebUrl, openExternalUrl } from './linkHelper'
@@ -224,11 +225,10 @@
     }
   }
 
-  function verifyTrashReadOnlyAcceptance() {
+  async function verifyTrashReadOnlyAcceptance() {
     const currentEditor = editor
     if (
       !acceptanceBuildActive ||
-      editable ||
       trashReadOnlyAcceptanceLogged ||
       !currentEditor ||
       currentEditor.isDestroyed ||
@@ -254,10 +254,12 @@
         titleReadOnly: titleInput?.readOnly ?? false,
         label: readOnlyLabel?.textContent?.trim() ?? '',
       })
+      void Window.Close()
       throw new Error('acceptance: Trash note editor is not fully read-only')
     }
 
     trashReadOnlyAcceptanceLogged = true
+    await SearchNotes('flashnote-trash-readonly-acceptance-handshake')
     console.log('FLASHNOTE_TRASH_READONLY_ACCEPTANCE_SUCCESS')
   }
 
@@ -266,8 +268,8 @@
     if (!editable && slashOpen) {
       closeSlash()
     }
-    if (!editable) {
-      verifyTrashReadOnlyAcceptance()
+    if (editor) {
+      void verifyTrashReadOnlyAcceptance()
     }
   })
 
