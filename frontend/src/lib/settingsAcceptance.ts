@@ -200,7 +200,7 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     await delay(50)
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // D. APPEARANCE THEMES PROOF
+    // D. APPEARANCE THEMES + MINIMAL SETTINGS SURFACE PROOF
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Open Settings dialog for theme testing
     dispatchKey(window, ',', primaryModifier)
@@ -210,6 +210,79 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     if (!dialog) {
       throw new Error('acceptance: failed to open Settings for theme tests')
     }
+
+    const settingsBody = dialog.querySelector<HTMLElement>('.settings-body')
+    const settingsSections = Array.from(
+      settingsBody?.querySelectorAll<HTMLElement>(':scope > .settings-section') ?? [],
+    )
+    const sectionLabels = settingsSections.map(
+      (section) => section.querySelector<HTMLElement>('.settings-section-title')?.textContent?.trim() ?? '',
+    )
+    if (
+      !settingsBody ||
+      settingsBody.children.length !== 3 ||
+      settingsSections.length !== 3 ||
+      JSON.stringify(sectionLabels) !== JSON.stringify(['Appearance', 'Editor', 'Data'])
+    ) {
+      throw new Error(
+        `acceptance: Settings surface must contain exactly Appearance/Editor/Data sections, got ${JSON.stringify(sectionLabels)}`,
+      )
+    }
+
+    const [appearanceSection, editorSection, dataSection] = settingsSections
+    if (!appearanceSection || !editorSection || !dataSection) {
+      throw new Error('acceptance: Settings surface section ownership is incomplete')
+    }
+
+    const appearanceLabels = Array.from(
+      appearanceSection.querySelectorAll<HTMLButtonElement>('.appearance-option'),
+    )
+      .map((button) => button.textContent?.trim() ?? '')
+      .sort()
+    if (JSON.stringify(appearanceLabels) !== JSON.stringify(['Dark', 'Light', 'System'])) {
+      throw new Error(
+        `acceptance: Settings appearance surface must be exactly System/Light/Dark, got ${JSON.stringify(appearanceLabels)}`,
+      )
+    }
+
+    const editorRows = Array.from(editorSection.querySelectorAll<HTMLElement>('.settings-row-item'))
+    const editorLabels = editorRows.map(
+      (row) => row.querySelector<HTMLElement>('.settings-label')?.textContent?.trim() ?? '',
+    )
+    if (
+      editorRows.length !== 2 ||
+      JSON.stringify(editorLabels) !== JSON.stringify(['Font size', 'Spellcheck'])
+    ) {
+      throw new Error(
+        `acceptance: Settings editor surface must be exactly Font size/Spellcheck, got ${JSON.stringify(editorLabels)}`,
+      )
+    }
+
+    const dataRows = Array.from(dataSection.querySelectorAll<HTMLElement>('.settings-row-item'))
+    const dataLabels = dataRows.map(
+      (row) => row.querySelector<HTMLElement>('.settings-label')?.textContent?.trim() ?? '',
+    )
+    const dataExportButtons = dataSection.querySelectorAll<HTMLButtonElement>('.export-all-button')
+    if (
+      dataRows.length !== 1 ||
+      JSON.stringify(dataLabels) !== JSON.stringify(['Export library']) ||
+      dataExportButtons.length !== 1
+    ) {
+      throw new Error(
+        `acceptance: Settings data surface must contain only Export library, got ${JSON.stringify(dataLabels)}`,
+      )
+    }
+
+    const settingsInputs = Array.from(dialog.querySelectorAll<HTMLInputElement>('input'))
+    if (
+      settingsInputs.length !== 2 ||
+      !settingsInputs.some((input) => input.matches('.font-size-slider[type="range"]')) ||
+      !settingsInputs.some((input) => input.matches('.spellcheck-checkbox[type="checkbox"]')) ||
+      dialog.querySelector('select, textarea') !== null
+    ) {
+      throw new Error('acceptance: Settings exposed controls beyond font size, spellcheck, and Export all')
+    }
+    console.log('FLASHNOTE_MINIMAL_SETTINGS_SURFACE_ACCEPTANCE_SUCCESS')
 
     const themeButtons = Array.from(dialog.querySelectorAll<HTMLButtonElement>('.appearance-option'))
     const lightBtn = themeButtons.find((b) => b.textContent?.trim() === 'Light')
