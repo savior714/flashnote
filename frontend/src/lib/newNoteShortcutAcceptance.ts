@@ -342,10 +342,52 @@ export async function runNewNoteShortcutAcceptance(
       throw new Error(`acceptance S3: .title is not document.activeElement (active: ${document.activeElement?.className})`)
     }
 
-    // 4. Note must appear in root notes and NOT in any folder
-    const [rootIDs] = (await ListRootNotes()) as [string[], string[]]
-    if (!rootIDs.includes(newRootNoteID)) {
+    // 4. Empty canonical title stays distinct from the Untitled display fallback, and Enter moves to body without mutation.
+    const titleDocumentBeforeEnter = getDocumentJSON()
+    const blankTitleSnapshot = (await OpenNote(newRootNoteID)) as NoteTuple
+    if (blankTitleSnapshot[1] !== '') {
+      throw new Error(`acceptance title: canonical new-note title was persisted as "${blankTitleSnapshot[1]}" instead of empty`)
+    }
+    if (blankTitleSnapshot[2] !== titleDocumentBeforeEnter) {
+      throw new Error('acceptance title: backend document differs before title Enter proof')
+    }
+
+    const titleEnterEvent = dispatchKey(titleEl, 'Enter')
+    await tick()
+    await delay(30)
+    if (!titleEnterEvent.defaultPrevented) {
+      throw new Error('acceptance title: Enter in title was not handled')
+    }
+    const editorElement = document.querySelector<HTMLElement>('.prose-editor')
+    if (!editorElement || document.activeElement !== editorElement) {
+      throw new Error(`acceptance title: Enter did not move focus to body editor (active: ${document.activeElement?.className})`)
+    }
+    if (
+      getNoteID() !== newRootNoteID ||
+      getTitle() !== '' ||
+      getDocumentJSON() !== titleDocumentBeforeEnter ||
+      isNoteTransitionActive()
+    ) {
+      throw new Error('acceptance title: Enter mutated or transitioned the new note')
+    }
+    const afterTitleEnterSnapshot = (await OpenNote(newRootNoteID)) as NoteTuple
+    if (
+      afterTitleEnterSnapshot[1] !== '' ||
+      afterTitleEnterSnapshot[2] !== blankTitleSnapshot[2] ||
+      afterTitleEnterSnapshot[3] !== blankTitleSnapshot[3]
+    ) {
+      throw new Error('acceptance title: Enter changed durable title, document, or revision')
+    }
+    console.log('FLASHNOTE_TITLE_ENTER_ACCEPTANCE_SUCCESS')
+
+    // 5. Note must appear in root notes and NOT in any folder, using Untitled only as presentation data.
+    const [rootIDs, rootTitles] = (await ListRootNotes()) as [string[], string[]]
+    const rootIndex = rootIDs.indexOf(newRootNoteID)
+    if (rootIndex < 0) {
       throw new Error('acceptance S3: new note not found in ListRootNotes()')
+    }
+    if (rootTitles[rootIndex] !== 'Untitled') {
+      throw new Error(`acceptance title: empty note display title was "${rootTitles[rootIndex]}" instead of "Untitled"`)
     }
     if (getCurrentFolderID() !== '') {
       throw new Error(`acceptance S3: new root note unexpectedly has currentFolderID "${getCurrentFolderID()}"`)
@@ -358,13 +400,13 @@ export async function runNewNoteShortcutAcceptance(
       }
     }
 
-    // 5. Canonical document must be valid initial document
+    // 6. Canonical document must be valid initial document
     const newDocEnvelope = JSON.parse(getDocumentJSON()) as { schemaVersion?: unknown; doc?: unknown }
     if (newDocEnvelope.schemaVersion !== 1 || typeof newDocEnvelope.doc !== 'object') {
       throw new Error('acceptance S3: new note canonical document envelope is invalid')
     }
 
-    // 6. Save safety: verify original note was flushed before transition
+    // 7. Save safety: verify original note was flushed before transition
     const originalSnapshot = (await OpenNote(originalNoteID)) as NoteTuple
     if (originalSnapshot[0] !== originalNoteID) {
       throw new Error('acceptance S3: failed to retrieve original note for save flush verification')
