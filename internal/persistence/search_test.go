@@ -135,3 +135,62 @@ func TestSearchNotesEmptyQueryReturnsRecentNotes(t *testing.T) {
 		t.Fatalf("recent results = %+v", results)
 	}
 }
+
+func TestSearchNotesExcludesTrashFromRecentAndNormalResults(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	defer store.Close()
+
+	trashed, _, err := store.OpenInitialNote(ctx)
+	if err != nil {
+		t.Fatalf("OpenInitialNote() error = %v", err)
+	}
+	if _, err := store.SaveNote(ctx, trashed.ID, "Needle trashed", trashed.DocumentJSON, trashed.Revision); err != nil {
+		t.Fatalf("SaveNote(trashed) error = %v", err)
+	}
+
+	survivor, err := store.CreateNote(ctx)
+	if err != nil {
+		t.Fatalf("CreateNote(survivor) error = %v", err)
+	}
+	if _, err := store.SaveNote(ctx, survivor.ID, "Needle survivor", survivor.DocumentJSON, survivor.Revision); err != nil {
+		t.Fatalf("SaveNote(survivor) error = %v", err)
+	}
+
+	contains := func(results []SearchResult, id string) bool {
+		for _, result := range results {
+			if result.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+
+	results, err := store.SearchNotes(ctx, "needle")
+	if err != nil {
+		t.Fatalf("SearchNotes(before trash) error = %v", err)
+	}
+	if !contains(results, trashed.ID) || !contains(results, survivor.ID) {
+		t.Fatalf("pre-trash search results = %+v, want both notes", results)
+	}
+
+	if err := store.MoveNoteToTrash(ctx, trashed.ID); err != nil {
+		t.Fatalf("MoveNoteToTrash() error = %v", err)
+	}
+
+	results, err = store.SearchNotes(ctx, "needle")
+	if err != nil {
+		t.Fatalf("SearchNotes(after trash) error = %v", err)
+	}
+	if contains(results, trashed.ID) || !contains(results, survivor.ID) {
+		t.Fatalf("post-trash search results = %+v, want survivor only", results)
+	}
+
+	recent, err := store.SearchNotes(ctx, "")
+	if err != nil {
+		t.Fatalf("SearchNotes(empty after trash) error = %v", err)
+	}
+	if contains(recent, trashed.ID) || !contains(recent, survivor.ID) {
+		t.Fatalf("post-trash recent results = %+v, want survivor only", recent)
+	}
+}
