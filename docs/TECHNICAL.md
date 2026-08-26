@@ -1,6 +1,6 @@
 # Flashnote Technical Baseline
 
-_Status: evolving implementation baseline · 2026-08-23_
+_Status: evolving implementation baseline · 2026-08-26_
 
 This document records technical decisions that shape Flashnote's implementation. Product behavior remains governed by `docs/PRODUCT.md`. Exact dependency patch versions, operational tuning values, and implementation details should remain open until they are needed or verified during implementation.
 
@@ -212,7 +212,55 @@ On close or quit, if the latest draft has not been durably acknowledged, Flashno
 
 The exact debounce duration, retry delay/backoff, revision token representation, and flush timeout are implementation-tuning details to be established and tested with the first persistence vertical slice.
 
-## 11. Open technical decisions
+## 11. Native release distribution and update strategy
+
+### Decision
+
+For the first macOS MVP release, distribute Flashnote **directly outside the Mac App Store** as a manually downloaded **DMG containing a production Wails `.app` bundle**.
+
+The initial macOS release contract is deliberately layered:
+
+1. The canonical build unit is a Wails production `.app` bundle generated from repository-owned build assets.
+2. The primary user-facing download is a DMG containing that `.app`; a PKG installer is not part of the MVP because Flashnote needs no privileged installer or background-service installation semantics.
+3. Production distribution requires a real **Developer ID Application** signature, hardened runtime, secure timestamp, and successful Apple notarization. An ad-hoc signature may be used only as non-credentialed package-structure evidence and must never be reported as production signing.
+4. The notarization owner must submit the real release payload to Apple's notary service, require an accepted result, staple the returned ticket where applicable, and perform a Gatekeeper-oriented validation before macOS distribution is declared ready.
+5. The first MVP update flow is **manual download of a newer release**. Do not add an in-app updater until a later product need justifies the additional network, release-channel, authenticity, lifecycle, and failure-state surface.
+
+`build/config.yml` is the repository source of truth for release-facing application metadata that Wails projects into platform build assets, including the product name, product identifier, and application version. Release tags or publication metadata must agree with that version rather than introducing a competing version authority.
+
+### Distribution boundary
+
+- The Mac App Store is not part of the initial release path.
+- DMG is the primary human-facing distribution envelope. ZIP may be introduced later as a machine/update transport only if an adopted updater or release host requires it; it is not the initial installer surface.
+- Windows packaging and signing remain a separate release frontier. The macOS decision must not be described as cross-platform release closure.
+- CPU architecture coverage (`arm64`, `amd64`, or universal) is a separate release-acceptance criterion. This decision does not claim architecture coverage before direct package evidence exists.
+
+### Acceptance ownership
+
+Keep release evidence split by failure mode rather than enlarging normal native runtime acceptance:
+
+- **Normal application/runtime correctness** remains owned by the existing native scaffold acceptance.
+- **Non-credentialed macOS package acceptance** owns deterministic production `.app` generation and bundle structure/metadata: executable placement, `Info.plist` product identifier/name/version, required resources, and artifact integrity. Any Wails-generated ad-hoc signature is evidence only that the bundle has the expected local package shape.
+- **Credentialed macOS distribution acceptance** owns Developer ID identity, hardened-runtime and timestamp requirements, actual Apple notarization, ticket stapling/validation, and Gatekeeper acceptance of the release payload.
+- **Updater acceptance does not exist until an updater is actually adopted.** Do not create updater infrastructure or a fake updater proof in advance.
+
+A missing signing certificate or notarization credential leaves the credentialed criterion **UNKNOWN / UNVERIFIED**, not GREEN and not equivalent to a package-build failure.
+
+### Rationale
+
+- Current Wails v3 provides first-party macOS `.app` packaging, DMG construction, Developer ID signing, and notarization tasks, so Flashnote does not need a separate packaging framework merely to ship the MVP.
+- A DMG matches a conventional drag-to-Applications desktop distribution without introducing PKG installer semantics that Flashnote does not need.
+- Apple direct distribution requires Developer ID signing and notarization for a normal trusted Gatekeeper path; ad-hoc signing is therefore insufficient as release evidence.
+- Wails v3 also provides an updater, but availability is not a product requirement. Deferring it keeps the initial release channel manual and prevents speculative update state, network behavior, release-asset rules, and signing interactions from entering the MVP.
+- Separating deterministic package proof from credentialed Apple-service proof lets public CI verify everything it can without converting absent secrets into false readiness.
+
+### Boundary
+
+The currently pinned Wails v3 version is sufficient to begin the first package proof; a Wails dependency upgrade is a separate change and should not be coupled to packaging merely because a newer prerelease exists.
+
+This strategy decision does **not** close production macOS release readiness. Deterministic `.app` packaging, final distribution packaging, real Developer ID signing, notarization, Gatekeeper validation, release publication, and supported-architecture coverage each require their own direct evidence before they can be closed.
+
+## 12. Open technical decisions
 
 The following are intentionally not yet fixed:
 
@@ -223,6 +271,6 @@ The following are intentionally not yet fixed:
 - exact autosave debounce/retry timings and revision-token representation
 - attachment ingest/storage implementation details
 - search indexing/tokenization implementation
-- test stack and native packaging/update strategy
+- test stack
 
 These should be grilled only when the decision is materially expensive to reverse or is needed to implement the next vertical slice.
