@@ -142,6 +142,20 @@ jobs:
       - name: Verify checkout source integrity
         run: |
           set -euo pipefail
+
+          while IFS= read -r path; do
+            case "$path" in
+              frontend/bindings/*|frontend/dist/.keep)
+                ;;
+              *)
+                echo "Unexpected tracked mutation from package build: $path" >&2
+                git diff -- "$path" >&2 || true
+                exit 1
+                ;;
+            esac
+          done < <(git diff --name-only)
+
+          git restore --source=HEAD --worktree -- frontend/bindings frontend/dist/.keep
           git diff --exit-code
 
       - name: Upload package acceptance evidence
