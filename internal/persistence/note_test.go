@@ -49,6 +49,76 @@ func TestInitialNotePersistsAcrossReopen(t *testing.T) {
 	}
 }
 
+func TestInitialNoteCreatesEmptyReplacementWhenLastViewedNoteIsUnavailable(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "flashnote.db")
+
+	store, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	first, created, err := store.OpenInitialNote(ctx)
+	if err != nil {
+		t.Fatalf("OpenInitialNote() error = %v", err)
+	}
+	if !created {
+		t.Fatal("expected initial note to be created")
+	}
+	survivor, err := store.CreateNote(ctx)
+	if err != nil {
+		t.Fatalf("CreateNote(survivor) error = %v", err)
+	}
+	if _, err := store.OpenNote(ctx, first.ID); err != nil {
+		t.Fatalf("OpenNote(first) error = %v", err)
+	}
+	if err := store.MoveNoteToTrash(ctx, first.ID); err != nil {
+		t.Fatalf("MoveNoteToTrash(first) error = %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	store, err = Open(ctx, path)
+	if err != nil {
+		t.Fatalf("reopen Store error = %v", err)
+	}
+	defer store.Close()
+
+	replacement, created, err := store.OpenInitialNote(ctx)
+	if err != nil {
+		t.Fatalf("reopen OpenInitialNote() error = %v", err)
+	}
+	if !created {
+		t.Fatalf("expected a new empty replacement, got existing note %+v", replacement)
+	}
+	if replacement.ID == first.ID || replacement.ID == survivor.ID {
+		t.Fatalf("replacement reused unavailable or surviving note: first=%q survivor=%q replacement=%q", first.ID, survivor.ID, replacement.ID)
+	}
+	if replacement.Title != "" || replacement.Revision != 1 || replacement.DocumentJSON != first.DocumentJSON {
+		t.Fatalf("replacement is not canonical empty note: %+v", replacement)
+	}
+
+	notes, err := store.ListNotes(ctx)
+	if err != nil {
+		t.Fatalf("ListNotes() error = %v", err)
+	}
+	if len(notes) != 2 {
+		t.Fatalf("ListNotes() len = %d, want survivor plus replacement: %+v", len(notes), notes)
+	}
+	foundSurvivor := false
+	foundReplacement := false
+	for _, note := range notes {
+		foundSurvivor = foundSurvivor || note.ID == survivor.ID
+		foundReplacement = foundReplacement || note.ID == replacement.ID
+		if note.ID == first.ID {
+			t.Fatalf("trashed last-viewed note leaked into normal notes: %+v", notes)
+		}
+	}
+	if !foundSurvivor || !foundReplacement {
+		t.Fatalf("normal notes missing survivor or replacement: %+v", notes)
+	}
+}
+
 func TestListAndOpenNotesPreserveRecentOrderAndLastSelection(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "flashnote.db")
