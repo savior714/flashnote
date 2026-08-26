@@ -56,7 +56,7 @@ jobs:
           cp build/config.yml "$CANONICAL_CONFIG"
           wails3 generate build-assets -name flashnote -dir ./build
           cp "$CANONICAL_CONFIG" build/config.yml
-          wails3 update build-assets -name flashnote -config ./build/config.yml -dir ./build
+          wails3 update build-assets -name flashnote -binaryname flashnote -config ./build/config.yml -dir ./build
           cmp "$CANONICAL_CONFIG" build/config.yml
           test -f build/Taskfile.yml
           test -f build/darwin/Taskfile.yml
