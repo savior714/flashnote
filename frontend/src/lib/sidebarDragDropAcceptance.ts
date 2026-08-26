@@ -7,6 +7,7 @@ import {
   ListNotes,
   ListRootNotes,
   MoveFolderToTrash,
+  MoveNote,
   MoveNoteToTrash,
   OpenNote,
   PermanentlyDeleteFolder,
@@ -17,6 +18,8 @@ import {
 type AcceptanceOptions = {
   refreshSidebar: () => Promise<void>
 }
+
+type NoteTuple = [string, string, string, number, boolean]
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -98,6 +101,86 @@ function sameIDs(left: string[], right: string[]): boolean {
   return leftSorted.every((value, index) => value === rightSorted[index])
 }
 
+async function proveDirtyCurrentNoteFlush(noteID: string, targetFolderID: string): Promise<void> {
+  if (!(await rootContains(noteID))) {
+    throw new Error('acceptance sidebar DnD dirty flush: current note must begin at root')
+  }
+
+  const titleInput = document.querySelector<HTMLInputElement>('.title')
+  if (!titleInput) {
+    throw new Error('acceptance sidebar DnD dirty flush: title input is missing')
+  }
+
+  const original = (await OpenNote(noteID)) as NoteTuple
+  if (titleInput.value !== original[1]) {
+    throw new Error('acceptance sidebar DnD dirty flush: editor title differs from durable title before edit')
+  }
+
+  const dirtyTitle = `${original[1]}${original[1] ? ' ' : ''}[DnD pending draft]`
+  titleInput.value = dirtyTitle
+  titleInput.dispatchEvent(new Event('input', { bubbles: true }))
+  await tick()
+
+  const currentRootRow = noteRow(noteID)
+  const targetBlock = folderBlock(targetFolderID)
+  dispatchDrag(currentRootRow, 'dragstart')
+  const targetDragOver = dispatchDrag(targetBlock, 'dragover')
+  if (!targetDragOver.defaultPrevented) {
+    throw new Error('acceptance sidebar DnD dirty flush: target folder rejected current note drag')
+  }
+  dispatchDrag(targetBlock, 'drop')
+  dispatchDrag(currentRootRow, 'dragend')
+
+  await waitFor(
+    async () => (await folderContains(targetFolderID, noteID)) && !(await rootContains(noteID)),
+    'dirty current note root-to-folder move',
+  )
+
+  const persistedDirty = (await OpenNote(noteID)) as NoteTuple
+  if (persistedDirty[1] !== dirtyTitle) {
+    throw new Error('acceptance sidebar DnD dirty flush: pending title was not durable before membership moved')
+  }
+  if (persistedDirty[2] !== original[2]) {
+    throw new Error('acceptance sidebar DnD dirty flush: moving dirty title changed document content')
+  }
+  if (persistedDirty[3] <= original[3]) {
+    throw new Error('acceptance sidebar DnD dirty flush: durable revision did not advance before move')
+  }
+
+  titleInput.value = original[1]
+  titleInput.dispatchEvent(new Event('input', { bubbles: true }))
+  await tick()
+  await expandFolder(targetFolderID)
+
+  const currentFolderRow = noteRow(noteID)
+  const rootDropZone = document.querySelector<HTMLElement>('.root-note-drop-zone')
+  if (!rootDropZone) {
+    throw new Error('acceptance sidebar DnD dirty flush: root drop zone is missing')
+  }
+  dispatchDrag(currentFolderRow, 'dragstart')
+  const rootDragOver = dispatchDrag(rootDropZone, 'dragover')
+  if (!rootDragOver.defaultPrevented) {
+    throw new Error('acceptance sidebar DnD dirty flush: root rejected current note drag')
+  }
+  dispatchDrag(rootDropZone, 'drop')
+  dispatchDrag(currentFolderRow, 'dragend')
+
+  await waitFor(
+    async () => (await rootContains(noteID)) && !(await folderContains(targetFolderID, noteID)),
+    'restored current note folder-to-root move',
+  )
+
+  const restored = (await OpenNote(noteID)) as NoteTuple
+  if (restored[1] !== original[1] || restored[2] !== original[2]) {
+    throw new Error('acceptance sidebar DnD dirty flush: original note content was not restored durably')
+  }
+  if (restored[3] <= persistedDirty[3]) {
+    throw new Error('acceptance sidebar DnD dirty flush: restoration was not durably acknowledged')
+  }
+
+  console.log('FLASHNOTE_SIDEBAR_DND_DIRTY_FLUSH_SUCCESS')
+}
+
 async function cleanupFixtures(options: {
   sourceNoteID: string
   sourceFolderID: string
@@ -118,6 +201,10 @@ async function cleanupFixtures(options: {
     baselineTrashCounts,
     refreshSidebar,
   } = options
+
+  if (resumeNoteID && !(await rootContains(resumeNoteID))) {
+    await MoveNote(resumeNoteID, '')
+  }
 
   if (sourceNoteID) {
     if (!(await MoveNoteToTrash(sourceNoteID))) {
@@ -246,8 +333,10 @@ export async function runSidebarDragDropAcceptance({ refreshSidebar }: Acceptanc
       'folder-to-root membership move',
     )
 
+    await proveDirtyCurrentNoteFlush(resumeNoteID, sourceFolderID)
     await refreshSidebar()
     await tick()
+
     const rootOrderBefore = ((await ListRootNotes()) as [string[], string[]])[0]
     const rootRow = noteRow(sourceNoteID)
     dispatchDrag(rootRow, 'dragstart')
