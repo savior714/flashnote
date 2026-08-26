@@ -260,6 +260,75 @@ async function proveContextTrashUndo(
   await refreshSidebar()
   await tick()
   await expandFolder(folderID)
+
+  const [folderNoteIDs] = (await ListFolderNotes(folderID)) as [string[], string[]]
+  if (folderNoteIDs.length < 1) {
+    throw new Error('acceptance folder Trash warning: fixture folder unexpectedly became empty')
+  }
+
+  const folderRow = folderBlock(folderID).querySelector<HTMLButtonElement>('.folder-row')
+  if (!folderRow) {
+    throw new Error('acceptance folder Trash warning: folder row is missing')
+  }
+  const folderContextEvent = new MouseEvent('contextmenu', {
+    bubbles: true,
+    cancelable: true,
+    clientX: 140,
+    clientY: 140,
+  })
+  folderRow.dispatchEvent(folderContextEvent)
+  await tick()
+  await delay(30)
+
+  if (!folderContextEvent.defaultPrevented) {
+    throw new Error('acceptance folder Trash warning: folder contextmenu was not handled')
+  }
+  const folderContextMenu = document.querySelector<HTMLElement>('.note-context-menu')
+  const folderTrashButton = Array.from(
+    folderContextMenu?.querySelectorAll<HTMLButtonElement>('button') ?? [],
+  ).find((button) => button.textContent?.trim() === 'Move to Trash…')
+  if (!folderContextMenu || !folderTrashButton) {
+    throw new Error('acceptance folder Trash warning: non-empty folder did not expose Move to Trash…')
+  }
+
+  folderTrashButton.click()
+  await tick()
+  await delay(30)
+
+  const deleteDialog = document.querySelector<HTMLElement>(
+    '[role="dialog"][aria-labelledby="delete-folder-title"]',
+  )
+  if (!deleteDialog) {
+    throw new Error('acceptance folder Trash warning: destructive consequence dialog did not open')
+  }
+  const warningText = deleteDialog.querySelector('p')?.textContent?.trim() ?? ''
+  const expectedWarning = `This folder and ${folderNoteIDs.length} notes will be moved to Trash.`
+  if (warningText !== expectedWarning) {
+    throw new Error(
+      `acceptance folder Trash warning: expected "${expectedWarning}", got "${warningText}"`,
+    )
+  }
+
+  const cancelButton = Array.from(deleteDialog.querySelectorAll<HTMLButtonElement>('button')).find(
+    (button) => button.textContent?.trim() === 'Cancel',
+  )
+  if (!cancelButton) {
+    throw new Error('acceptance folder Trash warning: confirmation dialog is missing Cancel')
+  }
+  cancelButton.click()
+  await tick()
+  await delay(30)
+
+  if (document.querySelector('[role="dialog"][aria-labelledby="delete-folder-title"]')) {
+    throw new Error('acceptance folder Trash warning: Cancel did not close confirmation dialog')
+  }
+  const [folderNoteIDsAfterCancel] = (await ListFolderNotes(folderID)) as [string[], string[]]
+  if (!sameIDs(folderNoteIDsAfterCancel, folderNoteIDs)) {
+    throw new Error('acceptance folder Trash warning: Cancel changed folder membership')
+  }
+
+  console.log('FLASHNOTE_NONEMPTY_FOLDER_TRASH_CONFIRMATION_SUCCESS')
+
   noteRow(currentNoteID).click()
   await waitFor(
     () =>
