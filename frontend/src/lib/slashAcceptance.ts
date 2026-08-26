@@ -80,7 +80,7 @@ export async function runSlashAcceptance(
       throw new Error('acceptance: slash menu unexpectedly opened inside code block')
     }
 
-    // 3. Positive trigger: "/" at the start of an empty paragraph opens SlashMenu with all 10 items
+    // 3. Positive trigger: "/" at the start of an empty paragraph opens SlashMenu with the exact MVP command vocabulary
     editor.commands.setContent({
       type: 'doc',
       content: [{ type: 'paragraph' }],
@@ -97,6 +97,26 @@ export async function runSlashAcceptance(
     const items = menu.querySelectorAll('.slash-menu-item')
     if (items.length !== 10) {
       throw new Error(`acceptance: expected 10 slash items on trigger, got ${items.length}`)
+    }
+    const expectedSlashLabels = [
+      'Text',
+      'Heading 1',
+      'Heading 2',
+      'Heading 3',
+      'Bullet list',
+      'Numbered list',
+      'Todo list',
+      'Quote',
+      'Code block',
+      'Divider',
+    ].sort()
+    const slashLabels = Array.from(items)
+      .map((item) => item.textContent?.trim() ?? '')
+      .sort()
+    if (JSON.stringify(slashLabels) !== JSON.stringify(expectedSlashLabels)) {
+      throw new Error(
+        `acceptance: slash menu vocabulary mismatch; expected ${JSON.stringify(expectedSlashLabels)}, got ${JSON.stringify(slashLabels)}`,
+      )
     }
     const initialSelected = menu.querySelector('.slash-menu-item.is-selected')
     if (!initialSelected || initialSelected.textContent?.trim() !== 'Text') {
