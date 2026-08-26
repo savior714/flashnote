@@ -13,3 +13,8 @@ tasks:
     summary: Packages the production macOS app bundle for release acceptance
     cmds:
       - task: darwin:package
+
+  package:macos:dmg:
+    summary: Packages the production macOS DMG for release acceptance
+    cmds:
+      - task: darwin:package:dmg
