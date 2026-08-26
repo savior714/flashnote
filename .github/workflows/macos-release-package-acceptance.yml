@@ -1,0 +1,148 @@
+name: macOS release package acceptance
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos-release-package:
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.0'
+          cache: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Toolchain diagnostics
+        run: |
+          set -euo pipefail
+          go version
+          node --version
+          xcode-select -p
+          corepack enable
+          corepack prepare pnpm@11.21.0 --activate
+          pnpm --version
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.11
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          "$(go env GOPATH)/bin/wails3" version
+
+      - name: Verify dependency metadata
+        run: |
+          set -euo pipefail
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+          cd frontend
+          pnpm install --frozen-lockfile
+          cd ..
+          git diff --exit-code -- frontend/package.json frontend/pnpm-lock.yaml
+
+      - name: Generate pinned Wails build assets
+        run: |
+          set -euo pipefail
+          wails3 update build-assets -name flashnote -config ./build/config.yml -dir ./build
+          test -f build/Taskfile.yml
+          test -f build/darwin/Taskfile.yml
+          test -f build/darwin/Info.plist
+          test -f build/appicon.png
+          git diff --exit-code -- build/config.yml
+
+      - name: Package production app bundle
+        run: |
+          set -euo pipefail
+          rm -rf bin
+          wails3 task --taskfile ./Taskfile.release.yml package:macos
+          test -d bin/flashnote.app
+
+      - name: Verify app bundle contract
+        run: |
+          set -euo pipefail
+          APP="bin/flashnote.app"
+          PLIST="$APP/Contents/Info.plist"
+          EXE="$APP/Contents/MacOS/flashnote"
+          ICON="$APP/Contents/Resources/icons.icns"
+
+          test -f "$PLIST"
+          test -x "$EXE"
+          test -s "$ICON"
+          plutil -lint "$PLIST"
+
+          config_value() {
+            local key="$1"
+            awk -v key="$key" '
+              /^info:/ { in_info=1; next }
+              in_info && /^[^[:space:]]/ { exit }
+              in_info && $1 == key ":" {
+                sub(/^[^:]+:[[:space:]]*/, "")
+                gsub(/^"|"$/, "")
+                print
+                exit
+              }
+            ' build/config.yml
+          }
+
+          PRODUCT_NAME="$(config_value productName)"
+          PRODUCT_ID="$(config_value productIdentifier)"
+          PRODUCT_VERSION="$(config_value version)"
+          test -n "$PRODUCT_NAME"
+          test -n "$PRODUCT_ID"
+          test -n "$PRODUCT_VERSION"
+
+          plist_value() {
+            /usr/libexec/PlistBuddy -c "Print :$1" "$PLIST"
+          }
+
+          test "$(plist_value CFBundlePackageType)" = "APPL"
+          test "$(plist_value CFBundleName)" = "$PRODUCT_NAME"
+          test "$(plist_value CFBundleExecutable)" = "flashnote"
+          test "$(plist_value CFBundleIdentifier)" = "$PRODUCT_ID"
+          test "$(plist_value CFBundleVersion)" = "$PRODUCT_VERSION"
+          test "$(plist_value CFBundleShortVersionString)" = "$PRODUCT_VERSION"
+
+          codesign --verify --deep --strict "$APP"
+          SIGNATURE_INFO="$(codesign -dv --verbose=4 "$APP" 2>&1)"
+          printf '%s\n' "$SIGNATURE_INFO"
+          grep -q 'Signature=adhoc' <<<"$SIGNATURE_INFO"
+
+          ARCHS="$(lipo -archs "$EXE")"
+          test -n "$ARCHS"
+          echo "Packaged architecture(s): $ARCHS"
+
+          EVIDENCE="$RUNNER_TEMP/release-package-evidence"
+          mkdir -p "$EVIDENCE"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$EVIDENCE/flashnote-macos-app.zip"
+          {
+            echo "HEAD_SHA=$GITHUB_SHA"
+            echo "PRODUCT_NAME=$PRODUCT_NAME"
+            echo "PRODUCT_IDENTIFIER=$PRODUCT_ID"
+            echo "PRODUCT_VERSION=$PRODUCT_VERSION"
+            echo "ARCHITECTURES=$ARCHS"
+            echo "SIGNING_SCOPE=ADHOC_PACKAGE_STRUCTURE_ONLY"
+            printf '%s\n' "$SIGNATURE_INFO"
+          } > "$EVIDENCE/bundle-metadata.txt"
+          (cd "$EVIDENCE" && shasum -a 256 flashnote-macos-app.zip > SHA256SUMS)
+
+      - name: Verify checkout source integrity
+        run: |
+          set -euo pipefail
+          git diff --exit-code
+
+      - name: Upload package acceptance evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release-package-${{ github.sha }}
+          path: ${{ runner.temp }}/release-package-evidence/
+          if-no-files-found: error
+          retention-days: 14

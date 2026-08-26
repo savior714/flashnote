@@ -1,0 +1,15 @@
+version: '3'
+
+vars:
+  APP_NAME: flashnote
+  BIN_DIR: bin
+  PACKAGE_MANAGER: pnpm
+
+includes:
+  darwin: ./build/darwin/Taskfile.yml
+
+tasks:
+  package:macos:
+    summary: Packages the production macOS app bundle for release acceptance
+    cmds:
+      - task: darwin:package
