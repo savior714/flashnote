@@ -60,6 +60,7 @@ export function runMarkdownExportShortcutAcceptance(): void {
   const primaryModifier = isMac ? { metaKey: true } : { ctrlKey: true }
   const pendingExport = new Promise<boolean>(() => {})
   let exportCallCount = 0
+  const getExportCallCount = (): number => exportCallCount
 
   markdownExporter = () => {
     exportCallCount += 1
@@ -77,20 +78,20 @@ export function runMarkdownExportShortcutAcceptance(): void {
     ]
     for (const event of negativeEvents) {
       window.dispatchEvent(event)
-      if (event.defaultPrevented || exportCallCount !== 0) {
+      if (event.defaultPrevented || getExportCallCount() !== 0) {
         throw new Error('acceptance single-note export: invalid modifier unexpectedly triggered export')
       }
     }
 
     const firstExport = acceptanceKeyEvent('e', { ...primaryModifier, shiftKey: true })
     window.dispatchEvent(firstExport)
-    if (!firstExport.defaultPrevented || exportCallCount !== 1 || !exportInFlight) {
+    if (!firstExport.defaultPrevented || getExportCallCount() !== 1 || !exportInFlight) {
       throw new Error('acceptance single-note export: Cmd/Ctrl+Shift+E did not enter the export boundary exactly once')
     }
 
     const duplicateExport = acceptanceKeyEvent('e', { ...primaryModifier, shiftKey: true })
     window.dispatchEvent(duplicateExport)
-    if (exportCallCount !== 1) {
+    if (getExportCallCount() !== 1) {
       throw new Error('acceptance single-note export: in-flight shortcut triggered a duplicate export')
     }
 
@@ -101,7 +102,7 @@ export function runMarkdownExportShortcutAcceptance(): void {
     try {
       const trashExport = acceptanceKeyEvent('e', { ...primaryModifier, shiftKey: true })
       window.dispatchEvent(trashExport)
-      if (trashExport.defaultPrevented || exportCallCount !== 1) {
+      if (trashExport.defaultPrevented || getExportCallCount() !== 1) {
         throw new Error('acceptance single-note export: Trash state did not block the shortcut')
       }
     } finally {
@@ -110,7 +111,7 @@ export function runMarkdownExportShortcutAcceptance(): void {
 
     const reusableExport = acceptanceKeyEvent('e', { ...primaryModifier, shiftKey: true })
     window.dispatchEvent(reusableExport)
-    if (!reusableExport.defaultPrevented || exportCallCount !== 2) {
+    if (!reusableExport.defaultPrevented || getExportCallCount() !== 2) {
       throw new Error('acceptance single-note export: shortcut did not become reusable after the in-flight state cleared')
     }
 
