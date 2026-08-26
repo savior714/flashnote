@@ -14,6 +14,7 @@ import {
   PermanentlyDeleteFolder,
   PermanentlyDeleteNote,
   RestoreFolder,
+  SearchNotes,
   TrashCounts,
 } from '../../bindings/github.com/savior714/flashnote/appservice'
 
@@ -374,10 +375,18 @@ async function proveContextTrashUndo(
   await waitFor(
     () => {
       const title = document.querySelector<HTMLInputElement>('.title')
-      return title?.value === permanentDeleteFixtureTitle && title.readOnly
+      const body = document.querySelector<HTMLElement>('.prose-editor')
+      return (
+        title?.value === permanentDeleteFixtureTitle &&
+        title.readOnly &&
+        body !== null &&
+        body.getAttribute('contenteditable') === 'false' &&
+        body.isContentEditable === false
+      )
     },
     'read-only trashed fixture note selection',
   )
+  await SearchNotes('flashnote-trash-readonly-acceptance-handshake')
 
   const deletePermanentlyButton = Array.from(
     document.querySelectorAll<HTMLButtonElement>('.trash-actions button'),

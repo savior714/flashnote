@@ -2,9 +2,8 @@
   import { Editor, isTextSelection, type JSONContent, type Range } from '@tiptap/core'
   import BubbleMenu from '@tiptap/extension-bubble-menu'
   import StarterKit from '@tiptap/starter-kit'
-  import { Window } from '@wailsio/runtime'
   import { onDestroy, onMount } from 'svelte'
-  import { IngestImage, SearchNotes } from '../../bindings/github.com/savior714/flashnote/appservice'
+  import { IngestImage } from '../../bindings/github.com/savior714/flashnote/appservice'
   import { AttachmentImage, attachmentImageContent } from './attachmentImage'
   import FormattingBubble from './FormattingBubble.svelte'
   import { isValidExternalWebUrl, openExternalUrl } from './linkHelper'
@@ -41,8 +40,6 @@
   let bubbleElement!: HTMLDivElement
   let editor = $state<Editor | null>(null)
   let imageError = $state('')
-  const acceptanceBuildActive = Boolean(import.meta.env.VITE_FLASHNOTE_ACCEPTANCE_TEXT)
-  let trashReadOnlyAcceptanceLogged = false
 
   let slashOpen = $state(false)
   let slashItems = $state<SlashCommandItem[]>(slashCommands)
@@ -225,51 +222,11 @@
     }
   }
 
-  async function verifyTrashReadOnlyAcceptance() {
-    const currentEditor = editor
-    if (
-      !acceptanceBuildActive ||
-      trashReadOnlyAcceptanceLogged ||
-      !currentEditor ||
-      currentEditor.isDestroyed ||
-      document.querySelector('nav.trash-list') === null
-    ) {
-      return
-    }
-
-    const documentInner = currentEditor.view.dom.closest<HTMLElement>('.document-inner')
-    const titleInput = documentInner?.querySelector<HTMLInputElement>('input.title') ?? null
-    const readOnlyLabel = documentInner?.querySelector<HTMLElement>('.trash-actions > span') ?? null
-    const contentEditable = currentEditor.view.dom.getAttribute('contenteditable')
-
-    if (
-      currentEditor.isEditable ||
-      contentEditable !== 'false' ||
-      !titleInput?.readOnly ||
-      readOnlyLabel?.textContent?.trim() !== 'Read-only in Trash'
-    ) {
-      console.error('FLASHNOTE_TRASH_READONLY_ACCEPTANCE_FAILURE', {
-        editorIsEditable: currentEditor.isEditable,
-        contentEditable,
-        titleReadOnly: titleInput?.readOnly ?? false,
-        label: readOnlyLabel?.textContent?.trim() ?? '',
-      })
-      void Window.Close()
-      throw new Error('acceptance: Trash note editor is not fully read-only')
-    }
-
-    trashReadOnlyAcceptanceLogged = true
-    await SearchNotes('flashnote-trash-readonly-acceptance-handshake')
-    console.log('FLASHNOTE_TRASH_READONLY_ACCEPTANCE_SUCCESS')
-  }
 
   $effect(() => {
     editor?.setEditable(editable, false)
     if (!editable && slashOpen) {
       closeSlash()
-    }
-    if (editor) {
-      void verifyTrashReadOnlyAcceptance()
     }
   })
 
