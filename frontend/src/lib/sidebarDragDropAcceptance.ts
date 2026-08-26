@@ -14,6 +14,7 @@ import {
   PermanentlyDeleteFolder,
   PermanentlyDeleteNote,
   RestoreFolder,
+  RestoreNote,
   SearchNotes,
   TrashCounts,
 } from '../../bindings/github.com/savior714/flashnote/appservice'
@@ -655,6 +656,173 @@ async function proveContextTrashUndo(
   console.log('FLASHNOTE_CONTEXT_TRASH_UNDO_ACCEPTANCE_SUCCESS')
 }
 
+async function proveLastNormalNoteTrashFallback(
+  currentNoteID: string,
+  folderID: string,
+  refreshSidebar: () => Promise<void>,
+): Promise<void> {
+  const [normalBefore] = (await ListNotes()) as [string[], string[]]
+  const trashCountsBefore = (await TrashCounts()) as [number, number]
+  if (!normalBefore.includes(currentNoteID)) {
+    throw new Error('acceptance last-note fallback: current note is not in the normal-note baseline')
+  }
+
+  const sidelinedNoteIDs = normalBefore.filter((noteID) => noteID !== currentNoteID)
+  let fallbackNoteID = ''
+  let proofFailure: unknown = null
+
+  try {
+    for (const noteID of sidelinedNoteIDs) {
+      if (!(await MoveNoteToTrash(noteID))) {
+        throw new Error(`acceptance last-note fallback: failed to sideline normal note ${noteID}`)
+      }
+    }
+
+    await refreshSidebar()
+    await tick()
+    await expandFolder(folderID)
+
+    const [isolatedNormalIDs] = (await ListNotes()) as [string[], string[]]
+    if (!sameIDs(isolatedNormalIDs, [currentNoteID])) {
+      throw new Error('acceptance last-note fallback: failed to isolate exactly one normal note')
+    }
+
+    noteRow(currentNoteID).click()
+    await waitFor(
+      () =>
+        document.querySelector<HTMLElement>('.note-row[aria-current="page"]')?.dataset.noteId === currentNoteID,
+      'last normal note selection before deletion',
+    )
+
+    const currentRow = noteRow(currentNoteID)
+    const contextEvent = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 160,
+      clientY: 160,
+    })
+    currentRow.dispatchEvent(contextEvent)
+    await tick()
+    await delay(30)
+
+    if (!contextEvent.defaultPrevented) {
+      throw new Error('acceptance last-note fallback: note contextmenu was not handled')
+    }
+    const contextMenu = document.querySelector<HTMLElement>('.note-context-menu')
+    const moveToTrashButton = Array.from(
+      contextMenu?.querySelectorAll<HTMLButtonElement>('button') ?? [],
+    ).find((button) => button.textContent?.trim() === 'Move to Trash')
+    if (!contextMenu || !moveToTrashButton) {
+      throw new Error('acceptance last-note fallback: Move to Trash action is missing')
+    }
+
+    moveToTrashButton.click()
+    await waitFor(
+      async () => {
+        const [normalIDs] = (await ListNotes()) as [string[], string[]]
+        if (normalIDs.length !== 1 || normalIDs[0] === currentNoteID) {
+          return false
+        }
+        fallbackNoteID = normalIDs[0]
+        const selected = document.querySelector<HTMLElement>('.note-row[aria-current="page"]')
+        return selected?.dataset.noteId === fallbackNoteID && (await trashContains(currentNoteID))
+      },
+      'last-note deletion creating and selecting exactly one fallback note',
+    )
+
+    const fallbackSnapshot = (await OpenNote(fallbackNoteID)) as NoteTuple
+    const titleInput = document.querySelector<HTMLInputElement>('.title')
+    const editorBody = document.querySelector<HTMLElement>('.prose-editor')
+    if (
+      fallbackSnapshot[1] !== '' ||
+      fallbackSnapshot[3] !== 1 ||
+      !titleInput ||
+      titleInput.value !== '' ||
+      document.activeElement !== titleInput ||
+      !editorBody ||
+      editorBody.textContent?.trim() !== ''
+    ) {
+      throw new Error('acceptance last-note fallback: replacement note is not a newly focused empty note')
+    }
+
+    const undoButton = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('.undo-trash button'),
+    ).find((button) => button.textContent?.trim() === 'Undo')
+    if (!undoButton) {
+      throw new Error('acceptance last-note fallback: Undo is missing after deleting the last normal note')
+    }
+    undoButton.click()
+    await waitFor(
+      async () => !(await trashContains(currentNoteID)) && ((await ListNotes()) as [string[], string[]])[0].includes(currentNoteID),
+      'Undo restoring the former last note',
+    )
+
+    console.log('FLASHNOTE_LAST_NOTE_TRASH_FALLBACK_SUCCESS')
+  } catch (error) {
+    proofFailure = error
+  }
+
+  let cleanupFailure: unknown = null
+  try {
+    if (fallbackNoteID) {
+      const [normalIDs] = (await ListNotes()) as [string[], string[]]
+      if (normalIDs.includes(fallbackNoteID) && !(await MoveNoteToTrash(fallbackNoteID))) {
+        throw new Error('acceptance last-note fallback cleanup: failed to trash fallback note')
+      }
+      if ((await trashContains(fallbackNoteID)) && !(await PermanentlyDeleteNote(fallbackNoteID))) {
+        throw new Error('acceptance last-note fallback cleanup: failed to permanently delete fallback note')
+      }
+    }
+
+    if ((await trashContains(currentNoteID)) && !(await RestoreNote(currentNoteID))) {
+      throw new Error('acceptance last-note fallback cleanup: failed to restore current note')
+    }
+    for (const noteID of sidelinedNoteIDs) {
+      if ((await trashContains(noteID)) && !(await RestoreNote(noteID))) {
+        throw new Error(`acceptance last-note fallback cleanup: failed to restore sidelined note ${noteID}`)
+      }
+    }
+
+    await refreshSidebar()
+    await tick()
+
+    const [normalAfter] = (await ListNotes()) as [string[], string[]]
+    const trashCountsAfter = (await TrashCounts()) as [number, number]
+    if (!sameIDs(normalAfter, normalBefore)) {
+      throw new Error('acceptance last-note fallback cleanup: normal-note baseline was not restored')
+    }
+    if (
+      trashCountsAfter[0] !== trashCountsBefore[0] ||
+      trashCountsAfter[1] !== trashCountsBefore[1]
+    ) {
+      throw new Error('acceptance last-note fallback cleanup: Trash baseline was not restored')
+    }
+
+    if (await folderContains(folderID, currentNoteID)) {
+      await expandFolder(folderID)
+    }
+    noteRow(currentNoteID).click()
+    await waitFor(
+      () =>
+        document.querySelector<HTMLElement>('.note-row[aria-current="page"]')?.dataset.noteId === currentNoteID,
+      'restored current note selection after last-note fallback cleanup',
+    )
+  } catch (error) {
+    cleanupFailure = error
+  }
+
+  if (cleanupFailure) {
+    if (proofFailure) {
+      console.error('FLASHNOTE_LAST_NOTE_TRASH_FALLBACK_CLEANUP_FAILURE', cleanupFailure)
+    } else {
+      throw cleanupFailure
+    }
+  }
+  if (proofFailure) {
+    throw proofFailure
+  }
+}
+
 async function cleanupFixtures(options: {
   sourceNoteID: string
   sourceFolderID: string
@@ -830,6 +998,7 @@ export async function runSidebarDragDropAcceptance({ refreshSidebar }: Acceptanc
       targetFolderID,
       refreshSidebar,
     )
+    await proveLastNormalNoteTrashFallback(resumeNoteID, sourceFolderID, refreshSidebar)
 
     const trashDraggable = document.querySelector('.trash-list .note-row[draggable="true"]')
     if (trashDraggable) {
