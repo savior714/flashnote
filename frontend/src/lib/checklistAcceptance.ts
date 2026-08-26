@@ -9,6 +9,11 @@ function nodeText(node: JSONContent): string {
   return `${node.text ?? ''}${(node.content ?? []).map(nodeText).join('')}`
 }
 
+function nodeAttributes(node: JSONContent): Record<string, unknown> {
+  const value = node as unknown as { attrs?: Record<string, unknown> }
+  return value.attrs ?? {}
+}
+
 function checklistSnapshot(editor: Editor, acceptanceText: string) {
   const document = editor.getJSON()
   const taskListIndex = document.content?.findIndex(
@@ -22,11 +27,12 @@ function checklistSnapshot(editor: Editor, acceptanceText: string) {
   }
 
   const texts = items.map(nodeText)
-  const checked = items.map((item) => item.attrs?.checked)
+  const checked = items.map((item) => nodeAttributes(item).checked)
   for (const item of items) {
-    const attributeKeys = Object.keys(item.attrs ?? {}).sort()
+    const attributes = nodeAttributes(item)
+    const attributeKeys = Object.keys(attributes).sort()
     if (attributeKeys.length !== 1 || attributeKeys[0] !== 'checked') {
-      throw new Error(`acceptance checklist: task item gained non-checked attributes: ${JSON.stringify(item.attrs)}`)
+      throw new Error(`acceptance checklist: task item gained non-checked attributes: ${JSON.stringify(attributes)}`)
     }
   }
 
