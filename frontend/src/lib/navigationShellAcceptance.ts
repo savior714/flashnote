@@ -58,6 +58,30 @@ export async function runNavigationShellAcceptance(editor: Editor): Promise<void
       throw new Error('acceptance S2: show sidebar button unexpectedly exists in default visible state')
     }
 
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // A1. TITLE-ONLY SIDEBAR DENSITY PROOF
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    const normalNoteRows = Array.from(
+      initialSidebar.querySelectorAll<HTMLButtonElement>('nav.note-list:not(.trash-list) .note-row'),
+    )
+    if (normalNoteRows.length === 0) {
+      throw new Error('acceptance sidebar density: no normal note row is rendered')
+    }
+    for (const row of normalNoteRows) {
+      if (!row.dataset.noteId) {
+        throw new Error('acceptance sidebar density: normal note row is missing stable note identity')
+      }
+      if (
+        row.childElementCount !== 0 ||
+        row.childNodes.length !== 1 ||
+        row.firstChild?.nodeType !== Node.TEXT_NODE ||
+        !row.textContent?.trim()
+      ) {
+        throw new Error('acceptance sidebar density: note row contains content beyond one title text node')
+      }
+    }
+    console.log('FLASHNOTE_SIDEBAR_TITLE_ONLY_ACCEPTANCE_SUCCESS')
+
     // Capture editor DOM identity and document content
     const editorDomNode = document.querySelector<HTMLElement>('.prose-editor')
     if (!editorDomNode) {
