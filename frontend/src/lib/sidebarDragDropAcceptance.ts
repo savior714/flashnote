@@ -6,6 +6,7 @@ import {
   ListFolders,
   ListNotes,
   ListRootNotes,
+  ListTrashNotes,
   MoveFolderToTrash,
   MoveNote,
   MoveNoteToTrash,
@@ -89,6 +90,11 @@ async function folderContains(folderID: string, noteID: string): Promise<boolean
 
 async function rootContains(noteID: string): Promise<boolean> {
   const [ids] = (await ListRootNotes()) as [string[], string[]]
+  return ids.includes(noteID)
+}
+
+async function trashContains(noteID: string): Promise<boolean> {
+  const [ids] = (await ListTrashNotes()) as [string[], string[]]
   return ids.includes(noteID)
 }
 
@@ -179,6 +185,89 @@ async function proveDirtyCurrentNoteFlush(noteID: string, targetFolderID: string
   }
 
   console.log('FLASHNOTE_SIDEBAR_DND_DIRTY_FLUSH_SUCCESS')
+}
+
+async function proveContextTrashUndo(
+  currentNoteID: string,
+  siblingNoteID: string,
+  folderID: string,
+  refreshSidebar: () => Promise<void>,
+): Promise<void> {
+  await MoveNote(siblingNoteID, folderID)
+  await MoveNote(currentNoteID, folderID)
+  await refreshSidebar()
+  await tick()
+  await expandFolder(folderID)
+
+  const currentRow = noteRow(currentNoteID)
+  const contextEvent = new MouseEvent('contextmenu', {
+    bubbles: true,
+    cancelable: true,
+    clientX: 120,
+    clientY: 120,
+  })
+  currentRow.dispatchEvent(contextEvent)
+  await tick()
+  await delay(30)
+
+  if (!contextEvent.defaultPrevented) {
+    throw new Error('acceptance Trash UX: note contextmenu was not handled')
+  }
+  const contextMenu = document.querySelector<HTMLElement>('.note-context-menu')
+  const moveToTrashButton = Array.from(
+    contextMenu?.querySelectorAll<HTMLButtonElement>('button') ?? [],
+  ).find((button) => button.textContent?.trim() === 'Move to Trash')
+  if (!contextMenu || !moveToTrashButton) {
+    throw new Error('acceptance Trash UX: Move to Trash context action is missing')
+  }
+
+  moveToTrashButton.click()
+  await waitFor(
+    async () => {
+      const selected = document.querySelector<HTMLElement>('.note-row[aria-current="page"]')
+      return (
+        selected?.dataset.noteId === siblingNoteID &&
+        (await trashContains(currentNoteID)) &&
+        document.querySelector('.undo-trash') !== null
+      )
+    },
+    'context deletion, same-folder survivor selection, and Undo affordance',
+  )
+
+  if (!(await folderContains(folderID, siblingNoteID))) {
+    throw new Error('acceptance Trash UX: same-folder survivor did not remain in its folder')
+  }
+  if (await folderContains(folderID, currentNoteID)) {
+    throw new Error('acceptance Trash UX: deleted current note remained visible in normal folder membership')
+  }
+
+  const undoButton = Array.from(
+    document.querySelectorAll<HTMLButtonElement>('.undo-trash button'),
+  ).find((button) => button.textContent?.trim() === 'Undo')
+  if (!undoButton) {
+    throw new Error('acceptance Trash UX: Undo button is missing after context deletion')
+  }
+  undoButton.click()
+
+  await waitFor(
+    async () =>
+      (await folderContains(folderID, currentNoteID)) &&
+      !(await trashContains(currentNoteID)) &&
+      document.querySelector('.undo-trash') === null,
+    'Undo restoring the deleted note to its original folder',
+  )
+
+  await refreshSidebar()
+  await tick()
+  await expandFolder(folderID)
+  noteRow(currentNoteID).click()
+  await waitFor(
+    () =>
+      document.querySelector<HTMLElement>('.note-row[aria-current="page"]')?.dataset.noteId === currentNoteID,
+    'restored original note selection before fixture cleanup',
+  )
+
+  console.log('FLASHNOTE_CONTEXT_TRASH_UNDO_ACCEPTANCE_SUCCESS')
 }
 
 async function cleanupFixtures(options: {
@@ -348,6 +437,8 @@ export async function runSidebarDragDropAcceptance({ refreshSidebar }: Acceptanc
     if (JSON.stringify(rootOrderAfter) !== JSON.stringify(rootOrderBefore)) {
       throw new Error('acceptance sidebar DnD: same-location drop changed note ordering')
     }
+
+    await proveContextTrashUndo(resumeNoteID, sourceNoteID, sourceFolderID, refreshSidebar)
 
     const trashDraggable = document.querySelector('.trash-list .note-row[draggable="true"]')
     if (trashDraggable) {
