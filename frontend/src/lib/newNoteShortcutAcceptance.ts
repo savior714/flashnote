@@ -222,6 +222,129 @@ export async function runNewNoteShortcutAcceptance(
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // S3T. FIXED TRASH DESTINATION + CLICK NAVIGATION PROOF
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    const initialSidebar = document.querySelector<HTMLElement>('aside.sidebar')
+    const normalNoteList = initialSidebar?.querySelector<HTMLElement>('nav.note-list:not(.trash-list)') ?? null
+    const sidebarFooter = initialSidebar?.querySelector<HTMLElement>('.sidebar-footer') ?? null
+    const trashButton = sidebarFooter?.querySelector<HTMLButtonElement>('button.trash-row') ?? null
+    if (!initialSidebar || !normalNoteList || !sidebarFooter || !trashButton || trashButton.disabled) {
+      throw new Error('acceptance Trash navigation: fixed normal-sidebar Trash destination is missing or disabled')
+    }
+    if (
+      initialSidebar.lastElementChild !== sidebarFooter ||
+      normalNoteList.contains(trashButton) ||
+      trashButton.closest('.folder-block') !== null
+    ) {
+      throw new Error('acceptance Trash navigation: Trash is not structurally separated at the sidebar bottom')
+    }
+    if (
+      trashButton.textContent?.trim() !== 'Trash' ||
+      trashButton.childElementCount !== 0 ||
+      trashButton.childNodes.length !== 1 ||
+      trashButton.firstChild?.nodeType !== Node.TEXT_NODE
+    ) {
+      throw new Error('acceptance Trash navigation: Trash destination contains count/badge or non-label metadata')
+    }
+    const footerStyle = getComputedStyle(sidebarFooter)
+    if (footerStyle.borderTopStyle === 'none' || Number.parseFloat(footerStyle.borderTopWidth) < 1) {
+      throw new Error('acceptance Trash navigation: footer lacks visual separation from normal navigation')
+    }
+    const sidebarRect = initialSidebar.getBoundingClientRect()
+    const footerRect = sidebarFooter.getBoundingClientRect()
+    if (footerRect.bottom > sidebarRect.bottom + 1 || sidebarRect.bottom - footerRect.bottom > 24) {
+      throw new Error('acceptance Trash navigation: footer is not pinned to the bottom of the sidebar')
+    }
+
+    trashButton.click()
+    const trashOpenStart = Date.now()
+    while (Date.now() - trashOpenStart < 4000) {
+      await tick()
+      await delay(30)
+      const viewer = document.querySelector<HTMLElement>('section.document')
+      const activeTrashButton = document.querySelector<HTMLButtonElement>('.trash-row')
+      if (
+        !isNoteTransitionActive() &&
+        viewer?.getAttribute('aria-label') === 'Trash viewer' &&
+        activeTrashButton?.getAttribute('aria-current') === 'page'
+      ) {
+        break
+      }
+    }
+    const trashViewer = document.querySelector<HTMLElement>('section.document')
+    const activeTrashButton = document.querySelector<HTMLButtonElement>('.trash-row')
+    if (
+      isNoteTransitionActive() ||
+      trashViewer?.getAttribute('aria-label') !== 'Trash viewer' ||
+      activeTrashButton?.getAttribute('aria-current') !== 'page' ||
+      document.querySelector('nav.note-list:not(.trash-list)') !== null
+    ) {
+      throw new Error('acceptance Trash navigation: clicking fixed Trash destination did not enter Trash view')
+    }
+
+    const trashSearchEvent = dispatchKey(window, 'k', primaryModifier)
+    if (!trashSearchEvent.defaultPrevented) {
+      throw new Error('acceptance Trash navigation: Search did not open for non-mutating Trash proof cleanup')
+    }
+    const trashSearchStart = Date.now()
+    let trashSearchInput: HTMLInputElement | null = null
+    while (Date.now() - trashSearchStart < 4000) {
+      await tick()
+      await delay(30)
+      trashSearchInput = document.querySelector<HTMLInputElement>('.search-input')
+      if (trashSearchInput && document.activeElement === trashSearchInput) {
+        break
+      }
+    }
+    if (!trashSearchInput || document.activeElement !== trashSearchInput) {
+      throw new Error('acceptance Trash navigation: Search input did not focus while leaving Trash')
+    }
+    const trashQueryToken = acceptanceText.trim().split(/\s+/).find((token) => token.length >= 4) ?? ''
+    if (!trashQueryToken) {
+      throw new Error('acceptance Trash navigation: acceptance text has no query token for cleanup')
+    }
+    trashSearchInput.value = trashQueryToken
+    trashSearchInput.dispatchEvent(new Event('input', { bubbles: true }))
+    const trashQueryStart = Date.now()
+    while (Date.now() - trashQueryStart < 4000) {
+      await tick()
+      await delay(30)
+      if (document.querySelectorAll('.search-result').length === 1) {
+        break
+      }
+    }
+    if (document.querySelectorAll('.search-result').length !== 1) {
+      throw new Error('acceptance Trash navigation: Search did not isolate the normal note for cleanup')
+    }
+    const trashSearchEnterEvent = dispatchKey(trashSearchInput, 'Enter')
+    if (!trashSearchEnterEvent.defaultPrevented) {
+      throw new Error('acceptance Trash navigation: Search Enter did not activate cleanup note')
+    }
+    const trashExitStart = Date.now()
+    while (Date.now() - trashExitStart < 4000) {
+      await tick()
+      await delay(30)
+      if (
+        getNoteID() === originalNoteID &&
+        !isNoteTransitionActive() &&
+        document.querySelector('.search-dialog') === null &&
+        document.querySelector<HTMLElement>('section.document')?.getAttribute('aria-label') === 'Editor'
+      ) {
+        break
+      }
+    }
+    if (
+      getNoteID() !== originalNoteID ||
+      isNoteTransitionActive() ||
+      document.querySelector('.search-dialog') !== null ||
+      document.querySelector<HTMLElement>('section.document')?.getAttribute('aria-label') !== 'Editor' ||
+      document.querySelector<HTMLButtonElement>('.trash-row')?.getAttribute('aria-current') === 'page'
+    ) {
+      throw new Error('acceptance Trash navigation: cleanup did not return to the original normal note')
+    }
+    console.log('FLASHNOTE_FIXED_TRASH_NAVIGATION_ACCEPTANCE_SUCCESS')
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // S3A. CREATE MENU → NEW NOTE CLICK PROOF
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     const [menuBaselineRootIDs] = (await ListRootNotes()) as [string[], string[]]
