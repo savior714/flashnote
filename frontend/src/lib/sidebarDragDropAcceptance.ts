@@ -3,7 +3,15 @@ import {
   CreateFolder,
   CreateNoteInFolder,
   ListFolderNotes,
+  ListFolders,
+  ListNotes,
   ListRootNotes,
+  MoveFolderToTrash,
+  MoveNoteToTrash,
+  OpenNote,
+  PermanentlyDeleteFolder,
+  PermanentlyDeleteNote,
+  TrashCounts,
 } from '../../bindings/github.com/savior714/flashnote/appservice'
 
 type AcceptanceOptions = {
@@ -81,12 +89,107 @@ async function rootContains(noteID: string): Promise<boolean> {
   return ids.includes(noteID)
 }
 
+function sameIDs(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false
+  }
+  const leftSorted = [...left].sort()
+  const rightSorted = [...right].sort()
+  return leftSorted.every((value, index) => value === rightSorted[index])
+}
+
+async function cleanupFixtures(options: {
+  sourceNoteID: string
+  sourceFolderID: string
+  targetFolderID: string
+  resumeNoteID: string
+  baselineNoteIDs: string[]
+  baselineFolderIDs: string[]
+  baselineTrashCounts: [number, number]
+  refreshSidebar: () => Promise<void>
+}): Promise<void> {
+  const {
+    sourceNoteID,
+    sourceFolderID,
+    targetFolderID,
+    resumeNoteID,
+    baselineNoteIDs,
+    baselineFolderIDs,
+    baselineTrashCounts,
+    refreshSidebar,
+  } = options
+
+  if (sourceNoteID) {
+    if (!(await MoveNoteToTrash(sourceNoteID))) {
+      throw new Error('acceptance sidebar DnD cleanup: fixture note was not moved to Trash')
+    }
+    if (!(await PermanentlyDeleteNote(sourceNoteID))) {
+      throw new Error('acceptance sidebar DnD cleanup: fixture note was not permanently deleted')
+    }
+  }
+
+  for (const folderID of [sourceFolderID, targetFolderID]) {
+    if (!folderID) {
+      continue
+    }
+    const trashedNotes = await MoveFolderToTrash(folderID)
+    if (trashedNotes !== 0) {
+      throw new Error(
+        `acceptance sidebar DnD cleanup: fixture folder ${folderID} still contained ${trashedNotes} note(s)`,
+      )
+    }
+    const deletedNotes = await PermanentlyDeleteFolder(folderID)
+    if (deletedNotes !== 0) {
+      throw new Error(
+        `acceptance sidebar DnD cleanup: permanent folder deletion removed ${deletedNotes} unexpected note(s)`,
+      )
+    }
+  }
+
+  await OpenNote(resumeNoteID)
+  await refreshSidebar()
+  await tick()
+
+  const [noteIDsAfter] = (await ListNotes()) as [string[], string[]]
+  const [folderIDsAfter] = (await ListFolders()) as [string[], string[]]
+  const trashCountsAfter = (await TrashCounts()) as [number, number]
+
+  if (!sameIDs(noteIDsAfter, baselineNoteIDs)) {
+    throw new Error('acceptance sidebar DnD cleanup: normal note fixture state leaked into later acceptance')
+  }
+  if (!sameIDs(folderIDsAfter, baselineFolderIDs)) {
+    throw new Error('acceptance sidebar DnD cleanup: folder fixture state leaked into later acceptance')
+  }
+  if (
+    trashCountsAfter[0] !== baselineTrashCounts[0] ||
+    trashCountsAfter[1] !== baselineTrashCounts[1]
+  ) {
+    throw new Error('acceptance sidebar DnD cleanup: Trash fixture state leaked into later acceptance')
+  }
+
+  console.log('FLASHNOTE_SIDEBAR_DND_CLEANUP_SUCCESS')
+}
+
 export async function runSidebarDragDropAcceptance({ refreshSidebar }: AcceptanceOptions): Promise<void> {
+  const [baselineNoteIDs] = (await ListNotes()) as [string[], string[]]
+  const [baselineFolderIDs] = (await ListFolders()) as [string[], string[]]
+  const baselineTrashCounts = (await TrashCounts()) as [number, number]
+  const currentRow = document.querySelector<HTMLElement>('.note-row[aria-current="page"]')
+  const resumeNoteID = currentRow?.dataset.noteId ?? ''
+  if (!resumeNoteID || !baselineNoteIDs.includes(resumeNoteID)) {
+    throw new Error('acceptance sidebar DnD: current normal note is not identifiable before fixture setup')
+  }
+
+  let sourceFolderID = ''
+  let targetFolderID = ''
+  let sourceNoteID = ''
+  let failure: unknown = null
+
   try {
-    const [sourceFolderID] = (await CreateFolder('DnD Source')) as [string, string]
-    const [targetFolderID] = (await CreateFolder('DnD Target')) as [string, string]
+    ;[sourceFolderID] = (await CreateFolder('DnD Source')) as [string, string]
+    ;[targetFolderID] = (await CreateFolder('DnD Target')) as [string, string]
     const sourceNote = (await CreateNoteInFolder(sourceFolderID)) as [string, string, string, number, boolean]
-    const sourceNoteID = sourceNote[0]
+    sourceNoteID = sourceNote[0]
 
     await refreshSidebar()
     await tick()
@@ -161,10 +264,33 @@ export async function runSidebarDragDropAcceptance({ refreshSidebar }: Acceptanc
     if (trashDraggable) {
       throw new Error('acceptance sidebar DnD: Trash note unexpectedly became draggable')
     }
-
-    console.log('FLASHNOTE_SIDEBAR_DND_ACCEPTANCE_SUCCESS')
   } catch (error) {
-    console.error('FLASHNOTE_SIDEBAR_DND_ACCEPTANCE_FAILURE', error)
-    throw error
+    failure = error
   }
+
+  try {
+    await cleanupFixtures({
+      sourceNoteID,
+      sourceFolderID,
+      targetFolderID,
+      resumeNoteID,
+      baselineNoteIDs,
+      baselineFolderIDs,
+      baselineTrashCounts,
+      refreshSidebar,
+    })
+  } catch (cleanupError) {
+    if (failure) {
+      console.error('FLASHNOTE_SIDEBAR_DND_CLEANUP_FAILURE', cleanupError)
+    } else {
+      failure = cleanupError
+    }
+  }
+
+  if (failure) {
+    console.error('FLASHNOTE_SIDEBAR_DND_ACCEPTANCE_FAILURE', failure)
+    throw failure
+  }
+
+  console.log('FLASHNOTE_SIDEBAR_DND_ACCEPTANCE_SUCCESS')
 }
