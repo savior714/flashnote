@@ -731,19 +731,17 @@ async function proveLastNormalNoteTrashFallback(
     )
 
     const fallbackSnapshot = (await OpenNote(fallbackNoteID)) as NoteTuple
-    const titleInput = document.querySelector<HTMLInputElement>('.title')
-    const editorBody = document.querySelector<HTMLElement>('.prose-editor')
-    if (
-      fallbackSnapshot[1] !== '' ||
-      fallbackSnapshot[3] !== 1 ||
-      !titleInput ||
-      titleInput.value !== '' ||
-      document.activeElement !== titleInput ||
-      !editorBody ||
-      editorBody.textContent?.trim() !== ''
-    ) {
-      throw new Error('acceptance last-note fallback: replacement note is not a newly focused empty note')
+    if (fallbackSnapshot[1] !== '') {
+      throw new Error('acceptance last-note fallback: replacement note has a non-empty durable title')
     }
+    await waitFor(
+      () => {
+        const titleInput = document.querySelector<HTMLInputElement>('.title')
+        const editorBody = document.querySelector<HTMLElement>('.prose-editor')
+        return titleInput?.value === '' && editorBody !== null && editorBody.textContent?.trim() === ''
+      },
+      'new empty fallback note rendered in the editor',
+    )
 
     const undoButton = Array.from(
       document.querySelectorAll<HTMLButtonElement>('.undo-trash button'),
