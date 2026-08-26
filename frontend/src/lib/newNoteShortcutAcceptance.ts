@@ -221,70 +221,41 @@ export async function runNewNoteShortcutAcceptance(
       console.log('FLASHNOTE_CHECKLIST_DURABLE_ACCEPTANCE_SUCCESS')
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // A. NEGATIVE TRIGGERS
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    // 1. Plain n (no modifier)
     const plainNEvent = dispatchKey(window, 'n')
     await tick()
     await delay(30)
-    if (plainNEvent.defaultPrevented) {
-      throw new Error('acceptance S3: plain "n" was unexpectedly default-prevented')
-    }
-    if (getNoteID() !== originalNoteID) {
-      throw new Error('acceptance S3: plain "n" unexpectedly created/switched note')
+    if (plainNEvent.defaultPrevented || getNoteID() !== originalNoteID) {
+      throw new Error('acceptance S3: plain "n" unexpectedly triggered new-note handling')
     }
 
-    // 2. Cmd/Ctrl + Shift + N
     const shiftEvent = dispatchKey(window, 'N', { ...primaryModifier, shiftKey: true })
     await tick()
     await delay(30)
-    if (shiftEvent.defaultPrevented) {
-      throw new Error('acceptance S3: Cmd/Ctrl+Shift+N was unexpectedly default-prevented')
-    }
-    if (getNoteID() !== originalNoteID) {
-      throw new Error('acceptance S3: Cmd/Ctrl+Shift+N unexpectedly created/switched note')
+    if (shiftEvent.defaultPrevented || getNoteID() !== originalNoteID) {
+      throw new Error('acceptance S3: Cmd/Ctrl+Shift+N unexpectedly triggered new-note handling')
     }
 
-    // 3. Alt + N
     const altEvent = dispatchKey(window, 'n', { altKey: true })
     await tick()
     await delay(30)
-    if (altEvent.defaultPrevented) {
-      throw new Error('acceptance S3: Alt+N was unexpectedly default-prevented')
-    }
-    if (getNoteID() !== originalNoteID) {
-      throw new Error('acceptance S3: Alt+N unexpectedly created/switched note')
+    if (altEvent.defaultPrevented || getNoteID() !== originalNoteID) {
+      throw new Error('acceptance S3: Alt+N unexpectedly triggered new-note handling')
     }
 
-    // 4. Cmd/Ctrl + Alt + N
     const modAltEvent = dispatchKey(window, 'n', { ...primaryModifier, altKey: true })
     await tick()
     await delay(30)
-    if (modAltEvent.defaultPrevented) {
-      throw new Error('acceptance S3: Cmd/Ctrl+Alt+N was unexpectedly default-prevented')
-    }
-    if (getNoteID() !== originalNoteID) {
-      throw new Error('acceptance S3: Cmd/Ctrl+Alt+N unexpectedly created/switched note')
+    if (modAltEvent.defaultPrevented || getNoteID() !== originalNoteID) {
+      throw new Error('acceptance S3: Cmd/Ctrl+Alt+N unexpectedly triggered new-note handling')
     }
 
-    // 5. Composing IME Cmd/Ctrl + N
     const composingEvent = dispatchKey(window, 'n', { ...primaryModifier, isComposing: true })
     await tick()
     await delay(30)
-    if (composingEvent.defaultPrevented) {
-      throw new Error('acceptance S3: composing Cmd/Ctrl+N was unexpectedly default-prevented')
-    }
-    if (getNoteID() !== originalNoteID) {
-      throw new Error('acceptance S3: composing Cmd/Ctrl+N unexpectedly created/switched note')
+    if (composingEvent.defaultPrevented || getNoteID() !== originalNoteID) {
+      throw new Error('acceptance S3: composing Cmd/Ctrl+N unexpectedly triggered new-note handling')
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // B. ROOT NOTE CREATION + SETTINGS OVERLAY DISMISSAL + SIDEBAR HIDDEN PROOF
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    // Hide sidebar via shortcut to prove S2 independence
     if (isSidebarVisible()) {
       const hideSidebarEvent = dispatchKey(window, '\\', primaryModifier)
       await tick()
@@ -294,34 +265,22 @@ export async function runNewNoteShortcutAcceptance(
       }
     }
 
-    // Open Settings via shortcut to prove overlay dismissal
     const openSettingsEvent = dispatchKey(window, ',', primaryModifier)
     await tick()
     await delay(30)
-    if (!openSettingsEvent.defaultPrevented || !isSettingsOpen()) {
+    if (!openSettingsEvent.defaultPrevented || !isSettingsOpen() || document.querySelector('.settings-dialog') === null) {
       throw new Error('acceptance S3: failed to open Settings for overlay dismissal setup')
     }
-    if (document.querySelector('.settings-dialog') === null) {
-      throw new Error('acceptance S3: Settings dialog element not found in DOM')
-    }
 
-    // Dispatch actual Cmd/Ctrl+N while Settings is open and sidebar is hidden
     const rootCreateEvent = dispatchKey(window, 'n', primaryModifier)
     if (!rootCreateEvent.defaultPrevented) {
       throw new Error('acceptance S3: Cmd/Ctrl+N was not default-prevented')
     }
-
     const newRootNoteID = await waitForNoteTransition(getNoteID, isNoteTransitionActive, originalNoteID)
-    if (!newRootNoteID) {
-      throw new Error('acceptance S3: new root note ID is empty')
-    }
 
-    // 1. Settings overlay must be closed
     if (isSettingsOpen() || document.querySelector('.settings-dialog') !== null) {
       throw new Error('acceptance S3: Settings dialog remained open after Cmd/Ctrl+N')
     }
-
-    // 2. Sidebar hidden state must be preserved
     if (isSidebarVisible()) {
       throw new Error('acceptance S3: sidebar was unexpectedly made visible after Cmd/Ctrl+N')
     }
@@ -330,67 +289,43 @@ export async function runNewNoteShortcutAcceptance(
       throw new Error('acceptance S3: shell lost .sidebar-hidden class after Cmd/Ctrl+N')
     }
 
-    // 3. Title input must be empty and focused (activeElement)
     if (getTitle() !== '') {
       throw new Error(`acceptance S3: expected empty title for new note, got "${getTitle()}"`)
     }
     const titleEl = document.querySelector<HTMLInputElement>('.title')
-    if (!titleEl) {
-      throw new Error('acceptance S3: .title input element not found in DOM')
-    }
-    if (document.activeElement !== titleEl) {
-      throw new Error(`acceptance S3: .title is not document.activeElement (active: ${document.activeElement?.className})`)
+    if (!titleEl || document.activeElement !== titleEl) {
+      throw new Error('acceptance S3: title did not receive immediate focus')
     }
 
-    // 4. Empty canonical title stays distinct from the Untitled display fallback, and Enter moves to body without mutation.
     const titleDocumentBeforeEnter = getDocumentJSON()
     const blankTitleSnapshot = (await OpenNote(newRootNoteID)) as NoteTuple
-    if (blankTitleSnapshot[1] !== '') {
-      throw new Error(`acceptance title: canonical new-note title was persisted as "${blankTitleSnapshot[1]}" instead of empty`)
-    }
-    if (blankTitleSnapshot[2] !== titleDocumentBeforeEnter) {
-      throw new Error('acceptance title: backend document differs before title Enter proof')
+    if (blankTitleSnapshot[1] !== '' || blankTitleSnapshot[2] !== titleDocumentBeforeEnter) {
+      throw new Error('acceptance title: canonical new-note title/document is not the expected empty initial state')
     }
 
     const titleEnterEvent = dispatchKey(titleEl, 'Enter')
     await tick()
     await delay(30)
-    if (!titleEnterEvent.defaultPrevented) {
-      throw new Error('acceptance title: Enter in title was not handled')
-    }
     const editorElement = document.querySelector<HTMLElement>('.prose-editor')
-    if (!editorElement || document.activeElement !== editorElement) {
-      throw new Error(`acceptance title: Enter did not move focus to body editor (active: ${document.activeElement?.className})`)
+    if (!titleEnterEvent.defaultPrevented || !editorElement || document.activeElement !== editorElement) {
+      throw new Error('acceptance title: Enter did not move focus from title to body')
     }
-    if (
-      getNoteID() !== newRootNoteID ||
-      getTitle() !== '' ||
-      getDocumentJSON() !== titleDocumentBeforeEnter ||
-      isNoteTransitionActive()
-    ) {
+    if (getNoteID() !== newRootNoteID || getTitle() !== '' || getDocumentJSON() !== titleDocumentBeforeEnter || isNoteTransitionActive()) {
       throw new Error('acceptance title: Enter mutated or transitioned the new note')
     }
     const afterTitleEnterSnapshot = (await OpenNote(newRootNoteID)) as NoteTuple
-    if (
-      afterTitleEnterSnapshot[1] !== '' ||
-      afterTitleEnterSnapshot[2] !== blankTitleSnapshot[2] ||
-      afterTitleEnterSnapshot[3] !== blankTitleSnapshot[3]
-    ) {
+    if (afterTitleEnterSnapshot[1] !== '' || afterTitleEnterSnapshot[2] !== blankTitleSnapshot[2] || afterTitleEnterSnapshot[3] !== blankTitleSnapshot[3]) {
       throw new Error('acceptance title: Enter changed durable title, document, or revision')
     }
     console.log('FLASHNOTE_TITLE_ENTER_ACCEPTANCE_SUCCESS')
 
-    // 5. Note must appear in root notes and NOT in any folder, using Untitled only as presentation data.
     const [rootIDs, rootTitles] = (await ListRootNotes()) as [string[], string[]]
     const rootIndex = rootIDs.indexOf(newRootNoteID)
-    if (rootIndex < 0) {
-      throw new Error('acceptance S3: new note not found in ListRootNotes()')
-    }
-    if (rootTitles[rootIndex] !== 'Untitled') {
-      throw new Error(`acceptance title: empty note display title was "${rootTitles[rootIndex]}" instead of "Untitled"`)
+    if (rootIndex < 0 || rootTitles[rootIndex] !== 'Untitled') {
+      throw new Error('acceptance title: empty root note did not retain Untitled as presentation-only display title')
     }
     if (getCurrentFolderID() !== '') {
-      throw new Error(`acceptance S3: new root note unexpectedly has currentFolderID "${getCurrentFolderID()}"`)
+      throw new Error('acceptance S3: new root note unexpectedly has folder membership')
     }
     const [allFolderIDs] = (await ListFolders()) as [string[], string[]]
     for (const fID of allFolderIDs) {
@@ -400,101 +335,171 @@ export async function runNewNoteShortcutAcceptance(
       }
     }
 
-    // 6. Canonical document must be valid initial document
     const newDocEnvelope = JSON.parse(getDocumentJSON()) as { schemaVersion?: unknown; doc?: unknown }
     if (newDocEnvelope.schemaVersion !== 1 || typeof newDocEnvelope.doc !== 'object') {
       throw new Error('acceptance S3: new note canonical document envelope is invalid')
     }
 
-    // 7. Save safety: verify original note was flushed before transition
     const originalSnapshot = (await OpenNote(originalNoteID)) as NoteTuple
-    if (originalSnapshot[0] !== originalNoteID) {
-      throw new Error('acceptance S3: failed to retrieve original note for save flush verification')
-    }
-    if (acceptanceText && !originalSnapshot[2].includes(acceptanceText)) {
-      throw new Error('acceptance S3: original note pending save was not flushed to database before navigation')
+    if (originalSnapshot[0] !== originalNoteID || (acceptanceText && !originalSnapshot[2].includes(acceptanceText))) {
+      throw new Error('acceptance S3: original note pending save was not durable before navigation')
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // C. CLEANUP ROOT TEST NOTE & RESTORE ORIGINAL NOTE
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    const openSearchEvent = dispatchKey(window, 'k', primaryModifier)
+    if (!openSearchEvent.defaultPrevented) {
+      throw new Error('acceptance search UI: Cmd/Ctrl+K was not handled')
+    }
+    const searchStart = Date.now()
+    while (Date.now() - searchStart < 4000) {
+      await tick()
+      await delay(30)
+      const input = document.querySelector<HTMLInputElement>('.search-input')
+      if (input && document.activeElement === input && document.querySelectorAll('.search-result').length >= 2) {
+        break
+      }
+    }
+    let searchInput = document.querySelector<HTMLInputElement>('.search-input')
+    let searchResults = Array.from(document.querySelectorAll<HTMLButtonElement>('.search-result'))
+    if (!searchInput || document.activeElement !== searchInput || searchResults.length < 2) {
+      throw new Error('acceptance search UI: recent search did not open focused with at least two results')
+    }
+    if (document.querySelector<HTMLElement>('.search-section-label')?.textContent?.trim() !== 'Recently modified') {
+      throw new Error('acceptance search UI: empty query did not show Recently modified')
+    }
+    if (!searchResults[0]?.classList.contains('selected')) {
+      throw new Error('acceptance search UI: first recent result was not selected initially')
+    }
+
+    const searchDownEvent = dispatchKey(searchInput, 'ArrowDown')
+    await tick()
+    searchResults = Array.from(document.querySelectorAll<HTMLButtonElement>('.search-result'))
+    if (!searchDownEvent.defaultPrevented || !searchResults[1]?.classList.contains('selected')) {
+      throw new Error('acceptance search UI: ArrowDown did not select the second result')
+    }
+    const searchUpEvent = dispatchKey(searchInput, 'ArrowUp')
+    await tick()
+    searchResults = Array.from(document.querySelectorAll<HTMLButtonElement>('.search-result'))
+    if (!searchUpEvent.defaultPrevented || !searchResults[0]?.classList.contains('selected')) {
+      throw new Error('acceptance search UI: ArrowUp did not restore the first result')
+    }
+    const searchEscapeEvent = dispatchKey(searchInput, 'Escape')
+    await tick()
+    await delay(30)
+    if (!searchEscapeEvent.defaultPrevented || document.querySelector('.search-dialog') !== null || getNoteID() !== newRootNoteID) {
+      throw new Error('acceptance search UI: Escape did not dismiss search without changing notes')
+    }
+
+    const reopenSearchEvent = dispatchKey(window, 'k', primaryModifier)
+    if (!reopenSearchEvent.defaultPrevented) {
+      throw new Error('acceptance search UI: Cmd/Ctrl+K did not reopen search')
+    }
+    const reopenStart = Date.now()
+    while (Date.now() - reopenStart < 4000) {
+      await tick()
+      await delay(30)
+      searchInput = document.querySelector<HTMLInputElement>('.search-input')
+      if (searchInput && document.activeElement === searchInput && document.querySelectorAll('.search-result').length >= 2) {
+        break
+      }
+    }
+    searchInput = document.querySelector<HTMLInputElement>('.search-input')
+    if (!searchInput || document.activeElement !== searchInput) {
+      throw new Error('acceptance search UI: reopened search input did not receive focus')
+    }
+    const originalRootIndex = rootIDs.indexOf(originalNoteID)
+    if (originalRootIndex < 0) {
+      throw new Error('acceptance search UI: original note is missing from root presentation data')
+    }
+    const targetDisplayTitle = rootTitles[originalRootIndex] ?? 'Untitled'
+    const queryToken = acceptanceText.trim().split(/\s+/).find((token) => token.length >= 4) ?? ''
+    if (!queryToken) {
+      throw new Error('acceptance search UI: acceptance text has no usable query token')
+    }
+    searchInput.value = queryToken
+    searchInput.dispatchEvent(new Event('input', { bubbles: true }))
+    const queryStart = Date.now()
+    while (Date.now() - queryStart < 4000) {
+      await tick()
+      await delay(30)
+      searchResults = Array.from(document.querySelectorAll<HTMLButtonElement>('.search-result'))
+      if (searchResults.length === 1 && searchResults[0]?.querySelector('.search-result-title')?.textContent?.trim() === targetDisplayTitle) {
+        break
+      }
+    }
+    searchResults = Array.from(document.querySelectorAll<HTMLButtonElement>('.search-result'))
+    if (searchResults.length !== 1 || searchResults[0]?.querySelector('.search-result-title')?.textContent?.trim() !== targetDisplayTitle) {
+      throw new Error(`acceptance search UI: query "${queryToken}" did not isolate the original note`)
+    }
+    if (document.querySelector<HTMLElement>('.search-section-label')?.textContent?.trim() !== 'Results') {
+      throw new Error('acceptance search UI: non-empty query did not show Results label')
+    }
+    const searchEnterEvent = dispatchKey(searchInput, 'Enter')
+    if (!searchEnterEvent.defaultPrevented) {
+      throw new Error('acceptance search UI: Enter was not handled for the selected result')
+    }
+    const activationStart = Date.now()
+    while (Date.now() - activationStart < 4000) {
+      await tick()
+      await delay(30)
+      if (getNoteID() === originalNoteID && !isNoteTransitionActive() && document.querySelector('.search-dialog') === null) {
+        break
+      }
+    }
+    if (getNoteID() !== originalNoteID || isNoteTransitionActive() || document.querySelector('.search-dialog') !== null) {
+      throw new Error('acceptance search UI: Enter did not open the selected note and dismiss search')
+    }
+    console.log('FLASHNOTE_SEARCH_UI_ACCEPTANCE_SUCCESS')
+
     await MoveNoteToTrash(newRootNoteID)
     await PermanentlyDeleteNote(newRootNoteID)
-
-    // Restore original acceptance note
     applyNote(originalSnapshot)
     await refreshSidebar()
     await tick()
 
-    // Restore sidebar visibility
     if (!isSidebarVisible()) {
       dispatchKey(window, '\\', primaryModifier)
       await tick()
       await delay(30)
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // D. FOLDER LOCATION PROOF
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     const [tempFolderID] = (await CreateFolder('S3 Temp Acceptance Folder')) as [string, string]
     await MoveNote(originalNoteID, tempFolderID)
     await refreshSidebar()
     await tick()
-
     if (getCurrentFolderID() !== tempFolderID) {
-      throw new Error(`acceptance S3: currentFolderID ("${getCurrentFolderID()}") did not resolve to temp folder ("${tempFolderID}")`)
+      throw new Error('acceptance S3: original note did not resolve to temporary folder')
     }
 
-    // Dispatch actual Cmd/Ctrl+N while inside folder
     const folderCreateEvent = dispatchKey(window, 'n', primaryModifier)
     if (!folderCreateEvent.defaultPrevented) {
-      throw new Error('acceptance S3: Cmd/Ctrl+N inside folder was not default-prevented')
+      throw new Error('acceptance S3: Cmd/Ctrl+N inside folder was not handled')
     }
-
     const newFolderNoteID = await waitForNoteTransition(getNoteID, isNoteTransitionActive, originalNoteID)
-    if (!newFolderNoteID) {
-      throw new Error('acceptance S3: new folder note ID is empty')
-    }
-
-    // 1. Note must be inside the temp folder
     const [folderNoteIDs] = (await ListFolderNotes(tempFolderID)) as [string[], string[]]
     if (!folderNoteIDs.includes(newFolderNoteID)) {
       throw new Error('acceptance S3: new note not found in temp folder note list')
     }
-
-    // 2. Note must NOT be in root notes
     const [rootAfterFolderCreate] = (await ListRootNotes()) as [string[], string[]]
     if (rootAfterFolderCreate.includes(newFolderNoteID)) {
       throw new Error('acceptance S3: new folder note unexpectedly found in root note list')
     }
-
-    // 3. Title input must be focused
     const folderTitleEl = document.querySelector<HTMLInputElement>('.title')
     if (!folderTitleEl || document.activeElement !== folderTitleEl) {
-      throw new Error(`acceptance S3: .title is not document.activeElement after folder note creation (active: ${document.activeElement?.className})`)
+      throw new Error('acceptance S3: title did not receive focus after folder note creation')
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // E. CLEANUP FOLDER TEST NOTE & TEMPORARY FOLDER
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     await MoveNoteToTrash(newFolderNoteID)
     await PermanentlyDeleteNote(newFolderNoteID)
-
-    // Move original note back to root
     await MoveNote(originalNoteID, '')
-
-    // Delete temporary folder
     await MoveFolderToTrash(tempFolderID)
     await PermanentlyDeleteFolder(tempFolderID)
 
-    // Reapply original note and verify clean state
     const cleanOriginalSnapshot = (await OpenNote(originalNoteID)) as NoteTuple
     applyNote(cleanOriginalSnapshot)
     await refreshSidebar()
     await tick()
-
     if (getCurrentFolderID() !== '') {
-      throw new Error(`acceptance S3: original note not at root after cleanup (currentFolderID="${getCurrentFolderID()}")`)
+      throw new Error('acceptance S3: original note not at root after cleanup')
     }
 
     console.log('FLASHNOTE_S3_ACCEPTANCE_SUCCESS')
