@@ -202,25 +202,102 @@ async function proveContextTrashUndo(
   await tick()
   await expandFolder(folderID)
 
-  const currentRow = noteRow(currentNoteID)
-  const contextEvent = new MouseEvent('contextmenu', {
-    bubbles: true,
-    cancelable: true,
-    clientX: 120,
-    clientY: 120,
-  })
-  currentRow.dispatchEvent(contextEvent)
-  await tick()
-  await delay(30)
-
-  if (!contextEvent.defaultPrevented) {
-    throw new Error('acceptance Trash UX: note contextmenu was not handled')
+  const openCurrentNoteContextMenu = async (): Promise<{ menu: HTMLElement; event: MouseEvent }> => {
+    const row = noteRow(currentNoteID)
+    const event = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 120,
+      clientY: 120,
+    })
+    row.dispatchEvent(event)
+    await tick()
+    await delay(30)
+    if (!event.defaultPrevented) {
+      throw new Error('acceptance note context move: note contextmenu was not handled')
+    }
+    const menu = document.querySelector<HTMLElement>('.note-context-menu')
+    if (!menu) {
+      throw new Error('acceptance note context move: note context menu is missing')
+    }
+    return { menu, event }
   }
-  const contextMenu = document.querySelector<HTMLElement>('.note-context-menu')
+
+  const [allFolderIDs, allFolderNames] = (await ListFolders()) as [string[], string[]]
+  const sourceFolderIndex = allFolderIDs.indexOf(folderID)
+  const targetFolderIndex = allFolderIDs.indexOf(emptyFolderID)
+  if (sourceFolderIndex < 0 || targetFolderIndex < 0) {
+    throw new Error('acceptance note context move: source or target folder fixture is missing')
+  }
+
+  let { menu: contextMenu } = await openCurrentNoteContextMenu()
+  if (contextMenu.querySelector<HTMLElement>('.context-menu-label')?.textContent?.trim() !== 'Move to…') {
+    throw new Error('acceptance note context move: Move to… label is missing')
+  }
+  let destinationButtons = Array.from(
+    contextMenu.querySelectorAll<HTMLButtonElement>('button:not(.context-danger)'),
+  )
+  const expectedDestinationLabels = ['Root', ...allFolderNames]
+  const destinationLabels = destinationButtons.map((button) => button.textContent?.trim() ?? '')
+  if (JSON.stringify(destinationLabels) !== JSON.stringify(expectedDestinationLabels)) {
+    throw new Error(
+      `acceptance note context move: expected destinations ${JSON.stringify(expectedDestinationLabels)}, got ${JSON.stringify(destinationLabels)}`,
+    )
+  }
+
+  const rootDestination = destinationButtons[0]
+  const currentFolderDestination = destinationButtons[sourceFolderIndex + 1]
+  const targetFolderDestination = destinationButtons[targetFolderIndex + 1]
+  if (!rootDestination || !currentFolderDestination || !targetFolderDestination) {
+    throw new Error('acceptance note context move: Root/current/target destination controls are incomplete')
+  }
+  if (rootDestination.disabled || !currentFolderDestination.disabled || targetFolderDestination.disabled) {
+    throw new Error('acceptance note context move: destination enabled states do not match current folder')
+  }
+
+  targetFolderDestination.click()
+  await waitFor(
+    async () =>
+      (await folderContains(emptyFolderID, currentNoteID)) &&
+      !(await folderContains(folderID, currentNoteID)),
+    'context-menu folder-to-folder move',
+  )
+  await refreshSidebar()
+  await tick()
+  await expandFolder(emptyFolderID)
+
+  ;({ menu: contextMenu } = await openCurrentNoteContextMenu())
+  destinationButtons = Array.from(
+    contextMenu.querySelectorAll<HTMLButtonElement>('button:not(.context-danger)'),
+  )
+  const rootDestinationAfterFolderMove = destinationButtons[0]
+  const targetDestinationAfterFolderMove = destinationButtons[targetFolderIndex + 1]
+  if (!rootDestinationAfterFolderMove || rootDestinationAfterFolderMove.disabled || !targetDestinationAfterFolderMove?.disabled) {
+    throw new Error('acceptance note context move: Root/target enabled states are wrong after folder move')
+  }
+
+  rootDestinationAfterFolderMove.click()
+  await waitFor(
+    async () =>
+      (await rootContains(currentNoteID)) &&
+      !(await folderContains(emptyFolderID, currentNoteID)),
+    'context-menu folder-to-root move',
+  )
+  await refreshSidebar()
+  await tick()
+
+  await MoveNote(currentNoteID, folderID)
+  await refreshSidebar()
+  await tick()
+  await expandFolder(folderID)
+  await SearchNotes('flashnote-note-context-move-root-folder-destinations-acceptance-handshake-v1')
+  console.log('FLASHNOTE_NOTE_CONTEXT_MOVE_ACCEPTANCE_SUCCESS')
+
+  ;({ menu: contextMenu } = await openCurrentNoteContextMenu())
   const moveToTrashButton = Array.from(
-    contextMenu?.querySelectorAll<HTMLButtonElement>('button') ?? [],
+    contextMenu.querySelectorAll<HTMLButtonElement>('button'),
   ).find((button) => button.textContent?.trim() === 'Move to Trash')
-  if (!contextMenu || !moveToTrashButton) {
+  if (!moveToTrashButton) {
     throw new Error('acceptance Trash UX: Move to Trash context action is missing')
   }
 
