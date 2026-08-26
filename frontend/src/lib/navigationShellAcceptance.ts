@@ -1,5 +1,9 @@
 import type { Editor } from '@tiptap/core'
 import { tick } from 'svelte'
+import {
+  ListFolders,
+  SearchNotes,
+} from '../../bindings/github.com/savior714/flashnote/appservice'
 import { SETTINGS_STORAGE_KEY } from './settings'
 
 function delay(ms: number): Promise<void> {
@@ -60,6 +64,76 @@ export async function runNavigationShellAcceptance(editor: Editor): Promise<void
       throw new Error('acceptance S2: .prose-editor element not found')
     }
     const initialDocJSON = JSON.stringify(editor.getJSON())
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // A2. CREATE MENU / INLINE FOLDER NAMING PROOF
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    const foldersBeforeCreateMenu = (await ListFolders()) as [string[], string[]]
+    const dialogsBeforeFolderNaming = document.querySelectorAll('[role="dialog"]').length
+    const createButton = document.querySelector<HTMLButtonElement>(
+      '.create-controls > button[aria-label="Create"]',
+    )
+    if (!createButton || createButton.disabled || createButton.getAttribute('aria-expanded') !== 'false') {
+      throw new Error('acceptance sidebar create: Create button is missing, disabled, or initially expanded')
+    }
+
+    createButton.click()
+    await tick()
+    await delay(30)
+
+    const createMenu = document.querySelector<HTMLElement>('.create-menu')
+    if (!createMenu || createButton.getAttribute('aria-expanded') !== 'true') {
+      throw new Error('acceptance sidebar create: Create menu did not open')
+    }
+    const createChoices = Array.from(createMenu.querySelectorAll<HTMLButtonElement>('button'))
+    const createChoiceLabels = createChoices.map((button) => button.textContent?.trim() ?? '')
+    if (JSON.stringify(createChoiceLabels) !== JSON.stringify(['New note', 'New folder'])) {
+      throw new Error(
+        `acceptance sidebar create: expected exactly New note/New folder, got ${JSON.stringify(createChoiceLabels)}`,
+      )
+    }
+
+    const newFolderButton = createChoices[1]
+    if (!newFolderButton) {
+      throw new Error('acceptance sidebar create: New folder action is missing')
+    }
+    newFolderButton.click()
+    await tick()
+    await delay(30)
+
+    const folderInput = document.querySelector<HTMLInputElement>('.new-folder-input')
+    if (!folderInput) {
+      throw new Error('acceptance sidebar create: New folder did not render inline naming input')
+    }
+    if (document.activeElement !== folderInput) {
+      throw new Error('acceptance sidebar create: inline folder naming input did not receive immediate focus')
+    }
+    if (document.querySelector('.create-menu') !== null) {
+      throw new Error('acceptance sidebar create: create menu remained open during inline folder naming')
+    }
+    if (document.querySelectorAll('[role="dialog"]').length !== dialogsBeforeFolderNaming) {
+      throw new Error('acceptance sidebar create: New folder opened a dialog instead of inline naming')
+    }
+
+    const cancelFolderNamingEvent = dispatchKey(folderInput, 'Escape')
+    await tick()
+    await delay(30)
+    if (!cancelFolderNamingEvent.defaultPrevented) {
+      throw new Error('acceptance sidebar create: Escape was not handled by inline folder naming')
+    }
+    if (document.querySelector('.new-folder-input') !== null) {
+      throw new Error('acceptance sidebar create: Escape did not remove inline folder naming input')
+    }
+
+    const foldersAfterFolderCancel = (await ListFolders()) as [string[], string[]]
+    if (JSON.stringify(foldersAfterFolderCancel) !== JSON.stringify(foldersBeforeCreateMenu)) {
+      throw new Error('acceptance sidebar create: cancelling inline naming changed durable folder state')
+    }
+    if (JSON.stringify(editor.getJSON()) !== initialDocJSON) {
+      throw new Error('acceptance sidebar create: folder naming interaction mutated editor content')
+    }
+    await SearchNotes('flashnote-sidebar-inline-folder-acceptance-proof-handshake-v1')
+    console.log('FLASHNOTE_SIDEBAR_CREATE_MENU_ACCEPTANCE_SUCCESS')
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // B. PLAIN BACKSLASH NEGATIVE PROOF
