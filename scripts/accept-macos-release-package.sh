@@ -70,7 +70,7 @@ PNPM_VERSION="$(pnpm --version)"
 
 GOBIN="$TOOL_BIN" go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.11
 WAILS="$TOOL_BIN/wails3"
-WAILS_VERSION="$($WAILS version)"
+WAILS_VERSION="$("$WAILS" version 2>&1)"
 [[ "$WAILS_VERSION" == "v3.0.0-beta.11" ]] || {
   echo "Expected Wails v3.0.0-beta.11, got $WAILS_VERSION." >&2
   exit 1
