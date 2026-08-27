@@ -1077,6 +1077,27 @@
     }
   }
 
+  async function returnToNormalLibraryAfterEmptyTrash() {
+    trashView = false
+    clearOpenedNote()
+    await refreshSidebar()
+
+    const survivorID = preferredSurvivor('', '')
+    let createdBlank = false
+    if (survivorID) {
+      applyNote((await OpenNote(survivorID)) as NoteTuple)
+    } else {
+      applyNote((await CreateNote()) as NoteTuple)
+      createdBlank = true
+    }
+    await refreshSidebar()
+
+    if (createdBlank) {
+      await tick()
+      document.querySelector<HTMLInputElement>('.title')?.focus()
+    }
+  }
+
   async function confirmEmptyTrash() {
     if (!trashView || noteTransitionActive) {
       return
@@ -1088,9 +1109,12 @@
     try {
       await EmptyTrash()
       selectedTrashFolderID = ''
+      permanentDeleteTargetID = ''
+      permanentDeleteFolderTargetID = ''
+      clearUndoTimer()
+      undoTrashNoteID = ''
       await refreshTrash()
-      clearOpenedNote()
-      await refreshSidebar()
+      await returnToNormalLibraryAfterEmptyTrash()
     } catch (error) {
       operationError = `Could not empty Trash: ${formatError(error)}`
     } finally {
@@ -1280,6 +1304,85 @@
     return trashFolders.find((folder) => folder.id === permanentDeleteFolderTargetID)
   }
 
+  async function runAcceptanceEmptyTrashReturn() {
+    if (!(await flushPendingSave())) {
+      throw new Error('acceptance Empty Trash save flush failed')
+    }
+    const survivorID = noteID
+    if (!survivorID || trashView) {
+      throw new Error('acceptance Empty Trash requires an open normal survivor')
+    }
+
+    const disposableNote = (await CreateNote()) as NoteTuple
+    await MoveNoteToTrash(disposableNote[0])
+    const [disposableFolderID] = (await CreateFolder('Acceptance Empty Trash Folder')) as [string, string]
+    const moved = await MoveFolderToTrash(disposableFolderID)
+    if (moved !== 0) {
+      throw new Error(`acceptance Empty Trash disposable folder moved ${moved} notes, want 0`)
+    }
+    await refreshSidebar()
+
+    const [noteCountBefore, folderCountBefore] = (await TrashCounts()) as [number, number]
+    if (noteCountBefore !== 1 || folderCountBefore !== 1) {
+      throw new Error(`acceptance Empty Trash pre-counts=${noteCountBefore}/${folderCountBefore}, want 1/1`)
+    }
+
+    await enterTrashView()
+    await selectTrashFolder(disposableFolderID)
+    if (!trashView || selectedTrashFolderID !== disposableFolderID) {
+      throw new Error('acceptance Empty Trash did not select disposable Trash folder')
+    }
+
+    emptyTrashConfirmVisible = true
+    await tick()
+    if (!document.getElementById('empty-trash-title')) {
+      throw new Error('acceptance Empty Trash confirmation did not render')
+    }
+
+    permanentDeleteTargetID = disposableNote[0]
+    permanentDeleteFolderTargetID = disposableFolderID
+    undoTrashNoteID = disposableNote[0]
+    await confirmEmptyTrash()
+    await tick()
+
+    if (trashView) {
+      throw new Error('acceptance Empty Trash remained in trashView')
+    }
+    if (selectedTrashFolderID || permanentDeleteTargetID || permanentDeleteFolderTargetID || undoTrashNoteID) {
+      throw new Error('acceptance Empty Trash retained stale Trash selection/action state')
+    }
+    if (emptyTrashConfirmVisible) {
+      throw new Error('acceptance Empty Trash confirmation remained visible')
+    }
+    if (trashNoteCount !== 0 || trashFolderCount !== 0) {
+      throw new Error(`acceptance Empty Trash UI counts=${trashNoteCount}/${trashFolderCount}, want 0/0`)
+    }
+    const [noteCountAfter, folderCountAfter] = (await TrashCounts()) as [number, number]
+    if (noteCountAfter !== 0 || folderCountAfter !== 0) {
+      throw new Error(`acceptance Empty Trash durable counts=${noteCountAfter}/${folderCountAfter}, want 0/0`)
+    }
+    if (noteID !== survivorID || currentFolderID !== '') {
+      throw new Error(`acceptance Empty Trash survivor mismatch note=${noteID} folder=${currentFolderID}`)
+    }
+    const survivor = (await OpenNote(survivorID)) as NoteTuple
+    if (survivor[0] !== survivorID) {
+      throw new Error('acceptance Empty Trash normal survivor could not be reopened')
+    }
+    const [rootIDs] = (await ListRootNotes()) as [string[], string[]]
+    if (!rootIDs.includes(survivorID)) {
+      throw new Error('acceptance Empty Trash survivor disappeared from normal root list')
+    }
+    if (
+      document.querySelector('nav.note-list[aria-label="Note list"]') === null ||
+      document.querySelector(`[data-note-id="${survivorID}"]`) === null ||
+      document.querySelector<HTMLElement>('section.document')?.getAttribute('aria-label') !== 'Editor'
+    ) {
+      throw new Error('acceptance Empty Trash did not restore normal library/editor rendering')
+    }
+
+    console.log('FLASHNOTE_ACCEPTANCE_EMPTY_TRASH_RETURN_SUCCESS')
+  }
+
   async function runAcceptanceTrashLifecycle() {
     if (!(await flushPendingSave())) {
       throw new Error('acceptance save flush failed')
@@ -1407,6 +1510,7 @@
             applyNote,
             refreshSidebar,
           })
+          await runAcceptanceEmptyTrashReturn()
           await runSidebarDragDropAcceptance({ refreshSidebar })
           await runAcceptanceTrashLifecycle()
           console.log('FLASHNOTE_ACCEPTANCE_FULL_PIPELINE_SUCCESS')
