@@ -18,6 +18,25 @@ if (!target) {
 const macInvisibleTitlebarHeight = 48
 const interactiveTitlebarSelector =
   'button, input, textarea, select, a, [role="button"], [contenteditable="true"]'
+const nativeTextContextMenuSelector = 'input, textarea, [contenteditable="true"]'
+
+function installAppContextMenuPolicy() {
+  window.addEventListener(
+    'contextmenu',
+    (event) => {
+      const eventTarget = event.target
+      if (
+        eventTarget instanceof Element &&
+        eventTarget.closest(nativeTextContextMenuSelector)
+      ) {
+        return
+      }
+
+      event.preventDefault()
+    },
+    { capture: true },
+  )
+}
 
 function installMacTitlebarDoubleClickFallback() {
   window.addEventListener('dblclick', (event) => {
@@ -47,6 +66,7 @@ if (
   runMarkdownExportShortcutAcceptance()
 }
 
+installAppContextMenuPolicy()
 mount(App, { target })
 installMarkdownExportShortcut()
 installMacTitlebarDoubleClickFallback()
