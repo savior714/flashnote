@@ -4,7 +4,6 @@ export type ResolvedTheme = 'light' | 'dark'
 export interface Settings {
   appearance: AppearanceMode
   editorFontSize: number
-  spellcheck: boolean
 }
 
 export const MIN_FONT_SIZE = 14
@@ -14,7 +13,6 @@ export const DEFAULT_FONT_SIZE = 16
 export const DEFAULT_SETTINGS: Settings = {
   appearance: 'system',
   editorFontSize: DEFAULT_FONT_SIZE,
-  spellcheck: true,
 }
 
 export const SETTINGS_STORAGE_KEY = 'flashnote:settings:v1'
@@ -34,13 +32,6 @@ export function sanitizeFontSize(value: unknown): number {
   return DEFAULT_FONT_SIZE
 }
 
-export function sanitizeSpellcheck(value: unknown): boolean {
-  if (typeof value === 'boolean') {
-    return value
-  }
-  return DEFAULT_SETTINGS.spellcheck
-}
-
 export function loadSettings(): Settings {
   if (typeof localStorage === 'undefined') {
     return { ...DEFAULT_SETTINGS }
@@ -57,7 +48,6 @@ export function loadSettings(): Settings {
     return {
       appearance: sanitizeAppearance(parsed.appearance),
       editorFontSize: sanitizeFontSize(parsed.editorFontSize),
-      spellcheck: sanitizeSpellcheck(parsed.spellcheck),
     }
   } catch {
     return { ...DEFAULT_SETTINGS }
@@ -72,7 +62,6 @@ export function saveSettings(settings: Settings): void {
     const sanitized: Settings = {
       appearance: sanitizeAppearance(settings.appearance),
       editorFontSize: sanitizeFontSize(settings.editorFontSize),
-      spellcheck: sanitizeSpellcheck(settings.spellcheck),
     }
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(sanitized))
   } catch {

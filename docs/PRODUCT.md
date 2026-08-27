@@ -463,7 +463,6 @@ The settings surface should stay intentionally small:
 ### Editor
 
 - font size
-- spellcheck
 
 ### Data
 

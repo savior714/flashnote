@@ -32,11 +32,6 @@
     }
   }
 
-  function handleSpellcheckToggle(event: Event) {
-    const input = (event.currentTarget || event.target) as HTMLInputElement
-    onUpdate((prev) => ({ ...prev, spellcheck: input.checked }))
-  }
-
   async function handleExportAll() {
     if (exportStatus === 'exporting') {
       return
@@ -160,18 +155,6 @@
             />
             <span class="font-size-display">{settings.editorFontSize}px</span>
           </div>
-        </div>
-
-        <div class="settings-row-item">
-          <label for="spellcheck-toggle" class="settings-label">Spellcheck</label>
-          <input
-            id="spellcheck-toggle"
-            type="checkbox"
-            class="spellcheck-checkbox"
-            checked={settings.spellcheck}
-            onchange={handleSpellcheckToggle}
-            aria-label="Editor spellcheck"
-          />
         </div>
       </section>
 
@@ -327,13 +310,6 @@
     min-width: 36px;
     text-align: right;
     font-variant-numeric: tabular-nums;
-  }
-
-  .spellcheck-checkbox {
-    width: 17px;
-    height: 17px;
-    accent-color: var(--text-primary);
-    cursor: pointer;
   }
 
   .export-feedback {

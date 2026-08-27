@@ -2004,7 +2004,6 @@
                 onDocumentChange={handleDocumentChange}
                 acceptanceText=""
                 editable={false}
-                spellcheck={settings.spellcheck}
               />
             {/key}
           {:else}
@@ -2043,7 +2042,6 @@
               onDocumentChange={handleDocumentChange}
               acceptanceText=""
               editable={false}
-              spellcheck={settings.spellcheck}
             />
           {/key}
         {:else}
@@ -2071,7 +2069,6 @@
             onDocumentChange={handleDocumentChange}
             acceptanceText={editorAcceptanceConsumed ? '' : acceptanceText}
             editable={!noteTransitionActive}
-            spellcheck={settings.spellcheck}
             onAcceptanceReady={handleAcceptanceReady}
           />
         {/key}

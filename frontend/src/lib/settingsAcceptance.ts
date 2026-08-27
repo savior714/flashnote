@@ -9,7 +9,6 @@ import {
   resolveTheme,
   sanitizeAppearance,
   sanitizeFontSize,
-  sanitizeSpellcheck,
   saveSettings,
   SETTINGS_STORAGE_KEY,
   type Settings,
@@ -50,7 +49,7 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     if (
       defaults.appearance !== 'system' ||
       defaults.editorFontSize !== 16 ||
-      defaults.spellcheck !== true
+      'spellcheck' in defaults
     ) {
       throw new Error(`acceptance: default settings mismatch: ${JSON.stringify(defaults)}`)
     }
@@ -61,12 +60,12 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     if (
       fallbackFromMalformed.appearance !== 'system' ||
       fallbackFromMalformed.editorFontSize !== 16 ||
-      fallbackFromMalformed.spellcheck !== true
+      'spellcheck' in fallbackFromMalformed
     ) {
       throw new Error('acceptance: malformed stored json did not fallback to defaults')
     }
 
-    // 2. Unknown appearance -> system, invalid font size -> 16, invalid spellcheck -> true
+    // 2. Unknown appearance -> system, invalid font size -> 16. Legacy spellcheck is ignored.
     localStorage.setItem(
       SETTINGS_STORAGE_KEY,
       JSON.stringify({ appearance: 'neon-cyberpunk', editorFontSize: 'invalid-size', spellcheck: 'not-bool' }),
@@ -75,12 +74,12 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     if (
       sanitizedInvalidTypes.appearance !== 'system' ||
       sanitizedInvalidTypes.editorFontSize !== 16 ||
-      sanitizedInvalidTypes.spellcheck !== true
+      'spellcheck' in sanitizedInvalidTypes
     ) {
-      throw new Error(`acceptance: invalid field types failed to sanitize: ${JSON.stringify(sanitizedInvalidTypes)}`)
+      throw new Error(`acceptance: invalid/legacy fields failed to sanitize: ${JSON.stringify(sanitizedInvalidTypes)}`)
     }
 
-    // 3. Finite too-large font size: 999 -> 22
+    // 3. Finite too-large font size: 999 -> 22; legacy spellcheck remains ignored.
     localStorage.setItem(
       SETTINGS_STORAGE_KEY,
       JSON.stringify({ appearance: 'dark', editorFontSize: 999, spellcheck: false }),
@@ -89,22 +88,18 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     if (
       sanitizedTooLarge.appearance !== 'dark' ||
       sanitizedTooLarge.editorFontSize !== 22 ||
-      sanitizedTooLarge.spellcheck !== false
+      'spellcheck' in sanitizedTooLarge
     ) {
-      throw new Error(`acceptance: 999 font size was not clamped to 22: ${JSON.stringify(sanitizedTooLarge)}`)
+      throw new Error(`acceptance: 999 font size or legacy field sanitization failed: ${JSON.stringify(sanitizedTooLarge)}`)
     }
 
     // 4. Finite too-small font size: 1 -> 14
     localStorage.setItem(
       SETTINGS_STORAGE_KEY,
-      JSON.stringify({ appearance: 'light', editorFontSize: 1, spellcheck: true }),
+      JSON.stringify({ appearance: 'light', editorFontSize: 1 }),
     )
     const sanitizedTooSmall = loadSettings()
-    if (
-      sanitizedTooSmall.appearance !== 'light' ||
-      sanitizedTooSmall.editorFontSize !== 14 ||
-      sanitizedTooSmall.spellcheck !== true
-    ) {
+    if (sanitizedTooSmall.appearance !== 'light' || sanitizedTooSmall.editorFontSize !== 14) {
       throw new Error(`acceptance: 1 font size was not clamped to 14: ${JSON.stringify(sanitizedTooSmall)}`)
     }
 
@@ -122,12 +117,8 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
       throw new Error('acceptance: sanitizeFontSize(undefined) did not return 16')
     }
 
-    // Direct unit assertions on other sanitizers
     if (sanitizeAppearance('unknown') !== 'system') {
       throw new Error('acceptance: sanitizeAppearance("unknown") did not return "system"')
-    }
-    if (sanitizeSpellcheck(12345) !== true) {
-      throw new Error('acceptance: sanitizeSpellcheck(12345) did not return true')
     }
 
     localStorage.removeItem(SETTINGS_STORAGE_KEY)
@@ -202,7 +193,6 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // D. APPEARANCE THEMES + MINIMAL SETTINGS SURFACE PROOF
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // Open Settings dialog for theme testing
     dispatchKey(window, ',', primaryModifier)
     await tick()
     await delay(50)
@@ -249,12 +239,9 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     const editorLabels = editorRows.map(
       (row) => row.querySelector<HTMLElement>('.settings-label')?.textContent?.trim() ?? '',
     )
-    if (
-      editorRows.length !== 2 ||
-      JSON.stringify(editorLabels) !== JSON.stringify(['Font size', 'Spellcheck'])
-    ) {
+    if (editorRows.length !== 1 || JSON.stringify(editorLabels) !== JSON.stringify(['Font size'])) {
       throw new Error(
-        `acceptance: Settings editor surface must be exactly Font size/Spellcheck, got ${JSON.stringify(editorLabels)}`,
+        `acceptance: Settings editor surface must contain only Font size, got ${JSON.stringify(editorLabels)}`,
       )
     }
 
@@ -275,12 +262,12 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
 
     const settingsInputs = Array.from(dialog.querySelectorAll<HTMLInputElement>('input'))
     if (
-      settingsInputs.length !== 2 ||
-      !settingsInputs.some((input) => input.matches('.font-size-slider[type="range"]')) ||
-      !settingsInputs.some((input) => input.matches('.spellcheck-checkbox[type="checkbox"]')) ||
-      dialog.querySelector('select, textarea') !== null
+      settingsInputs.length !== 1 ||
+      !settingsInputs[0]?.matches('.font-size-slider[type="range"]') ||
+      dialog.querySelector('.spellcheck-checkbox, select, textarea') !== null ||
+      dialog.textContent?.includes('Spellcheck')
     ) {
-      throw new Error('acceptance: Settings exposed controls beyond font size, spellcheck, and Export all')
+      throw new Error('acceptance: Settings exposed controls beyond font size and Export all')
     }
     console.log('FLASHNOTE_MINIMAL_SETTINGS_SURFACE_ACCEPTANCE_SUCCESS')
 
@@ -329,7 +316,7 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // E. FONT SIZE PROOF
+    // E. FONT SIZE + EDITOR POLICY PROOF
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     const initialDocJSON = JSON.stringify(editor.getJSON())
     const fontSlider = dialog.querySelector<HTMLInputElement>('.font-size-slider')
@@ -337,7 +324,6 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
       throw new Error('acceptance: font size slider not found in Settings')
     }
 
-    // Change to 20px
     fontSlider.value = '20'
     fontSlider.dispatchEvent(new Event('input', { bubbles: true }))
     await tick()
@@ -356,48 +342,17 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     if (computedFontSize !== '20px') {
       throw new Error(`acceptance: .prose-editor computed font-size expected "20px", got "${computedFontSize}"`)
     }
+    if (editorDom.hasAttribute('spellcheck')) {
+      throw new Error('acceptance: editor still forces an explicit spellcheck policy')
+    }
 
-    // Verify document JSON was not mutated
     const currentDocJSON = JSON.stringify(editor.getJSON())
     if (currentDocJSON !== initialDocJSON) {
       throw new Error('acceptance: font size change mutated document JSON')
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // F. SPELLCHECK PROOF
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    const spellcheckCheckbox = dialog.querySelector<HTMLInputElement>('.spellcheck-checkbox')
-    if (!spellcheckCheckbox) {
-      throw new Error('acceptance: spellcheck checkbox not found in Settings')
-    }
-
-    // Toggle to false
-    spellcheckCheckbox.checked = false
-    spellcheckCheckbox.dispatchEvent(new Event('change', { bubbles: true }))
-    await tick()
-    await delay(30)
-
-    if (editorDom.getAttribute('spellcheck') !== 'false') {
-      throw new Error(`acceptance: editor spellcheck attribute expected "false", got "${editorDom.getAttribute('spellcheck')}"`)
-    }
-
-    // Toggle back to true
-    spellcheckCheckbox.checked = true
-    spellcheckCheckbox.dispatchEvent(new Event('change', { bubbles: true }))
-    await tick()
-    await delay(30)
-
-    if (editorDom.getAttribute('spellcheck') !== 'true') {
-      throw new Error(`acceptance: editor spellcheck attribute expected "true", got "${editorDom.getAttribute('spellcheck')}"`)
-    }
-
-    // Verify document JSON remains unmutated
-    if (JSON.stringify(editor.getJSON()) !== initialDocJSON) {
-      throw new Error('acceptance: spellcheck toggle mutated document JSON')
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // G. EXPORT ALL PROOF
+    // F. EXPORT ALL PROOF
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     const exportButton = dialog.querySelector<HTMLButtonElement>('.export-all-button')
     if (!exportButton) {
@@ -406,12 +361,10 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     if (exportButton.disabled) {
       throw new Error('acceptance: export-all-button was unexpectedly disabled initially')
     }
-    // Verify button text and action readiness
     if (!exportButton.textContent?.includes('Export all')) {
       throw new Error(`acceptance: unexpected export button label: "${exportButton.textContent}"`)
     }
 
-    // Prove production boundary test seam with in-flight debounce and success feedback
     let exportCallCount = 0
     let resolveExport!: (path: string) => void
     setLibraryExporterForTest(() => {
@@ -433,7 +386,6 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
         throw new Error('acceptance: export button was not disabled while export in-flight')
       }
 
-      // Duplicate click while in-flight must NOT trigger a second export call
       exportButton.click()
       await tick()
       await delay(20)
@@ -442,7 +394,6 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
         throw new Error(`acceptance: duplicate click while in-flight triggered second export call (${exportCallCount})`)
       }
 
-      // Resolve export with valid path
       resolveExport('/path/to/exported-library')
       await tick()
       await delay(40)
@@ -460,13 +411,11 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // H. PERSISTENCE PROOF
+    // G. PERSISTENCE + LEGACY CLEANUP PROOF
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // Save specific test settings
     const testSettings: Settings = {
       appearance: 'dark',
       editorFontSize: 18,
-      spellcheck: false,
     }
     saveSettings(testSettings)
 
@@ -474,17 +423,20 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     if (
       reloaded.appearance !== testSettings.appearance ||
       reloaded.editorFontSize !== testSettings.editorFontSize ||
-      reloaded.spellcheck !== testSettings.spellcheck
+      'spellcheck' in reloaded
     ) {
       throw new Error(`acceptance: settings persistence mismatch: ${JSON.stringify(reloaded)}`)
     }
 
-    // Clean up to default state for application lifecycle
+    const storedAfterSave = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) ?? '{}') as Record<string, unknown>
+    if ('spellcheck' in storedAfterSave) {
+      throw new Error('acceptance: saveSettings retained the removed spellcheck field')
+    }
+
     saveSettings(DEFAULT_SETTINGS)
     applyTheme('system')
     applyEditorFontSize(16)
 
-    // Close Settings dialog via close button
     const closeBtn = dialog.querySelector<HTMLButtonElement>('.settings-close-button')
     if (closeBtn) {
       closeBtn.click()
