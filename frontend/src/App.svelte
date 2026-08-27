@@ -1557,20 +1557,40 @@
           ondrop={(event) => handleNoteDrop(event, '')}
         >
           {#each rootNotes as note (note.id)}
-            <button
-              class="note-row"
-              class:active={note.id === noteID}
-              class:dragging={note.id === draggedNoteID}
-              type="button"
-              data-note-id={note.id}
-              aria-current={note.id === noteID ? 'page' : undefined}
-              disabled={noteTransitionActive}
-              draggable={!noteTransitionActive}
-              onclick={() => void selectNote(note.id)}
-              oncontextmenu={(event) => openNoteContext(event, note.id)}
-              ondragstart={(event) => handleNoteDragStart(event, note.id)}
-              ondragend={handleNoteDragEnd}
-            >{sidebarTitle(note)}</button>
+            <div class="sidebar-item">
+              <button
+                class="note-row"
+                class:active={note.id === noteID}
+                class:dragging={note.id === draggedNoteID}
+                type="button"
+                data-note-id={note.id}
+                aria-current={note.id === noteID ? 'page' : undefined}
+                disabled={noteTransitionActive}
+                draggable={!noteTransitionActive}
+                onclick={() => void selectNote(note.id)}
+                ondragstart={(event) => handleNoteDragStart(event, note.id)}
+                ondragend={handleNoteDragEnd}
+              >{sidebarTitle(note)}</button>
+              <button
+                class="sidebar-trash-button"
+                type="button"
+                aria-label="Move note to Trash"
+                title="Move to Trash"
+                disabled={noteTransitionActive}
+                onclick={() => {
+                  contextNoteID = note.id
+                  void moveContextNoteToTrash()
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M3 6h18" />
+                  <path d="M8 6V4h8v2" />
+                  <path d="M19 6l-1 14H6L5 6" />
+                  <path d="M10 11v5" />
+                  <path d="M14 11v5" />
+                </svg>
+              </button>
+            </div>
           {/each}
         </div>
 
@@ -1593,38 +1613,75 @@
             ondragover={(event) => handleNoteDragOver(event, folder.id)}
             ondrop={(event) => handleNoteDrop(event, folder.id)}
           >
-            <button
-              class="folder-row"
-              class:active={folder.id === currentFolderID}
-              type="button"
-              aria-current={folder.id === currentFolderID ? 'location' : undefined}
-              aria-expanded={expandedFolderIDs.includes(folder.id)}
-              disabled={noteTransitionActive}
-              onclick={(event) => handleFolderClick(event, folder.id)}
-              oncontextmenu={(event) => openFolderContext(event, folder.id)}
-            >
-              <span class="folder-disclosure" aria-hidden="true">
-                {expandedFolderIDs.includes(folder.id) ? '▾' : '▸'}
-              </span>
-              <span class="folder-name">{folder.name}</span>
-            </button>
+            <div class="sidebar-item">
+              <button
+                class="folder-row"
+                class:active={folder.id === currentFolderID}
+                type="button"
+                aria-current={folder.id === currentFolderID ? 'location' : undefined}
+                aria-expanded={expandedFolderIDs.includes(folder.id)}
+                disabled={noteTransitionActive}
+                onclick={(event) => handleFolderClick(event, folder.id)}
+              >
+                <span class="folder-disclosure" aria-hidden="true">
+                  {expandedFolderIDs.includes(folder.id) ? '▾' : '▸'}
+                </span>
+                <span class="folder-name">{folder.name}</span>
+              </button>
+              <button
+                class="sidebar-trash-button"
+                type="button"
+                aria-label="Move folder to Trash"
+                title="Move to Trash"
+                disabled={noteTransitionActive}
+                onclick={() => requestFolderTrash(folder.id)}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M3 6h18" />
+                  <path d="M8 6V4h8v2" />
+                  <path d="M19 6l-1 14H6L5 6" />
+                  <path d="M10 11v5" />
+                  <path d="M14 11v5" />
+                </svg>
+              </button>
+            </div>
             {#if expandedFolderIDs.includes(folder.id)}
               <div class="folder-notes">
                 {#each folder.notes as note (note.id)}
-                  <button
-                    class="note-row nested"
-                    class:active={note.id === noteID}
-                    class:dragging={note.id === draggedNoteID}
-                    type="button"
-                    data-note-id={note.id}
-                    aria-current={note.id === noteID ? 'page' : undefined}
-                    disabled={noteTransitionActive}
-                    draggable={!noteTransitionActive}
-                    onclick={() => void selectNote(note.id)}
-                    oncontextmenu={(event) => openNoteContext(event, note.id)}
-                    ondragstart={(event) => handleNoteDragStart(event, note.id)}
-                    ondragend={handleNoteDragEnd}
-                  >{sidebarTitle(note)}</button>
+                  <div class="sidebar-item">
+                    <button
+                      class="note-row nested"
+                      class:active={note.id === noteID}
+                      class:dragging={note.id === draggedNoteID}
+                      type="button"
+                      data-note-id={note.id}
+                      aria-current={note.id === noteID ? 'page' : undefined}
+                      disabled={noteTransitionActive}
+                      draggable={!noteTransitionActive}
+                      onclick={() => void selectNote(note.id)}
+                      ondragstart={(event) => handleNoteDragStart(event, note.id)}
+                      ondragend={handleNoteDragEnd}
+                    >{sidebarTitle(note)}</button>
+                    <button
+                      class="sidebar-trash-button"
+                      type="button"
+                      aria-label="Move note to Trash"
+                      title="Move to Trash"
+                      disabled={noteTransitionActive}
+                      onclick={() => {
+                        contextNoteID = note.id
+                        void moveContextNoteToTrash()
+                      }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M3 6h18" />
+                        <path d="M8 6V4h8v2" />
+                        <path d="M19 6l-1 14H6L5 6" />
+                        <path d="M10 11v5" />
+                        <path d="M14 11v5" />
+                      </svg>
+                    </button>
+                  </div>
                 {/each}
               </div>
             {/if}
@@ -1787,40 +1844,6 @@
   </section>
 </main>
 
-{#if contextNoteID}
-  <div class="note-context-menu" style={`left:${contextMenuX}px;top:${contextMenuY}px;`}>
-    <div class="context-menu-label">Move to…</div>
-    <button
-      type="button"
-      disabled={folderForNote(contextNoteID) === ''}
-      onclick={() => void moveContextNote('')}
-    >Root</button>
-    {#each folders as folder (folder.id)}
-      <button
-        type="button"
-        disabled={folderForNote(contextNoteID) === folder.id}
-        onclick={() => void moveContextNote(folder.id)}
-      >{folder.name}</button>
-    {/each}
-    <div class="context-menu-separator"></div>
-    <button
-      type="button"
-      class="context-danger"
-      onclick={() => void moveContextNoteToTrash()}
-    >Move to Trash</button>
-  </div>
-{/if}
-
-{#if contextFolderID}
-  <div class="note-context-menu" style={`left:${contextMenuX}px;top:${contextMenuY}px;`}>
-    <button
-      type="button"
-      class="context-danger"
-      onclick={() => requestFolderTrash(contextFolderID)}
-    >Move to Trash{folders.find((folder) => folder.id === contextFolderID)?.notes.length ? '…' : ''}</button>
-  </div>
-{/if}
-
 {#if undoTrashNoteID}
   <div class="undo-trash" role="status">
     <span>Note moved to Trash</span>
@@ -1937,3 +1960,54 @@
     onClose={closeSettings}
   />
 {/if}
+
+<style>
+  .sidebar-item {
+    position: relative;
+  }
+
+  .sidebar-item > .note-row,
+  .sidebar-item > .folder-row {
+    padding-right: 34px;
+  }
+
+  .sidebar-trash-button {
+    position: absolute;
+    z-index: 1;
+    top: 50%;
+    right: 3px;
+    display: inline-flex;
+    width: 24px;
+    height: 24px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-muted);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-50%);
+    cursor: pointer;
+    transition: opacity 100ms ease, background 100ms ease, color 100ms ease;
+  }
+
+  .sidebar-item:hover > .sidebar-trash-button,
+  .sidebar-item:focus-within > .sidebar-trash-button {
+    opacity: 0.68;
+    pointer-events: auto;
+  }
+
+  .sidebar-trash-button:hover:not(:disabled),
+  .sidebar-trash-button:focus-visible:not(:disabled) {
+    background: var(--danger-bg);
+    color: var(--danger-text-strong);
+    opacity: 1;
+    outline: none;
+  }
+
+  .sidebar-trash-button:disabled {
+    cursor: default;
+  }
+</style>

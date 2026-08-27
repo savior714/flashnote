@@ -1,6 +1,6 @@
 # Flashnote Product Contract
 
-_Status: product baseline v0.1 · 2026-08-23_
+_Status: product baseline v0.1 · 2026-08-27_
 
 This document is the current product authority for Flashnote's agreed MVP direction. It records product behavior and durable constraints, not transient implementation details. When implementation choices change without changing the product contract, update lower-level technical documentation instead of expanding this document.
 
@@ -122,14 +122,11 @@ Do not interrupt note creation with a location picker.
 
 ### 4.5 Moving notes
 
-Notes can move between root and 1-depth folders in two ways:
-
-- sidebar drag and drop
-- `Move to…` from the note context menu
+Notes move between root and 1-depth folders by sidebar drag and drop.
 
 Drag and drop means **folder membership change only**. It never means manual ordering.
 
-`Move to…` must offer root and all 1-depth folders as destinations.
+Do not expose note or folder operations through a right-click-only context menu in the MVP. Common row actions should remain discoverable through quiet inline hover/focus affordances instead.
 
 ### 4.6 Trash navigation
 
@@ -285,6 +282,8 @@ Do not add advanced operators, saved searches, filters, folder-scoped search, AI
 ## 8. Deletion and Trash
 
 Deletion is soft by default.
+
+In the normal sidebar, hovering or focusing a note or folder row reveals a quiet Trash button at the row's right edge. Activating it enters the ordinary soft-delete flow below. Deletion must not depend on a context menu.
 
 ### 8.1 Notes
 
