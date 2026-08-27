@@ -137,6 +137,8 @@ Do not expose note or folder operations through a right-click context menu in th
 
 Trash is a fixed destination at the bottom of the sidebar, visually separated from normal root notes and folders. It should remain easy to find for recovery without being presented as a normal folder or promoted with item-count badges or similar attention-seeking metadata.
 
+Entering Trash is reversible navigation. The Trash view must always expose an explicit path back to the normal library without requiring any restore, deletion, or other data mutation. Leaving Trash should return to the previously viewed normal note or folder when it still exists; otherwise fall back to the nearest sensible surviving normal location.
+
 ## 5. Editor behavior
 
 Flashnote should feel block-like to write in without implementing a Notion-style block database.
