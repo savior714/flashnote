@@ -96,7 +96,7 @@ jobs:
           set -euo pipefail
           unformatted="$(find . -type f -name '*.go' -not -path './frontend/*' -print0 | xargs -0 gofmt -l)"
           test -z "$unformatted"
-          go test ./...
+          go test ./... 2>&1 | grep -v "was built for newer"
           go vet ./...
           cd frontend
           pnpm check
@@ -107,7 +107,7 @@ jobs:
       - name: Wails build
         run: |
           set -euo pipefail
-          wails3 build
+          wails3 build 2>&1 | grep -v "was built for newer"
           test -x ./flashnote
           cp ./flashnote "$RUNNER_TEMP/flashnote-normal"
 

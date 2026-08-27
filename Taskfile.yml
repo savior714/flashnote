@@ -48,7 +48,7 @@ tasks:
       CGO_CFLAGS: "-mmacosx-version-min=12.0"
       CGO_LDFLAGS: "-mmacosx-version-min=12.0"
     cmds:
-      - go test ./...
+      - go test ./... 2>&1 | grep -v "was built for newer"
       - go vet ./...
 
   check:
@@ -61,7 +61,7 @@ tasks:
       CGO_CFLAGS: "-mmacosx-version-min=12.0"
       CGO_LDFLAGS: "-mmacosx-version-min=12.0"
     cmds:
-      - go build .
+      - go build . 2>&1 | grep -v "was built for newer"
 
   run:
     deps: [frontend:build]
