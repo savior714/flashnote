@@ -73,6 +73,7 @@
   let folderNaming = false
   let newFolderName = ''
   let moveMenuNoteID = ''
+  let noteDeleteTargetID = ''
   let folderDeleteTargetID = ''
   let draggedNoteID = ''
   let dragTargetFolderID: string | null = null
@@ -860,6 +861,22 @@
     }, undoDelayMs)
   }
 
+  function requestNoteTrash(targetNoteID: string) {
+    if (!targetNoteID || noteTransitionActive || trashView) {
+      return
+    }
+    moveMenuNoteID = ''
+    noteDeleteTargetID = targetNoteID
+  }
+
+  async function confirmNoteTrash() {
+    const targetNoteID = noteDeleteTargetID
+    noteDeleteTargetID = ''
+    if (targetNoteID) {
+      await moveNoteToTrash(targetNoteID)
+    }
+  }
+
   async function moveNoteToTrash(targetNoteID: string) {
     if (!targetNoteID || noteTransitionActive || trashView) {
       return
@@ -1270,6 +1287,24 @@
     const expectedID = noteID
     const [folderID] = (await CreateFolder('Acceptance Folder')) as [string, string]
     await MoveNote(expectedID, folderID)
+    await refreshSidebar()
+
+    const expectedRow = document.querySelector<HTMLElement>(`[data-note-id="${expectedID}"]`)
+    const trashButton = expectedRow?.parentElement?.querySelector<HTMLButtonElement>('.sidebar-trash-button')
+    if (!trashButton) {
+      throw new Error('acceptance note Trash button missing')
+    }
+    trashButton.click()
+    await tick()
+    if (noteDeleteTargetID !== expectedID || !document.getElementById('trash-note-title')) {
+      throw new Error('acceptance note Trash confirmation did not open')
+    }
+    const [stillInFolderIDs] = (await ListFolderNotes(folderID)) as [string[], string[]]
+    if (!stillInFolderIDs.includes(expectedID)) {
+      throw new Error('acceptance note was trashed before confirmation')
+    }
+    noteDeleteTargetID = ''
+    await tick()
 
     await MoveNoteToTrash(expectedID)
     const [trashIDs] = (await ListTrashNotes()) as [string[], string[]]
@@ -1574,7 +1609,7 @@
                 aria-label="Move note to Trash"
                 title="Move to Trash"
                 disabled={noteTransitionActive}
-                onclick={() => void moveNoteToTrash(note.id)}
+                onclick={() => requestNoteTrash(note.id)}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M3 6h18" />
@@ -1690,7 +1725,7 @@
                       aria-label="Move note to Trash"
                       title="Move to Trash"
                       disabled={noteTransitionActive}
-                      onclick={() => void moveNoteToTrash(note.id)}
+                      onclick={() => requestNoteTrash(note.id)}
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <path d="M3 6h18" />
@@ -1909,6 +1944,19 @@
         {:else if searchResults.length === 0}
           <div class="search-empty">No matching notes</div>
         {/if}
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if noteDeleteTargetID}
+  <div class="modal-backdrop" role="presentation">
+    <div class="close-dialog" role="dialog" aria-modal="true" aria-labelledby="trash-note-title">
+      <h2 id="trash-note-title">Move note to Trash?</h2>
+      <p>You can restore it from Trash.</p>
+      <div class="dialog-actions">
+        <button type="button" class="secondary-button" onclick={() => (noteDeleteTargetID = '')}>Cancel</button>
+        <button type="button" class="danger-button" onclick={() => void confirmNoteTrash()}>Move to Trash</button>
       </div>
     </div>
   </div>
