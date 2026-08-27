@@ -88,6 +88,25 @@ function noteTrashButton(noteID: string): HTMLButtonElement {
   return button
 }
 
+async function confirmNoteTrash(noteID: string): Promise<void> {
+  noteTrashButton(noteID).click()
+  await waitFor(
+    () => document.querySelector('[role="dialog"][aria-labelledby="trash-note-title"]') !== null,
+    'note Trash confirmation dialog',
+  )
+
+  const dialog = document.querySelector<HTMLElement>(
+    '[role="dialog"][aria-labelledby="trash-note-title"]',
+  )
+  const confirmButton = Array.from(dialog?.querySelectorAll<HTMLButtonElement>('button') ?? []).find(
+    (button) => button.textContent?.trim() === 'Move to Trash',
+  )
+  if (!dialog || !confirmButton) {
+    throw new Error('acceptance sidebar actions: note Trash confirmation is incomplete')
+  }
+  confirmButton.click()
+}
+
 function folderTrashButton(folderID: string): HTMLButtonElement {
   const row = folderBlock(folderID).querySelector<HTMLButtonElement>('.folder-row')
   const item = row?.closest<HTMLElement>('.sidebar-item')
@@ -317,7 +336,7 @@ async function proveInlineActionsTrashUndo(
   await SearchNotes('flashnote-inline-move-root-folder-destinations-acceptance-handshake-v1')
   console.log('FLASHNOTE_INLINE_NOTE_MOVE_ACCEPTANCE_SUCCESS')
 
-  noteTrashButton(currentNoteID).click()
+  await confirmNoteTrash(currentNoteID)
   await waitFor(
     async () => {
       const selected = document.querySelector<HTMLElement>('.note-row[aria-current="page"]')
@@ -657,7 +676,7 @@ async function proveInlineActionsTrashUndo(
   }
 
   let selectedExternalSurvivorID = ''
-  noteTrashButton(currentNoteID).click()
+  await confirmNoteTrash(currentNoteID)
   await waitFor(
     async () => {
       const [normalIDs] = (await ListNotes()) as [string[], string[]]
@@ -754,7 +773,7 @@ async function proveLastNormalNoteTrashFallback(
       'last normal note selection before deletion',
     )
 
-    noteTrashButton(currentNoteID).click()
+    await confirmNoteTrash(currentNoteID)
     await waitFor(
       async () => {
         const [normalIDs] = (await ListNotes()) as [string[], string[]]
