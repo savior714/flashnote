@@ -89,6 +89,8 @@
   let emptyTrashConfirmVisible = false
   let undoTrashNoteID = ''
   let undoTimer: ReturnType<typeof setTimeout> | undefined
+  let trashReturnNoteID = ''
+  let trashReturnFolderID = ''
 
   let searchOpen = false
   let searchQuery = ''
@@ -606,12 +608,78 @@
       if (!trashView && !(await flushPendingSave())) {
         return
       }
+      if (!trashView) {
+        trashReturnNoteID = noteID
+        trashReturnFolderID = currentFolderID
+      }
       trashView = true
       currentFolderID = ''
       await refreshTrash()
       await openFirstTrashItem()
     } catch (error) {
       operationError = `Could not open Trash: ${formatError(error)}`
+    } finally {
+      noteTransitionActive = false
+    }
+  }
+
+  function normalNoteExists(targetNoteID: string): boolean {
+    if (!targetNoteID) {
+      return false
+    }
+    return (
+      rootNotes.some((note) => note.id === targetNoteID) ||
+      folders.some((folder) => folder.notes.some((note) => note.id === targetNoteID))
+    )
+  }
+
+  async function returnToNormalLibrary() {
+    const preferredNoteID = trashReturnNoteID
+    const preferredFolderID = trashReturnFolderID
+    trashView = false
+    selectedTrashFolderID = ''
+    clearOpenedNote()
+    await refreshSidebar()
+
+    let createdBlank = false
+    if (preferredNoteID && normalNoteExists(preferredNoteID)) {
+      applyNote((await OpenNote(preferredNoteID)) as NoteTuple)
+    } else {
+      const preferredFolder = folders.find((folder) => folder.id === preferredFolderID)
+      if (preferredFolder) {
+        currentFolderID = preferredFolder.id
+        if (preferredFolder.notes.length > 0) {
+          applyNote((await OpenNote(preferredFolder.notes[0].id)) as NoteTuple)
+        }
+      } else {
+        const survivorID = preferredSurvivor('', '')
+        if (survivorID) {
+          applyNote((await OpenNote(survivorID)) as NoteTuple)
+        } else {
+          applyNote((await CreateNote()) as NoteTuple)
+          createdBlank = true
+        }
+      }
+    }
+    await refreshSidebar()
+
+    if (createdBlank) {
+      await tick()
+      document.querySelector<HTMLInputElement>('.title')?.focus()
+    }
+  }
+
+  async function leaveTrashView() {
+    if (!trashView || loading || noteTransitionActive) {
+      return
+    }
+
+    noteTransitionActive = true
+    operationError = ''
+    try {
+      await returnToNormalLibrary()
+    } catch (error) {
+      operationError = `Could not leave Trash: ${formatError(error)}`
     } finally {
       noteTransitionActive = false
     }
@@ -1077,27 +1145,6 @@
     }
   }
 
-  async function returnToNormalLibraryAfterEmptyTrash() {
-    trashView = false
-    clearOpenedNote()
-    await refreshSidebar()
-
-    const survivorID = preferredSurvivor('', '')
-    let createdBlank = false
-    if (survivorID) {
-      applyNote((await OpenNote(survivorID)) as NoteTuple)
-    } else {
-      applyNote((await CreateNote()) as NoteTuple)
-      createdBlank = true
-    }
-    await refreshSidebar()
-
-    if (createdBlank) {
-      await tick()
-      document.querySelector<HTMLInputElement>('.title')?.focus()
-    }
-  }
-
   async function confirmEmptyTrash() {
     if (!trashView || noteTransitionActive) {
       return
@@ -1114,7 +1161,7 @@
       clearUndoTimer()
       undoTrashNoteID = ''
       await refreshTrash()
-      await returnToNormalLibraryAfterEmptyTrash()
+      await returnToNormalLibrary()
     } catch (error) {
       operationError = `Could not empty Trash: ${formatError(error)}`
     } finally {
@@ -1311,6 +1358,29 @@
     const survivorID = noteID
     if (!survivorID || trashView) {
       throw new Error('acceptance Empty Trash requires an open normal survivor')
+    }
+
+    const [navNoteCountBefore, navFolderCountBefore] = (await TrashCounts()) as [number, number]
+    await enterTrashView()
+    await tick()
+    const backButton = document.querySelector<HTMLButtonElement>('[data-trash-back-button]')
+    if (!trashView || !backButton) {
+      throw new Error('acceptance Trash navigation back control did not render')
+    }
+    backButton.click()
+    for (let attempt = 0; attempt < 100 && noteTransitionActive; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    await tick()
+    if (noteTransitionActive || trashView || noteID !== survivorID) {
+      throw new Error(`acceptance Trash navigation return mismatch note=${noteID} survivor=${survivorID}`)
+    }
+    const [navNoteCountAfter, navFolderCountAfter] = (await TrashCounts()) as [number, number]
+    if (navNoteCountAfter !== navNoteCountBefore || navFolderCountAfter !== navFolderCountBefore) {
+      throw new Error('acceptance Trash navigation mutated Trash contents')
+    }
+    if (document.querySelector('nav.note-list[aria-label="Note list"]') === null) {
+      throw new Error('acceptance Trash navigation did not restore normal sidebar')
     }
 
     const disposableNote = (await CreateNote()) as NoteTuple
@@ -1615,6 +1685,14 @@
     {:else if trashView}
       <nav class="note-list trash-list" aria-label="Trash notes">
         <div class="trash-heading-row">
+          <button
+            class="quiet-button"
+            type="button"
+            aria-label="Back to notes"
+            data-trash-back-button
+            disabled={noteTransitionActive}
+            onclick={() => void leaveTrashView()}
+          >← Notes</button>
           <div class="trash-heading">Trash</div>
           <button
             class="trash-empty-button"
