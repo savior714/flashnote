@@ -122,11 +122,16 @@ Do not interrupt note creation with a location picker.
 
 ### 4.5 Moving notes
 
-Notes move between root and 1-depth folders by sidebar drag and drop.
+Notes can move between root and 1-depth folders in two ways:
+
+- sidebar drag and drop
+- a quiet Move control revealed on note-row hover/focus
+
+The Move control sits immediately to the left of the row's Trash control. It is enabled only when at least one alternate destination exists, and its menu shows only valid destinations: `Root` when the note is currently inside a folder, plus every 1-depth folder other than the note's current folder.
 
 Drag and drop means **folder membership change only**. It never means manual ordering.
 
-Do not expose note or folder operations through a right-click-only context menu in the MVP. Common row actions should remain discoverable through quiet inline hover/focus affordances instead.
+Do not expose note or folder operations through a right-click context menu in the MVP.
 
 ### 4.6 Trash navigation
 
@@ -283,7 +288,7 @@ Do not add advanced operators, saved searches, filters, folder-scoped search, AI
 
 Deletion is soft by default.
 
-In the normal sidebar, hovering or focusing a note or folder row reveals a quiet Trash button at the row's right edge. Activating it enters the ordinary soft-delete flow below. Deletion must not depend on a context menu.
+In the normal sidebar, hovering or focusing a note row reveals two quiet controls at the right edge: Move on the left and Trash at the far right. Folder rows reveal only the Trash control because folders are root-only in the MVP. Activating Trash enters the ordinary soft-delete flow below. Deletion must not depend on a context menu.
 
 ### 8.1 Notes
 

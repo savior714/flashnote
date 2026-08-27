@@ -2,8 +2,7 @@
   position: relative;
 }
 
-.sidebar-menu,
-.note-context-menu {
+.sidebar-menu {
   z-index: 40;
   min-width: 150px;
   padding: 5px;
@@ -20,8 +19,7 @@
   right: 0;
 }
 
-.sidebar-menu button,
-.note-context-menu button {
+.sidebar-menu button {
   display: block;
   width: 100%;
   padding: 7px 9px;
@@ -35,27 +33,9 @@
 }
 
 .sidebar-menu button:hover,
-.sidebar-menu button:focus-visible,
-.note-context-menu button:hover:not(:disabled),
-.note-context-menu button:focus-visible:not(:disabled) {
+.sidebar-menu button:focus-visible {
   background: var(--surface-hover);
   outline: none;
-}
-
-.note-context-menu {
-  position: fixed;
-}
-
-.note-context-menu button:disabled {
-  color: var(--text-muted);
-  cursor: default;
-}
-
-.context-menu-label {
-  padding: 5px 9px 4px;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 650;
 }
 
 .new-folder-input {
@@ -123,4 +103,82 @@
 
 .note-row.nested {
   padding-left: 8px;
+}
+
+.sidebar-item {
+  position: relative;
+  --default-contextmenu: hide;
+}
+
+.sidebar-item > .note-row {
+  padding-right: 58px;
+}
+
+.sidebar-item > .folder-row {
+  padding-right: 34px;
+}
+
+.sidebar-action-button {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+  cursor: pointer;
+  transition: opacity 100ms ease, background 100ms ease, color 100ms ease;
+}
+
+.sidebar-trash-button {
+  right: 3px;
+}
+
+.sidebar-move-button {
+  right: 29px;
+}
+
+.sidebar-item:hover > .sidebar-action-button,
+.sidebar-item:focus-within > .sidebar-action-button {
+  opacity: 0.68;
+  pointer-events: auto;
+}
+
+.sidebar-item:hover > .sidebar-action-button:disabled,
+.sidebar-item:focus-within > .sidebar-action-button:disabled {
+  opacity: 0.25;
+  pointer-events: none;
+}
+
+.sidebar-action-button:hover:not(:disabled),
+.sidebar-action-button:focus-visible:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+  opacity: 1;
+  outline: none;
+}
+
+.sidebar-trash-button:hover:not(:disabled),
+.sidebar-trash-button:focus-visible:not(:disabled) {
+  background: var(--danger-bg);
+  color: var(--danger-text-strong);
+}
+
+.sidebar-action-button:disabled {
+  cursor: default;
+}
+
+.note-move-menu {
+  top: calc(100% - 2px);
+  right: 29px;
+  z-index: 50;
 }

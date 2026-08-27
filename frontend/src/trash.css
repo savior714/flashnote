@@ -103,16 +103,6 @@
   font-size: 13px;
 }
 
-.context-menu-separator {
-  height: 1px;
-  margin: 5px 4px;
-  background: var(--border-subtle);
-}
-
-.note-context-menu .context-danger {
-  color: var(--danger-text-strong);
-}
-
 .undo-trash {
   position: fixed;
   z-index: 50;

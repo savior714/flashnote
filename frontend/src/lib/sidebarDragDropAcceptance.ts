@@ -41,7 +41,7 @@ async function waitFor(
     }
     await delay(30)
   }
-  throw new Error(`acceptance sidebar DnD: timed out waiting for ${description}`)
+  throw new Error(`acceptance sidebar actions: timed out waiting for ${description}`)
 }
 
 function folderBlock(folderID: string): HTMLElement {
@@ -49,7 +49,7 @@ function folderBlock(folderID: string): HTMLElement {
     (candidate) => candidate.dataset.folderId === folderID,
   )
   if (!block) {
-    throw new Error(`acceptance sidebar DnD: folder ${folderID} is not rendered`)
+    throw new Error(`acceptance sidebar actions: folder ${folderID} is not rendered`)
   }
   return block
 }
@@ -59,19 +59,69 @@ function noteRow(noteID: string): HTMLElement {
     (candidate) => candidate.dataset.noteId === noteID,
   )
   if (!row) {
-    throw new Error(`acceptance sidebar DnD: note ${noteID} is not rendered`)
+    throw new Error(`acceptance sidebar actions: note ${noteID} is not rendered`)
   }
   return row
+}
+
+function noteItem(noteID: string): HTMLElement {
+  const item = noteRow(noteID).closest<HTMLElement>('.sidebar-item')
+  if (!item) {
+    throw new Error(`acceptance sidebar actions: note ${noteID} has no sidebar item wrapper`)
+  }
+  return item
+}
+
+function noteMoveButton(noteID: string): HTMLButtonElement {
+  const button = noteItem(noteID).querySelector<HTMLButtonElement>('.sidebar-move-button')
+  if (!button) {
+    throw new Error(`acceptance sidebar actions: note ${noteID} is missing its Move button`)
+  }
+  return button
+}
+
+function noteTrashButton(noteID: string): HTMLButtonElement {
+  const button = noteItem(noteID).querySelector<HTMLButtonElement>('.sidebar-trash-button')
+  if (!button) {
+    throw new Error(`acceptance sidebar actions: note ${noteID} is missing its Trash button`)
+  }
+  return button
+}
+
+function folderTrashButton(folderID: string): HTMLButtonElement {
+  const row = folderBlock(folderID).querySelector<HTMLButtonElement>('.folder-row')
+  const item = row?.closest<HTMLElement>('.sidebar-item')
+  const button = item?.querySelector<HTMLButtonElement>('.sidebar-trash-button')
+  if (!row || !item || !button) {
+    throw new Error(`acceptance sidebar actions: folder ${folderID} is missing its Trash button`)
+  }
+  return button
+}
+
+async function openMoveMenu(noteID: string): Promise<HTMLElement> {
+  const button = noteMoveButton(noteID)
+  if (button.disabled) {
+    throw new Error(`acceptance sidebar actions: note ${noteID} Move button is unexpectedly disabled`)
+  }
+  button.click()
+  await tick()
+  await delay(30)
+  const menu = noteItem(noteID).querySelector<HTMLElement>('.note-move-menu')
+  if (!menu) {
+    throw new Error(`acceptance sidebar actions: note ${noteID} Move menu did not open`)
+  }
+  return menu
 }
 
 async function expandFolder(folderID: string): Promise<void> {
   const block = folderBlock(folderID)
   const row = block.querySelector<HTMLButtonElement>('.folder-row')
-  if (!row) {
-    throw new Error(`acceptance sidebar DnD: folder ${folderID} is missing its row`)
+  const disclosure = row?.querySelector<HTMLElement>('.folder-disclosure')
+  if (!row || !disclosure) {
+    throw new Error(`acceptance sidebar actions: folder ${folderID} is missing its row/disclosure`)
   }
   if (row.getAttribute('aria-expanded') !== 'true') {
-    row.click()
+    disclosure.click()
     await tick()
     await delay(30)
   }
@@ -190,7 +240,7 @@ async function proveDirtyCurrentNoteFlush(noteID: string, targetFolderID: string
   console.log('FLASHNOTE_SIDEBAR_DND_DIRTY_FLUSH_SUCCESS')
 }
 
-async function proveContextTrashUndo(
+async function proveInlineActionsTrashUndo(
   currentNoteID: string,
   siblingNoteID: string,
   folderID: string,
@@ -203,106 +253,71 @@ async function proveContextTrashUndo(
   await tick()
   await expandFolder(folderID)
 
-  const openCurrentNoteContextMenu = async (): Promise<{ menu: HTMLElement; event: MouseEvent }> => {
-    const row = noteRow(currentNoteID)
-    const event = new MouseEvent('contextmenu', {
-      bubbles: true,
-      cancelable: true,
-      clientX: 120,
-      clientY: 120,
-    })
-    row.dispatchEvent(event)
-    await tick()
-    await delay(30)
-    if (!event.defaultPrevented) {
-      throw new Error('acceptance note context move: note contextmenu was not handled')
-    }
-    const menu = document.querySelector<HTMLElement>('.note-context-menu')
-    if (!menu) {
-      throw new Error('acceptance note context move: note context menu is missing')
-    }
-    return { menu, event }
-  }
-
   const [allFolderIDs, allFolderNames] = (await ListFolders()) as [string[], string[]]
-  const sourceFolderIndex = allFolderIDs.indexOf(folderID)
   const targetFolderIndex = allFolderIDs.indexOf(emptyFolderID)
-  if (sourceFolderIndex < 0 || targetFolderIndex < 0) {
-    throw new Error('acceptance note context move: source or target folder fixture is missing')
+  if (targetFolderIndex < 0) {
+    throw new Error('acceptance inline note move: target folder fixture is missing')
   }
 
-  let { menu: contextMenu } = await openCurrentNoteContextMenu()
-  if (contextMenu.querySelector<HTMLElement>('.context-menu-label')?.textContent?.trim() !== 'Move to…') {
-    throw new Error('acceptance note context move: Move to… label is missing')
-  }
-  let destinationButtons = Array.from(
-    contextMenu.querySelectorAll<HTMLButtonElement>('button:not(.context-danger)'),
-  )
-  const expectedDestinationLabels = ['Root', ...allFolderNames]
-  const destinationLabels = destinationButtons.map((button) => button.textContent?.trim() ?? '')
-  if (JSON.stringify(destinationLabels) !== JSON.stringify(expectedDestinationLabels)) {
+  let moveMenu = await openMoveMenu(currentNoteID)
+  let destinationButtons = Array.from(moveMenu.querySelectorAll<HTMLButtonElement>('button'))
+  const expectedSourceLabels = [
+    'Root',
+    ...allFolderNames.filter((_, index) => allFolderIDs[index] !== folderID),
+  ]
+  const sourceLabels = destinationButtons.map((button) => button.textContent?.trim() ?? '')
+  if (JSON.stringify(sourceLabels) !== JSON.stringify(expectedSourceLabels)) {
     throw new Error(
-      `acceptance note context move: expected destinations ${JSON.stringify(expectedDestinationLabels)}, got ${JSON.stringify(destinationLabels)}`,
+      `acceptance inline note move: expected destinations ${JSON.stringify(expectedSourceLabels)}, got ${JSON.stringify(sourceLabels)}`,
     )
   }
 
-  const rootDestination = destinationButtons[0]
-  const currentFolderDestination = destinationButtons[sourceFolderIndex + 1]
-  const targetFolderDestination = destinationButtons[targetFolderIndex + 1]
-  if (!rootDestination || !currentFolderDestination || !targetFolderDestination) {
-    throw new Error('acceptance note context move: Root/current/target destination controls are incomplete')
+  const targetFolderName = allFolderNames[targetFolderIndex]
+  const targetDestination = destinationButtons.find(
+    (button) => button.textContent?.trim() === targetFolderName,
+  )
+  if (!targetDestination) {
+    throw new Error('acceptance inline note move: target-folder destination is missing')
   }
-  if (rootDestination.disabled || !currentFolderDestination.disabled || targetFolderDestination.disabled) {
-    throw new Error('acceptance note context move: destination enabled states do not match current folder')
-  }
-
-  targetFolderDestination.click()
+  targetDestination.click()
   await waitFor(
     async () =>
       (await folderContains(emptyFolderID, currentNoteID)) &&
       !(await folderContains(folderID, currentNoteID)),
-    'context-menu folder-to-folder move',
+    'inline folder-to-folder move',
   )
   await refreshSidebar()
   await tick()
   await expandFolder(emptyFolderID)
 
-  ;({ menu: contextMenu } = await openCurrentNoteContextMenu())
-  destinationButtons = Array.from(
-    contextMenu.querySelectorAll<HTMLButtonElement>('button:not(.context-danger)'),
-  )
-  const rootDestinationAfterFolderMove = destinationButtons[0]
-  const targetDestinationAfterFolderMove = destinationButtons[targetFolderIndex + 1]
-  if (!rootDestinationAfterFolderMove || rootDestinationAfterFolderMove.disabled || !targetDestinationAfterFolderMove?.disabled) {
-    throw new Error('acceptance note context move: Root/target enabled states are wrong after folder move')
+  moveMenu = await openMoveMenu(currentNoteID)
+  destinationButtons = Array.from(moveMenu.querySelectorAll<HTMLButtonElement>('button'))
+  const rootDestination = destinationButtons.find((button) => button.textContent?.trim() === 'Root')
+  if (!rootDestination) {
+    throw new Error('acceptance inline note move: Root destination is missing after folder move')
   }
-
-  rootDestinationAfterFolderMove.click()
+  rootDestination.click()
   await waitFor(
     async () =>
       (await rootContains(currentNoteID)) &&
       !(await folderContains(emptyFolderID, currentNoteID)),
-    'context-menu folder-to-root move',
+    'inline folder-to-root move',
   )
   await refreshSidebar()
   await tick()
+
+  if (noteMoveButton(currentNoteID).disabled) {
+    throw new Error('acceptance inline note move: root note Move button is disabled despite folder destinations')
+  }
 
   await MoveNote(currentNoteID, folderID)
   await refreshSidebar()
   await tick()
   await expandFolder(folderID)
-  await SearchNotes('flashnote-note-context-move-root-folder-destinations-acceptance-handshake-v1')
-  console.log('FLASHNOTE_NOTE_CONTEXT_MOVE_ACCEPTANCE_SUCCESS')
+  await SearchNotes('flashnote-inline-move-root-folder-destinations-acceptance-handshake-v1')
+  console.log('FLASHNOTE_INLINE_NOTE_MOVE_ACCEPTANCE_SUCCESS')
 
-  ;({ menu: contextMenu } = await openCurrentNoteContextMenu())
-  const moveToTrashButton = Array.from(
-    contextMenu.querySelectorAll<HTMLButtonElement>('button'),
-  ).find((button) => button.textContent?.trim() === 'Move to Trash')
-  if (!moveToTrashButton) {
-    throw new Error('acceptance Trash UX: Move to Trash context action is missing')
-  }
-
-  moveToTrashButton.click()
+  noteTrashButton(currentNoteID).click()
   await waitFor(
     async () => {
       const selected = document.querySelector<HTMLElement>('.note-row[aria-current="page"]')
@@ -312,7 +327,7 @@ async function proveContextTrashUndo(
         document.querySelector('.undo-trash') !== null
       )
     },
-    'context deletion, same-folder survivor selection, and Undo affordance',
+    'inline deletion, same-folder survivor selection, and Undo affordance',
   )
 
   if (!(await folderContains(folderID, siblingNoteID))) {
@@ -326,7 +341,7 @@ async function proveContextTrashUndo(
     document.querySelectorAll<HTMLButtonElement>('.undo-trash button'),
   ).find((button) => button.textContent?.trim() === 'Undo')
   if (!undoButton) {
-    throw new Error('acceptance Trash UX: Undo button is missing after context deletion')
+    throw new Error('acceptance Trash UX: Undo button is missing after inline deletion')
   }
   undoButton.click()
 
@@ -347,32 +362,7 @@ async function proveContextTrashUndo(
     throw new Error('acceptance folder Trash warning: fixture folder unexpectedly became empty')
   }
 
-  const folderRow = folderBlock(folderID).querySelector<HTMLButtonElement>('.folder-row')
-  if (!folderRow) {
-    throw new Error('acceptance folder Trash warning: folder row is missing')
-  }
-  const folderContextEvent = new MouseEvent('contextmenu', {
-    bubbles: true,
-    cancelable: true,
-    clientX: 140,
-    clientY: 140,
-  })
-  folderRow.dispatchEvent(folderContextEvent)
-  await tick()
-  await delay(30)
-
-  if (!folderContextEvent.defaultPrevented) {
-    throw new Error('acceptance folder Trash warning: folder contextmenu was not handled')
-  }
-  const folderContextMenu = document.querySelector<HTMLElement>('.note-context-menu')
-  const folderTrashButton = Array.from(
-    folderContextMenu?.querySelectorAll<HTMLButtonElement>('button') ?? [],
-  ).find((button) => button.textContent?.trim() === 'Move to Trash…')
-  if (!folderContextMenu || !folderTrashButton) {
-    throw new Error('acceptance folder Trash warning: non-empty folder did not expose Move to Trash…')
-  }
-
-  folderTrashButton.click()
+  folderTrashButton(folderID).click()
   await tick()
   await delay(30)
 
@@ -650,7 +640,7 @@ async function proveContextTrashUndo(
   await waitFor(
     () =>
       document.querySelector<HTMLElement>('.note-row[aria-current="page"]')?.dataset.noteId === currentNoteID,
-    'restored original note selection before fixture cleanup',
+    'restored original note selection before cross-location fallback proof',
   )
 
   const [crossLocationFolderIDs] = (await ListFolderNotes(folderID)) as [string[], string[]]
@@ -658,7 +648,7 @@ async function proveContextTrashUndo(
     throw new Error('acceptance cross-location fallback: current note is not alone in its source folder')
   }
   const [crossLocationNormalBefore] = (await ListNotes()) as [string[], string[]]
-  const crossLocationSurvivorIDs = crossLocationNormalBefore.filter((noteID) => noteID !== currentNoteID)
+  const crossLocationSurvivorIDs = crossLocationNormalBefore.filter((candidateID) => candidateID !== currentNoteID)
   if (crossLocationSurvivorIDs.length === 0) {
     throw new Error('acceptance cross-location fallback: no external normal-note survivor is available')
   }
@@ -666,16 +656,8 @@ async function proveContextTrashUndo(
     throw new Error('acceptance cross-location fallback: root survivor fixture is unavailable')
   }
 
-  ;({ menu: contextMenu } = await openCurrentNoteContextMenu())
-  const crossLocationTrashButton = Array.from(
-    contextMenu.querySelectorAll<HTMLButtonElement>('button'),
-  ).find((button) => button.textContent?.trim() === 'Move to Trash')
-  if (!crossLocationTrashButton) {
-    throw new Error('acceptance cross-location fallback: Move to Trash action is missing')
-  }
-
   let selectedExternalSurvivorID = ''
-  crossLocationTrashButton.click()
+  noteTrashButton(currentNoteID).click()
   await waitFor(
     async () => {
       const [normalIDs] = (await ListNotes()) as [string[], string[]]
@@ -731,8 +713,7 @@ async function proveContextTrashUndo(
     'restored original note selection after cross-location fallback proof',
   )
   console.log('FLASHNOTE_CROSS_LOCATION_TRASH_FALLBACK_SUCCESS')
-
-  console.log('FLASHNOTE_CONTEXT_TRASH_UNDO_ACCEPTANCE_SUCCESS')
+  console.log('FLASHNOTE_INLINE_TRASH_UNDO_ACCEPTANCE_SUCCESS')
 }
 
 async function proveLastNormalNoteTrashFallback(
@@ -746,14 +727,14 @@ async function proveLastNormalNoteTrashFallback(
     throw new Error('acceptance last-note fallback: current note is not in the normal-note baseline')
   }
 
-  const sidelinedNoteIDs = normalBefore.filter((noteID) => noteID !== currentNoteID)
+  const sidelinedNoteIDs = normalBefore.filter((candidateID) => candidateID !== currentNoteID)
   let fallbackNoteID = ''
   let proofFailure: unknown = null
 
   try {
-    for (const noteID of sidelinedNoteIDs) {
-      if (!(await MoveNoteToTrash(noteID))) {
-        throw new Error(`acceptance last-note fallback: failed to sideline normal note ${noteID}`)
+    for (const candidateID of sidelinedNoteIDs) {
+      if (!(await MoveNoteToTrash(candidateID))) {
+        throw new Error(`acceptance last-note fallback: failed to sideline normal note ${candidateID}`)
       }
     }
 
@@ -773,29 +754,7 @@ async function proveLastNormalNoteTrashFallback(
       'last normal note selection before deletion',
     )
 
-    const currentRow = noteRow(currentNoteID)
-    const contextEvent = new MouseEvent('contextmenu', {
-      bubbles: true,
-      cancelable: true,
-      clientX: 160,
-      clientY: 160,
-    })
-    currentRow.dispatchEvent(contextEvent)
-    await tick()
-    await delay(30)
-
-    if (!contextEvent.defaultPrevented) {
-      throw new Error('acceptance last-note fallback: note contextmenu was not handled')
-    }
-    const contextMenu = document.querySelector<HTMLElement>('.note-context-menu')
-    const moveToTrashButton = Array.from(
-      contextMenu?.querySelectorAll<HTMLButtonElement>('button') ?? [],
-    ).find((button) => button.textContent?.trim() === 'Move to Trash')
-    if (!contextMenu || !moveToTrashButton) {
-      throw new Error('acceptance last-note fallback: Move to Trash action is missing')
-    }
-
-    moveToTrashButton.click()
+    noteTrashButton(currentNoteID).click()
     await waitFor(
       async () => {
         const [normalIDs] = (await ListNotes()) as [string[], string[]]
@@ -854,9 +813,9 @@ async function proveLastNormalNoteTrashFallback(
     if ((await trashContains(currentNoteID)) && !(await RestoreNote(currentNoteID))) {
       throw new Error('acceptance last-note fallback cleanup: failed to restore current note')
     }
-    for (const noteID of sidelinedNoteIDs) {
-      if ((await trashContains(noteID)) && !(await RestoreNote(noteID))) {
-        throw new Error(`acceptance last-note fallback cleanup: failed to restore sidelined note ${noteID}`)
+    for (const candidateID of sidelinedNoteIDs) {
+      if ((await trashContains(candidateID)) && !(await RestoreNote(candidateID))) {
+        throw new Error(`acceptance last-note fallback cleanup: failed to restore sidelined note ${candidateID}`)
       }
     }
 
@@ -900,6 +859,30 @@ async function proveLastNormalNoteTrashFallback(
   }
 }
 
+async function selectResumeNoteBeforeFixtureDeletion(
+  resumeNoteID: string,
+  refreshSidebar: () => Promise<void>,
+): Promise<void> {
+  if (!(await rootContains(resumeNoteID))) {
+    await MoveNote(resumeNoteID, '')
+  }
+  await refreshSidebar()
+  await tick()
+
+  const selected = document.querySelector<HTMLElement>('.note-row[aria-current="page"]')?.dataset.noteId ?? ''
+  if (selected !== resumeNoteID) {
+    noteRow(resumeNoteID).click()
+  }
+  await waitFor(
+    () => document.querySelector<HTMLElement>('.note-row[aria-current="page"]')?.dataset.noteId === resumeNoteID,
+    'resume note selection and pending-save flush before fixture deletion',
+  )
+  const durableResume = (await OpenNote(resumeNoteID)) as NoteTuple
+  if (durableResume[0] !== resumeNoteID) {
+    throw new Error('acceptance sidebar cleanup: resume note was not durable before fixture deletion')
+  }
+}
+
 async function cleanupFixtures(options: {
   sourceNoteID: string
   sourceFolderID: string
@@ -921,16 +904,14 @@ async function cleanupFixtures(options: {
     refreshSidebar,
   } = options
 
-  if (resumeNoteID && !(await rootContains(resumeNoteID))) {
-    await MoveNote(resumeNoteID, '')
-  }
+  await selectResumeNoteBeforeFixtureDeletion(resumeNoteID, refreshSidebar)
 
   if (sourceNoteID) {
     if (!(await MoveNoteToTrash(sourceNoteID))) {
-      throw new Error('acceptance sidebar DnD cleanup: fixture note was not moved to Trash')
+      throw new Error('acceptance sidebar cleanup: fixture note was not moved to Trash')
     }
     if (!(await PermanentlyDeleteNote(sourceNoteID))) {
-      throw new Error('acceptance sidebar DnD cleanup: fixture note was not permanently deleted')
+      throw new Error('acceptance sidebar cleanup: fixture note was not permanently deleted')
     }
   }
 
@@ -941,18 +922,17 @@ async function cleanupFixtures(options: {
     const trashedNotes = await MoveFolderToTrash(folderID)
     if (trashedNotes !== 0) {
       throw new Error(
-        `acceptance sidebar DnD cleanup: fixture folder ${folderID} still contained ${trashedNotes} note(s)`,
+        `acceptance sidebar cleanup: fixture folder ${folderID} still contained ${trashedNotes} note(s)`,
       )
     }
     const deletedNotes = await PermanentlyDeleteFolder(folderID)
     if (deletedNotes !== 0) {
       throw new Error(
-        `acceptance sidebar DnD cleanup: permanent folder deletion removed ${deletedNotes} unexpected note(s)`,
+        `acceptance sidebar cleanup: permanent folder deletion removed ${deletedNotes} unexpected note(s)`,
       )
     }
   }
 
-  await OpenNote(resumeNoteID)
   await refreshSidebar()
   await tick()
 
@@ -961,19 +941,19 @@ async function cleanupFixtures(options: {
   const trashCountsAfter = (await TrashCounts()) as [number, number]
 
   if (!sameIDs(noteIDsAfter, baselineNoteIDs)) {
-    throw new Error('acceptance sidebar DnD cleanup: normal note fixture state leaked into later acceptance')
+    throw new Error('acceptance sidebar cleanup: normal note fixture state leaked into later acceptance')
   }
   if (!sameIDs(folderIDsAfter, baselineFolderIDs)) {
-    throw new Error('acceptance sidebar DnD cleanup: folder fixture state leaked into later acceptance')
+    throw new Error('acceptance sidebar cleanup: folder fixture state leaked into later acceptance')
   }
   if (
     trashCountsAfter[0] !== baselineTrashCounts[0] ||
     trashCountsAfter[1] !== baselineTrashCounts[1]
   ) {
-    throw new Error('acceptance sidebar DnD cleanup: Trash fixture state leaked into later acceptance')
+    throw new Error('acceptance sidebar cleanup: Trash fixture state leaked into later acceptance')
   }
 
-  console.log('FLASHNOTE_SIDEBAR_DND_CLEANUP_SUCCESS')
+  console.log('FLASHNOTE_SIDEBAR_ACTIONS_CLEANUP_SUCCESS')
 }
 
 export async function runSidebarDragDropAcceptance({ refreshSidebar }: AcceptanceOptions): Promise<void> {
@@ -983,7 +963,7 @@ export async function runSidebarDragDropAcceptance({ refreshSidebar }: Acceptanc
   const currentRow = document.querySelector<HTMLElement>('.note-row[aria-current="page"]')
   const resumeNoteID = currentRow?.dataset.noteId ?? ''
   if (!resumeNoteID || !baselineNoteIDs.includes(resumeNoteID)) {
-    throw new Error('acceptance sidebar DnD: current normal note is not identifiable before fixture setup')
+    throw new Error('acceptance sidebar actions: current normal note is not identifiable before fixture setup')
   }
 
   let sourceFolderID = ''
@@ -1068,7 +1048,7 @@ export async function runSidebarDragDropAcceptance({ refreshSidebar }: Acceptanc
       throw new Error('acceptance sidebar DnD: same-location drop changed note ordering')
     }
 
-    await proveContextTrashUndo(
+    await proveInlineActionsTrashUndo(
       resumeNoteID,
       sourceNoteID,
       sourceFolderID,
@@ -1076,11 +1056,6 @@ export async function runSidebarDragDropAcceptance({ refreshSidebar }: Acceptanc
       refreshSidebar,
     )
     await proveLastNormalNoteTrashFallback(resumeNoteID, sourceFolderID, refreshSidebar)
-
-    const trashDraggable = document.querySelector('.trash-list .note-row[draggable="true"]')
-    if (trashDraggable) {
-      throw new Error('acceptance sidebar DnD: Trash note unexpectedly became draggable')
-    }
   } catch (error) {
     failure = error
   }
@@ -1098,16 +1073,17 @@ export async function runSidebarDragDropAcceptance({ refreshSidebar }: Acceptanc
     })
   } catch (cleanupError) {
     if (failure) {
-      console.error('FLASHNOTE_SIDEBAR_DND_CLEANUP_FAILURE', cleanupError)
+      console.error('FLASHNOTE_SIDEBAR_ACTIONS_CLEANUP_FAILURE', cleanupError)
     } else {
       failure = cleanupError
     }
   }
 
   if (failure) {
-    console.error('FLASHNOTE_SIDEBAR_DND_ACCEPTANCE_FAILURE', failure)
+    console.error('FLASHNOTE_SIDEBAR_ACTIONS_ACCEPTANCE_FAILURE', failure)
     throw failure
   }
 
   console.log('FLASHNOTE_SIDEBAR_DND_ACCEPTANCE_SUCCESS')
+  console.log('FLASHNOTE_SIDEBAR_INLINE_ACTIONS_ACCEPTANCE_SUCCESS')
 }

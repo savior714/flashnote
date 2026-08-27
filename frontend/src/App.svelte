@@ -72,10 +72,7 @@
   let createMenuOpen = false
   let folderNaming = false
   let newFolderName = ''
-  let contextNoteID = ''
-  let contextFolderID = ''
-  let contextMenuX = 0
-  let contextMenuY = 0
+  let moveMenuNoteID = ''
   let folderDeleteTargetID = ''
   let draggedNoteID = ''
   let dragTargetFolderID: string | null = null
@@ -281,8 +278,7 @@
 
   function openSettings() {
     createMenuOpen = false
-    contextNoteID = ''
-    contextFolderID = ''
+    moveMenuNoteID = ''
     closeSearch()
     settingsOpen = true
   }
@@ -300,8 +296,7 @@
 
   async function openSearch() {
     createMenuOpen = false
-    contextNoteID = ''
-    contextFolderID = ''
+    moveMenuNoteID = ''
     closeSettings()
     searchOpen = true
     searchQuery = ''
@@ -477,8 +472,7 @@
   function toggleSidebar() {
     sidebarVisible = !sidebarVisible
     createMenuOpen = false
-    contextNoteID = ''
-    contextFolderID = ''
+    moveMenuNoteID = ''
     clearNoteDrag()
     if (folderNaming) {
       folderNaming = false
@@ -491,8 +485,7 @@
       return
     }
     createMenuOpen = !createMenuOpen
-    contextNoteID = ''
-    contextFolderID = ''
+    moveMenuNoteID = ''
   }
 
   async function beginFolderNaming() {
@@ -544,6 +537,7 @@
     }
 
     createMenuOpen = false
+    moveMenuNoteID = ''
     noteTransitionActive = true
     operationError = ''
     try {
@@ -573,6 +567,7 @@
       return true
     }
 
+    moveMenuNoteID = ''
     noteTransitionActive = true
     operationError = ''
     try {
@@ -602,8 +597,7 @@
     noteTransitionActive = true
     operationError = ''
     createMenuOpen = false
-    contextNoteID = ''
-    contextFolderID = ''
+    moveMenuNoteID = ''
     clearNoteDrag()
     closeSearch()
     closeSettings()
@@ -679,8 +673,7 @@
     noteTransitionActive = true
     operationError = ''
     createMenuOpen = false
-    contextNoteID = ''
-    contextFolderID = ''
+    moveMenuNoteID = ''
     clearNoteDrag()
     closeSearch()
     closeSettings()
@@ -720,30 +713,6 @@
     void selectFolder(folderID)
   }
 
-  function openNoteContext(event: MouseEvent, targetNoteID: string) {
-    if (trashView) {
-      return
-    }
-    event.preventDefault()
-    createMenuOpen = false
-    contextFolderID = ''
-    contextNoteID = targetNoteID
-    contextMenuX = Math.min(event.clientX, window.innerWidth - 190)
-    contextMenuY = Math.min(event.clientY, window.innerHeight - 260)
-  }
-
-  function openFolderContext(event: MouseEvent, targetFolderID: string) {
-    if (trashView) {
-      return
-    }
-    event.preventDefault()
-    createMenuOpen = false
-    contextNoteID = ''
-    contextFolderID = targetFolderID
-    contextMenuX = Math.min(event.clientX, window.innerWidth - 190)
-    contextMenuY = Math.min(event.clientY, window.innerHeight - 180)
-  }
-
   function folderForNote(targetNoteID: string): string {
     for (const folder of folders) {
       if (folder.notes.some((note) => note.id === targetNoteID)) {
@@ -751,6 +720,19 @@
       }
     }
     return ''
+  }
+
+  function noteHasMoveDestination(targetNoteID: string): boolean {
+    return folderForNote(targetNoteID) !== '' || folders.length > 0
+  }
+
+  function toggleMoveMenu(targetNoteID: string) {
+    if (trashView || noteTransitionActive || !noteHasMoveDestination(targetNoteID)) {
+      moveMenuNoteID = ''
+      return
+    }
+    createMenuOpen = false
+    moveMenuNoteID = moveMenuNoteID === targetNoteID ? '' : targetNoteID
   }
 
   async function moveNoteToFolder(targetNoteID: string, targetFolderID: string): Promise<boolean> {
@@ -763,6 +745,7 @@
       return false
     }
 
+    moveMenuNoteID = ''
     noteTransitionActive = true
     operationError = ''
     try {
@@ -780,9 +763,9 @@
     }
   }
 
-  async function moveContextNote(targetFolderID: string) {
-    const targetNoteID = contextNoteID
-    contextNoteID = ''
+  async function moveMenuNote(targetFolderID: string) {
+    const targetNoteID = moveMenuNoteID
+    moveMenuNoteID = ''
     if (targetNoteID) {
       await moveNoteToFolder(targetNoteID, targetFolderID)
     }
@@ -796,8 +779,7 @@
     draggedNoteID = targetNoteID
     dragTargetFolderID = null
     createMenuOpen = false
-    contextNoteID = ''
-    contextFolderID = ''
+    moveMenuNoteID = ''
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = 'move'
       event.dataTransfer.setData('text/plain', targetNoteID)
@@ -878,17 +860,15 @@
     }, undoDelayMs)
   }
 
-  async function moveContextNoteToTrash() {
-    const targetNoteID = contextNoteID
+  async function moveNoteToTrash(targetNoteID: string) {
     if (!targetNoteID || noteTransitionActive || trashView) {
-      contextNoteID = ''
       return
     }
 
     const sourceFolderID = folderForNote(targetNoteID)
     const survivorID = preferredSurvivor(targetNoteID, sourceFolderID)
     const wasCurrent = targetNoteID === noteID
-    contextNoteID = ''
+    moveMenuNoteID = ''
     noteTransitionActive = true
     operationError = ''
     try {
@@ -923,10 +903,10 @@
 
   function requestFolderTrash(folderID: string) {
     const folder = folders.find((candidate) => candidate.id === folderID)
-    contextFolderID = ''
     if (!folder || noteTransitionActive || trashView) {
       return
     }
+    moveMenuNoteID = ''
     if (folder.notes.length > 0) {
       folderDeleteTargetID = folderID
       return
@@ -1192,9 +1172,8 @@
     if (!target?.closest('.create-controls')) {
       createMenuOpen = false
     }
-    if (!target?.closest('.note-context-menu')) {
-      contextNoteID = ''
-      contextFolderID = ''
+    if (!target?.closest('.sidebar-move-button') && !target?.closest('.note-move-menu')) {
+      moveMenuNoteID = ''
     }
   }
 
@@ -1553,6 +1532,8 @@
         <div
           class="root-note-drop-zone"
           class:drop-target={dragTargetFolderID === ''}
+          role="group"
+          aria-label="Root notes"
           ondragover={(event) => handleNoteDragOver(event, '')}
           ondrop={(event) => handleNoteDrop(event, '')}
         >
@@ -1572,15 +1553,28 @@
                 ondragend={handleNoteDragEnd}
               >{sidebarTitle(note)}</button>
               <button
-                class="sidebar-trash-button"
+                class="sidebar-action-button sidebar-move-button"
+                type="button"
+                aria-label="Move note"
+                title="Move note"
+                aria-haspopup="menu"
+                aria-expanded={moveMenuNoteID === note.id}
+                disabled={noteTransitionActive || !noteHasMoveDestination(note.id)}
+                onclick={() => toggleMoveMenu(note.id)}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M3 7h7l2 2h9v9H3z" />
+                  <path d="M8 13h8" />
+                  <path d="m13 10 3 3-3 3" />
+                </svg>
+              </button>
+              <button
+                class="sidebar-action-button sidebar-trash-button"
                 type="button"
                 aria-label="Move note to Trash"
                 title="Move to Trash"
                 disabled={noteTransitionActive}
-                onclick={() => {
-                  contextNoteID = note.id
-                  void moveContextNoteToTrash()
-                }}
+                onclick={() => void moveNoteToTrash(note.id)}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M3 6h18" />
@@ -1590,6 +1584,16 @@
                   <path d="M14 11v5" />
                 </svg>
               </button>
+              {#if moveMenuNoteID === note.id}
+                <div class="sidebar-menu note-move-menu" role="menu" aria-label="Move note">
+                  {#if folderForNote(note.id)}
+                    <button type="button" role="menuitem" onclick={() => void moveMenuNote('')}>Root</button>
+                  {/if}
+                  {#each folders.filter((folder) => folder.id !== folderForNote(note.id)) as folder (folder.id)}
+                    <button type="button" role="menuitem" onclick={() => void moveMenuNote(folder.id)}>{folder.name}</button>
+                  {/each}
+                </div>
+              {/if}
             </div>
           {/each}
         </div>
@@ -1610,6 +1614,8 @@
             class="folder-block"
             class:drop-target={dragTargetFolderID === folder.id}
             data-folder-id={folder.id}
+            role="group"
+            aria-label={`${folder.name} folder`}
             ondragover={(event) => handleNoteDragOver(event, folder.id)}
             ondrop={(event) => handleNoteDrop(event, folder.id)}
           >
@@ -1629,7 +1635,7 @@
                 <span class="folder-name">{folder.name}</span>
               </button>
               <button
-                class="sidebar-trash-button"
+                class="sidebar-action-button sidebar-trash-button"
                 type="button"
                 aria-label="Move folder to Trash"
                 title="Move to Trash"
@@ -1663,15 +1669,28 @@
                       ondragend={handleNoteDragEnd}
                     >{sidebarTitle(note)}</button>
                     <button
-                      class="sidebar-trash-button"
+                      class="sidebar-action-button sidebar-move-button"
+                      type="button"
+                      aria-label="Move note"
+                      title="Move note"
+                      aria-haspopup="menu"
+                      aria-expanded={moveMenuNoteID === note.id}
+                      disabled={noteTransitionActive || !noteHasMoveDestination(note.id)}
+                      onclick={() => toggleMoveMenu(note.id)}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M3 7h7l2 2h9v9H3z" />
+                        <path d="M8 13h8" />
+                        <path d="m13 10 3 3-3 3" />
+                      </svg>
+                    </button>
+                    <button
+                      class="sidebar-action-button sidebar-trash-button"
                       type="button"
                       aria-label="Move note to Trash"
                       title="Move to Trash"
                       disabled={noteTransitionActive}
-                      onclick={() => {
-                        contextNoteID = note.id
-                        void moveContextNoteToTrash()
-                      }}
+                      onclick={() => void moveNoteToTrash(note.id)}
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <path d="M3 6h18" />
@@ -1681,6 +1700,14 @@
                         <path d="M14 11v5" />
                       </svg>
                     </button>
+                    {#if moveMenuNoteID === note.id}
+                      <div class="sidebar-menu note-move-menu" role="menu" aria-label="Move note">
+                        <button type="button" role="menuitem" onclick={() => void moveMenuNote('')}>Root</button>
+                        {#each folders.filter((candidate) => candidate.id !== folder.id) as destination (destination.id)}
+                          <button type="button" role="menuitem" onclick={() => void moveMenuNote(destination.id)}>{destination.name}</button>
+                        {/each}
+                      </div>
+                    {/if}
                   </div>
                 {/each}
               </div>
@@ -1960,54 +1987,3 @@
     onClose={closeSettings}
   />
 {/if}
-
-<style>
-  .sidebar-item {
-    position: relative;
-  }
-
-  .sidebar-item > .note-row,
-  .sidebar-item > .folder-row {
-    padding-right: 34px;
-  }
-
-  .sidebar-trash-button {
-    position: absolute;
-    z-index: 1;
-    top: 50%;
-    right: 3px;
-    display: inline-flex;
-    width: 24px;
-    height: 24px;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    border: 0;
-    border-radius: 5px;
-    background: transparent;
-    color: var(--text-muted);
-    opacity: 0;
-    pointer-events: none;
-    transform: translateY(-50%);
-    cursor: pointer;
-    transition: opacity 100ms ease, background 100ms ease, color 100ms ease;
-  }
-
-  .sidebar-item:hover > .sidebar-trash-button,
-  .sidebar-item:focus-within > .sidebar-trash-button {
-    opacity: 0.68;
-    pointer-events: auto;
-  }
-
-  .sidebar-trash-button:hover:not(:disabled),
-  .sidebar-trash-button:focus-visible:not(:disabled) {
-    background: var(--danger-bg);
-    color: var(--danger-text-strong);
-    opacity: 1;
-    outline: none;
-  }
-
-  .sidebar-trash-button:disabled {
-    cursor: default;
-  }
-</style>
