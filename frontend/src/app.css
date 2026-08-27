@@ -1,5 +1,6 @@
 :root {
   --editor-font-size: 16px;
+  --mac-titlebar-safe-top: 48px;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
@@ -143,7 +144,7 @@ input {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  padding: 18px 14px 14px;
+  padding: var(--mac-titlebar-safe-top) 14px 14px;
   border-right: 1px solid var(--border-subtle);
   background: var(--surface-sidebar);
 }
@@ -270,7 +271,7 @@ input {
 
 .show-sidebar-button {
   position: absolute;
-  top: 14px;
+  top: calc(var(--mac-titlebar-safe-top) + 4px);
   left: 14px;
   z-index: 10;
 }
