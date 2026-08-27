@@ -1,6 +1,6 @@
 # Flashnote Development Operating Contract
 
-_Status: canonical execution/publication contract · 2026-08-24_
+_Status: canonical execution/publication contract · 2026-08-27_
 
 This document owns Flashnote's development execution, concurrency, and `origin/main` publication rules. Product behavior remains owned by `docs/PRODUCT.md`; implementation architecture remains owned by `docs/TECHNICAL.md`.
 
@@ -107,3 +107,21 @@ Do not introduce a publication lock, lease, daemon, queue, or branch/PR control 
 Start with optimistic parallel work plus exact-base finalization. If repeated measured publication races among otherwise independent tasks become a material throughput loss, the next escalation is isolated candidate worktrees/refs with a deliberately serialized integration lane. Traditional PR/merge-queue or stacked-PR workflows are later options only if the scale of concurrent development justifies their ceremony.
 
 The system should optimize for productive parallel work while keeping `origin/main` linear, directly explainable, and free of self-created topology recovery.
+
+## 11. Post-MVP dogfood operating mode
+
+For the current personal-use macOS path, the functional MVP and the accepted arm64 `.app`/DMG packaging baseline are **CLOSED**. Do not reopen closed MVP acceptance or grow acceptance checklists unless a newly observed regression directly invalidates an existing contract.
+
+The default development loop is now:
+
+1. install and use the currently accepted build as a real note app;
+2. capture the first concrete defect or friction that materially interferes with personal use;
+3. reproduce and bound that single problem against current `origin/main`;
+4. implement the smallest fix that closes it;
+5. run the nearest relevant proof, then return to real use.
+
+Use the question **“Does this materially interfere with using Flashnote now?”** as the first frontier filter. Cosmetic or speculative improvements may be recorded, but they do not preempt an observed user-blocking defect.
+
+Developer ID signing, Apple notarization, and public-distribution hardening are **DEFERRED**. Reopen them only after an explicit decision to distribute Flashnote outside the current personal-use path. Likewise, dependency/toolchain upgrades are not frontiers by themselves; open them only when required by an observed defect, security issue, or compatibility problem.
+
+Current direct packaging evidence is scoped to Apple Silicon (`arm64`). Do not generalize that evidence to Intel macOS, Windows, or external-distribution readiness.
