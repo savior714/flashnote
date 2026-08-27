@@ -303,13 +303,21 @@ func validateOrderedListAttrs(raw any) error {
 	if !ok {
 		return errors.New("orderedList attributes must be an object")
 	}
-	if err := validateKeys(attrs, "start"); err != nil {
+	if err := validateKeys(attrs, "start", "type"); err != nil {
 		return fmt.Errorf("orderedList attributes: %w", err)
 	}
 	if start, exists := attrs["start"]; exists && start != nil {
 		value, ok := integerValue(start)
 		if !ok || value < 1 {
 			return errors.New("orderedList start must be a positive integer")
+		}
+	}
+	if listType, exists := attrs["type"]; exists {
+		switch listType {
+		case nil, "1":
+			delete(attrs, "type")
+		default:
+			return errors.New("orderedList type must be null or \"1\"")
 		}
 	}
 	return nil
