@@ -93,6 +93,11 @@
   cursor: pointer;
 }
 
+.folder-row.active {
+  background: var(--surface-selected);
+  color: var(--text-primary);
+}
+
 .folder-row:hover,
 .folder-row:focus-visible {
   background: var(--surface-hover);

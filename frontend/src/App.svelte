@@ -179,10 +179,14 @@
     }
 
     let locatedFolderID = ''
-    for (const folder of nextFolders) {
-      if (folder.notes.some((note) => note.id === noteID)) {
-        locatedFolderID = folder.id
-        break
+    if (!noteID && currentFolderID && nextFolders.some((folder) => folder.id === currentFolderID)) {
+      locatedFolderID = currentFolderID
+    } else {
+      for (const folder of nextFolders) {
+        if (folder.notes.some((note) => note.id === noteID)) {
+          locatedFolderID = folder.id
+          break
+        }
       }
     }
     currentFolderID = locatedFolderID
@@ -663,10 +667,57 @@
     }
   }
 
+  async function selectFolder(folderID: string) {
+    if (loading || noteTransitionActive || trashView || !folderID) {
+      return
+    }
+    const folder = folders.find((candidate) => candidate.id === folderID)
+    if (!folder) {
+      return
+    }
+
+    noteTransitionActive = true
+    operationError = ''
+    createMenuOpen = false
+    contextNoteID = ''
+    contextFolderID = ''
+    clearNoteDrag()
+    closeSearch()
+    closeSettings()
+    try {
+      if (!(await flushPendingSave())) {
+        return
+      }
+      currentFolderID = folderID
+      if (!expandedFolderIDs.includes(folderID)) {
+        expandedFolderIDs = [...expandedFolderIDs, folderID]
+      }
+      const currentNoteInFolder = folder.notes.some((note) => note.id === noteID)
+      if (folder.notes.length === 0) {
+        clearOpenedNote()
+      } else if (!currentNoteInFolder) {
+        applyNote((await OpenNote(folder.notes[0].id)) as NoteTuple)
+      }
+    } catch (error) {
+      operationError = `Could not open folder: ${formatError(error)}`
+    } finally {
+      noteTransitionActive = false
+    }
+  }
+
   function toggleFolder(folderID: string) {
     expandedFolderIDs = expandedFolderIDs.includes(folderID)
       ? expandedFolderIDs.filter((id) => id !== folderID)
       : [...expandedFolderIDs, folderID]
+  }
+
+  function handleFolderClick(event: MouseEvent, folderID: string) {
+    const target = event.target as Element | null
+    if (target?.closest('.folder-disclosure')) {
+      toggleFolder(folderID)
+      return
+    }
+    void selectFolder(folderID)
   }
 
   function openNoteContext(event: MouseEvent, targetNoteID: string) {
@@ -1544,9 +1595,12 @@
           >
             <button
               class="folder-row"
+              class:active={folder.id === currentFolderID}
               type="button"
+              aria-current={folder.id === currentFolderID ? 'location' : undefined}
               aria-expanded={expandedFolderIDs.includes(folder.id)}
-              onclick={() => toggleFolder(folder.id)}
+              disabled={noteTransitionActive}
+              onclick={(event) => handleFolderClick(event, folder.id)}
               oncontextmenu={(event) => openFolderContext(event, folder.id)}
             >
               <span class="folder-disclosure" aria-hidden="true">
