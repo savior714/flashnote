@@ -204,7 +204,11 @@ Title and body remain logically distinct.
 - when title is empty, derive a display title from the first meaningful body text
 - the derived display title is presentation/search data, not a second canonical stored title
 
-### 5.4 Links
+### 5.4 Note actions
+
+A normal opened note has a quiet upper-right More (`…`) menu for note-level actions. The MVP exposes `Export as Markdown…` there, reusing the existing single-note Markdown export capability.
+
+### 5.5 Links
 
 Only external URL links are supported in the MVP.
 

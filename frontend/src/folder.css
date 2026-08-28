@@ -182,3 +182,37 @@
   right: 29px;
   z-index: 50;
 }
+
+.document-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.document-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.more-controls {
+  position: relative;
+}
+
+.more-button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+
+.more-button svg {
+  display: block;
+}
+
+.more-menu {
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 50;
+  min-width: 180px;
+}

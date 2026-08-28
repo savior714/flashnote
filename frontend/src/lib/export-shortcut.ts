@@ -33,6 +33,24 @@ export function installMarkdownExportShortcut() {
   window.addEventListener('keydown', handleMarkdownExportShortcut)
 }
 
+export function isExportInFlight(): boolean {
+  return exportInFlight
+}
+
+export async function exportCurrentNoteMarkdown(): Promise<void> {
+  if (document.querySelector('.trash-row.active') || exportInFlight) {
+    return
+  }
+  exportInFlight = true
+  try {
+    await markdownExporter()
+  } catch (error: unknown) {
+    console.error('Flashnote Markdown export failed', error)
+  } finally {
+    exportInFlight = false
+  }
+}
+
 function acceptanceKeyEvent(
   key: string,
   options: {

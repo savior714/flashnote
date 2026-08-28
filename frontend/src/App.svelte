@@ -29,16 +29,17 @@
   } from '../bindings/github.com/savior714/flashnote/appservice'
   import NoteEditor from './lib/NoteEditor.svelte'
   import SettingsDialog from './lib/SettingsDialog.svelte'
-  import { runNewNoteShortcutAcceptance } from './lib/newNoteShortcutAcceptance'
-  import { runSidebarDragDropAcceptance } from './lib/sidebarDragDropAcceptance'
-  import {
-    applyEditorFontSize,
-    applyTheme,
-    initSettingsListener,
-    loadSettings,
-    saveSettings,
-    type Settings,
-  } from './lib/settings'
+import { runNewNoteShortcutAcceptance } from './lib/newNoteShortcutAcceptance'
+import { runSidebarDragDropAcceptance } from './lib/sidebarDragDropAcceptance'
+import { exportCurrentNoteMarkdown } from './lib/export-shortcut'
+import {
+  applyEditorFontSize,
+  applyTheme,
+  initSettingsListener,
+  loadSettings,
+  saveSettings,
+  type Settings,
+} from './lib/settings'
 
   const autosaveDelayMs = 400
   const retryDelayMs = 1500
@@ -70,6 +71,7 @@
   let currentFolderID = ''
   let expandedFolderIDs: string[] = []
   let createMenuOpen = false
+  let moreMenuOpen = false
   let folderNaming = false
   let newFolderName = ''
   let moveMenuNoteID = ''
@@ -282,6 +284,7 @@
   function openSettings() {
     createMenuOpen = false
     moveMenuNoteID = ''
+    moreMenuOpen = false
     closeSearch()
     settingsOpen = true
   }
@@ -300,6 +303,7 @@
   async function openSearch() {
     createMenuOpen = false
     moveMenuNoteID = ''
+    moreMenuOpen = false
     closeSettings()
     searchOpen = true
     searchQuery = ''
@@ -476,6 +480,7 @@
     sidebarVisible = !sidebarVisible
     createMenuOpen = false
     moveMenuNoteID = ''
+    moreMenuOpen = false
     clearNoteDrag()
     if (folderNaming) {
       folderNaming = false
@@ -489,6 +494,7 @@
     }
     createMenuOpen = !createMenuOpen
     moveMenuNoteID = ''
+    moreMenuOpen = false
   }
 
   async function beginFolderNaming() {
@@ -541,6 +547,7 @@
 
     createMenuOpen = false
     moveMenuNoteID = ''
+    moreMenuOpen = false
     noteTransitionActive = true
     operationError = ''
     try {
@@ -571,6 +578,7 @@
     }
 
     moveMenuNoteID = ''
+    moreMenuOpen = false
     noteTransitionActive = true
     operationError = ''
     try {
@@ -601,6 +609,7 @@
     operationError = ''
     createMenuOpen = false
     moveMenuNoteID = ''
+    moreMenuOpen = false
     clearNoteDrag()
     closeSearch()
     closeSettings()
@@ -676,6 +685,7 @@
 
     noteTransitionActive = true
     operationError = ''
+    moreMenuOpen = false
     try {
       await returnToNormalLibrary()
     } catch (error) {
@@ -693,6 +703,7 @@
       return
     }
 
+    moreMenuOpen = false
     noteTransitionActive = true
     operationError = ''
     try {
@@ -716,6 +727,7 @@
 
     noteTransitionActive = true
     operationError = ''
+    moreMenuOpen = false
     try {
       selectedTrashFolderID = folderID
       if (folder.notes.length > 0) {
@@ -743,6 +755,7 @@
     operationError = ''
     createMenuOpen = false
     moveMenuNoteID = ''
+    moreMenuOpen = false
     clearNoteDrag()
     closeSearch()
     closeSettings()
@@ -1223,6 +1236,12 @@
       }
     }
 
+    if (moreMenuOpen && !event.isComposing && event.key === 'Escape') {
+      event.preventDefault()
+      moreMenuOpen = false
+      return
+    }
+
     if (!searchOpen || event.isComposing) {
       return
     }
@@ -1262,6 +1281,9 @@
     }
     if (!target?.closest('.sidebar-move-button') && !target?.closest('.note-move-menu')) {
       moveMenuNoteID = ''
+    }
+    if (!target?.closest('.more-button') && !target?.closest('.more-menu')) {
+      moreMenuOpen = false
     }
   }
 
@@ -2054,15 +2076,41 @@
           <div class="save-error" role="status">{operationError}</div>
         {/if}
       {:else if noteID}
-        <input
-          class="title"
-          aria-label="Note title"
-          placeholder="Untitled"
-          value={title}
-          disabled={noteTransitionActive}
-          oninput={handleTitleInput}
-          onkeydown={handleTitleKeydown}
-        />
+        <div class="document-header">
+          <input
+            class="title"
+            aria-label="Note title"
+            placeholder="Untitled"
+            value={title}
+            disabled={noteTransitionActive}
+            oninput={handleTitleInput}
+            onkeydown={handleTitleKeydown}
+          />
+          <div class="document-header-actions">
+            <div class="more-controls">
+              <button
+                class="quiet-button more-button"
+                type="button"
+                aria-label="More"
+                aria-expanded={moreMenuOpen}
+                aria-haspopup="menu"
+                disabled={noteTransitionActive}
+                onclick={() => (moreMenuOpen = !moreMenuOpen)}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="1" />
+                  <circle cx="19" cy="12" r="1" />
+                  <circle cx="5" cy="12" r="1" />
+                </svg>
+              </button>
+              {#if moreMenuOpen}
+                <div class="sidebar-menu more-menu" role="menu" aria-label="More actions">
+                  <button type="button" role="menuitem" onclick={() => { moreMenuOpen = false; void exportCurrentNoteMarkdown(); }}>Export as Markdown…</button>
+                </div>
+              {/if}
+            </div>
+          </div>
+        </div>
         {#key noteID}
           <NoteEditor
             {documentJSON}
