@@ -44,6 +44,7 @@ import {
   const autosaveDelayMs = 400
   const retryDelayMs = 1500
   const undoDelayMs = 6000
+  const flushTimeoutMs = 5000
   const acceptanceText = import.meta.env.VITE_FLASHNOTE_ACCEPTANCE_TEXT ?? ''
   let editorAcceptanceConsumed = false
 
@@ -441,13 +442,29 @@ import {
     clearSaveTimer()
     clearRetryTimer()
 
-    while (!trashView && durableSequence < draftSequence) {
-      const saved = await persistLatest()
-      if (!saved) {
-        return false
+    const flushPromise = (async () => {
+      while (!trashView && durableSequence < draftSequence) {
+        const saved = await persistLatest()
+        if (!saved) {
+          return false
+        }
       }
+      return true
+    })()
+
+    try {
+      return await Promise.race([
+        flushPromise,
+        new Promise<boolean>((resolve) => {
+          setTimeout(() => {
+            saveError = 'Save timed out'
+            resolve(false)
+          }, flushTimeoutMs)
+        }),
+      ])
+    } catch {
+      return false
     }
-    return true
   }
 
   function markDirty() {
