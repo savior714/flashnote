@@ -32,6 +32,7 @@
 import { runNewNoteShortcutAcceptance } from './lib/newNoteShortcutAcceptance'
 import { runSidebarDragDropAcceptance } from './lib/sidebarDragDropAcceptance'
 import { exportCurrentNoteMarkdown } from './lib/export-shortcut'
+import { waitForSaveFlush } from './lib/save-flush-timeout'
 import {
   applyEditorFontSize,
   applyTheme,
@@ -453,15 +454,9 @@ import {
     })()
 
     try {
-      return await Promise.race([
-        flushPromise,
-        new Promise<boolean>((resolve) => {
-          setTimeout(() => {
-            saveError = 'Save timed out'
-            resolve(false)
-          }, flushTimeoutMs)
-        }),
-      ])
+      return await waitForSaveFlush(flushPromise, flushTimeoutMs, () => {
+        saveError = 'Save timed out'
+      })
     } catch {
       return false
     }
