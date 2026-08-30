@@ -132,18 +132,184 @@ async function openMoveMenu(noteID: string): Promise<HTMLElement> {
   return menu
 }
 
+// Regression root cause (899d4c8): a real click on the disclosure glyph has the glyph's
+// TEXT NODE as event.target, not the .folder-disclosure <span>. element.click() would set
+// target to the span itself and miss that regression, so every disclosure proof here must
+// dispatch a bubbling MouseEvent directly on the glyph text node.
+function folderRow(folderID: string): HTMLButtonElement {
+  const row = folderBlock(folderID).querySelector<HTMLButtonElement>('.folder-row')
+  if (!row) {
+    throw new Error(`acceptance sidebar actions: folder ${folderID} is missing its row`)
+  }
+  return row
+}
+
+function disclosureTextNode(row: HTMLElement): Text {
+  const disclosure = row.querySelector<HTMLElement>('.folder-disclosure')
+  if (!disclosure) {
+    throw new Error('acceptance sidebar actions: folder row is missing its disclosure')
+  }
+  const textNode = Array.from(disclosure.childNodes).find(
+    (node): node is Text => node.nodeType === Node.TEXT_NODE && (node.textContent?.trim() ?? '') !== '',
+  )
+  if (!textNode) {
+    throw new Error('acceptance sidebar actions: disclosure glyph text node is missing')
+  }
+  return textNode
+}
+
+function spanTextNode(span: HTMLElement, description: string): Text {
+  const textNode = Array.from(span.childNodes).find(
+    (node): node is Text => node.nodeType === Node.TEXT_NODE && (node.textContent?.trim() ?? '') !== '',
+  )
+  if (!textNode) {
+    throw new Error(`acceptance sidebar actions: ${description} text node is missing`)
+  }
+  return textNode
+}
+
+function clickTextNode(textNode: Text): void {
+  textNode.dispatchEvent(
+    new MouseEvent('click', { bubbles: true, cancelable: true, view: window }),
+  )
+}
+
+async function clickDisclosureGlyphTextNode(row: HTMLElement): Promise<void> {
+  clickTextNode(disclosureTextNode(row))
+  await tick()
+  await delay(30)
+}
+
 async function expandFolder(folderID: string): Promise<void> {
-  const block = folderBlock(folderID)
-  const row = block.querySelector<HTMLButtonElement>('.folder-row')
-  const disclosure = row?.querySelector<HTMLElement>('.folder-disclosure')
-  if (!row || !disclosure) {
-    throw new Error(`acceptance sidebar actions: folder ${folderID} is missing its row/disclosure`)
+  const row = folderRow(folderID)
+  if (row.getAttribute('aria-expanded') !== 'true') {
+    await clickDisclosureGlyphTextNode(row)
   }
   if (row.getAttribute('aria-expanded') !== 'true') {
-    disclosure.click()
-    await tick()
-    await delay(30)
+    throw new Error(
+      `acceptance sidebar actions: folder ${folderID} did not expand from a disclosure text-node click`,
+    )
   }
+}
+
+async function proveFolderDisclosureTextNodeToggle(folderID: string, noteID: string): Promise<void> {
+  const block = folderBlock(folderID)
+  const row = folderRow(folderID)
+
+  // Precondition: the fixture folder is expanded with its note row visible.
+  if (row.getAttribute('aria-expanded') !== 'true') {
+    throw new Error(
+      `acceptance folder disclosure text-node: fixture folder ${folderID} is not expanded before collapse proof`,
+    )
+  }
+  if (!block.querySelector('.folder-notes')?.querySelector(`[data-note-id="${noteID}"]`)) {
+    throw new Error(
+      `acceptance folder disclosure text-node: note ${noteID} is not visible in expanded folder ${folderID}`,
+    )
+  }
+
+  // expanded -> collapsed via a bubbling click whose target is the glyph text node.
+  await clickDisclosureGlyphTextNode(row)
+  if (row.getAttribute('aria-expanded') !== 'false' || block.querySelector('.folder-notes') !== null) {
+    throw new Error(
+      `acceptance folder disclosure text-node: glyph text-node click did not collapse folder ${folderID}`,
+    )
+  }
+
+  // collapsed -> expanded via the same text-node target path.
+  await clickDisclosureGlyphTextNode(row)
+  if (row.getAttribute('aria-expanded') !== 'true') {
+    throw new Error(
+      `acceptance folder disclosure text-node: glyph text-node click did not expand folder ${folderID}`,
+    )
+  }
+  if (!block.querySelector('.folder-notes')?.querySelector(`[data-note-id="${noteID}"]`)) {
+    throw new Error(
+      `acceptance folder disclosure text-node: note ${noteID} did not reappear after expanding folder ${folderID}`,
+    )
+  }
+
+  // Row-body clicks keep select/open semantics: selecting must not toggle the disclosure.
+  const folderNameSpan = row.querySelector<HTMLElement>('.folder-name')
+  if (!folderNameSpan) {
+    throw new Error(
+      `acceptance folder disclosure text-node: folder ${folderID} row is missing its name span`,
+    )
+  }
+  clickTextNode(spanTextNode(folderNameSpan, `folder ${folderID} name`))
+  await waitFor(
+    () => row.getAttribute('aria-current') === 'location' && row.getAttribute('aria-expanded') === 'true',
+    `folder ${folderID} selection via row-body text-node click without disclosure toggle`,
+  )
+
+  // Go-side observable handshake (console.log never reaches stdout in production builds).
+  await SearchNotes('flashnote-folder-disclosure-textnode-acceptance-handshake-v1')
+  console.log('FLASHNOTE_FOLDER_DISCLOSURE_TEXTNODE_ACCEPTANCE_SUCCESS')
+}
+
+async function proveTrashFolderDisclosureTextNodeToggle(folderName: string): Promise<void> {
+  const block = Array.from(document.querySelectorAll<HTMLElement>('.trash-folder-block')).find(
+    (candidate) => candidate.querySelector('.folder-name')?.textContent?.trim() === folderName,
+  )
+  if (!block) {
+    throw new Error(
+      `acceptance trash folder disclosure text-node: trashed folder ${folderName} is not rendered in Trash view`,
+    )
+  }
+  const row = block.querySelector<HTMLButtonElement>('.folder-row')
+  if (!row) {
+    throw new Error(
+      `acceptance trash folder disclosure text-node: trashed folder ${folderName} is missing its row`,
+    )
+  }
+
+  // A freshly trashed folder that does not contain the open note renders collapsed.
+  if (row.getAttribute('aria-expanded') !== 'false') {
+    throw new Error(
+      `acceptance trash folder disclosure text-node: trashed folder ${folderName} is not collapsed before expand proof`,
+    )
+  }
+
+  // collapsed -> expanded via a bubbling click whose target is the glyph text node.
+  await clickDisclosureGlyphTextNode(row)
+  if (row.getAttribute('aria-expanded') !== 'true' || block.querySelector('.folder-notes') === null) {
+    throw new Error(
+      `acceptance trash folder disclosure text-node: glyph text-node click did not expand trashed folder ${folderName}`,
+    )
+  }
+
+  // expanded -> collapsed via the same text-node target path.
+  await clickDisclosureGlyphTextNode(row)
+  if (row.getAttribute('aria-expanded') !== 'false' || block.querySelector('.folder-notes') !== null) {
+    throw new Error(
+      `acceptance trash folder disclosure text-node: glyph text-node click did not collapse trashed folder ${folderName}`,
+    )
+  }
+
+  // Trash row-body clicks keep select semantics (selectTrashFolder also expands the folder).
+  const folderNameSpan = row.querySelector<HTMLElement>('.folder-name')
+  if (!folderNameSpan) {
+    throw new Error(
+      `acceptance trash folder disclosure text-node: trashed folder ${folderName} row is missing its name span`,
+    )
+  }
+  clickTextNode(spanTextNode(folderNameSpan, `trashed folder ${folderName} name`))
+  await waitFor(
+    () => row.getAttribute('aria-current') === 'location' && row.getAttribute('aria-expanded') === 'true',
+    `trashed folder ${folderName} selection via row-body text-node click`,
+  )
+
+  // Collapsing a selected trash folder keeps the selection.
+  await clickDisclosureGlyphTextNode(row)
+  if (row.getAttribute('aria-expanded') !== 'false' || row.getAttribute('aria-current') !== 'location') {
+    throw new Error(
+      `acceptance trash folder disclosure text-node: glyph text-node click did not collapse selected trashed folder ${folderName}`,
+    )
+  }
+
+  // Go-side observable handshake (console.log never reaches stdout in production builds).
+  await SearchNotes('flashnote-trash-folder-disclosure-text-node-acceptance-handshake-v1')
+  console.log('FLASHNOTE_TRASH_FOLDER_DISCLOSURE_TEXTNODE_ACCEPTANCE_SUCCESS')
 }
 
 function dispatchDrag(target: HTMLElement, type: 'dragstart' | 'dragover' | 'drop' | 'dragend'): DragEvent {
@@ -566,6 +732,10 @@ async function proveInlineActionsTrashUndo(
     'Trash view before Empty Trash confirmation',
   )
 
+  // The trashed fixture folder is now rendered in Trash view; prove its disclosure
+  // toggles when the click target is the glyph text node itself.
+  await proveTrashFolderDisclosureTextNodeToggle(targetFolderName)
+
   const emptyTrashButton = document.querySelector<HTMLButtonElement>('.trash-empty-button')
   if (!emptyTrashButton || emptyTrashButton.disabled) {
     throw new Error('acceptance Empty Trash: Empty Trash… action is missing or disabled with Trash contents')
@@ -731,6 +901,11 @@ async function proveInlineActionsTrashUndo(
       document.querySelector<HTMLElement>('.note-row[aria-current="page"]')?.dataset.noteId === currentNoteID,
     'restored original note selection after cross-location fallback proof',
   )
+
+  // Normal folder disclosure: prove collapse/expand when the click target is the
+  // glyph text node itself, and that row-body clicks keep select/open semantics.
+  await proveFolderDisclosureTextNodeToggle(folderID, currentNoteID)
+
   console.log('FLASHNOTE_CROSS_LOCATION_TRASH_FALLBACK_SUCCESS')
   console.log('FLASHNOTE_INLINE_TRASH_UNDO_ACCEPTANCE_SUCCESS')
 }

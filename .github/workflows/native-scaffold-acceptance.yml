@@ -420,6 +420,10 @@ jobs:
           grep -q FLASHNOTE_NOTE_RESTORED "$LOG"
           grep -q FLASHNOTE_FOLDER_TRASHED "$LOG"
           grep -q FLASHNOTE_FOLDER_RESTORED "$LOG"
+          # Folder-disclosure text-node regression proofs (899d4c8): each proof ends with a
+          # unique-length SearchNotes handshake, observable via the Go-side search marker.
+          grep -q "FLASHNOTE_NOTE_SEARCH query_len=60" "$LOG" # flashnote-folder-disclosure-textnode-acceptance-handshake-v1
+          grep -q "FLASHNOTE_NOTE_SEARCH query_len=67" "$LOG" # flashnote-trash-folder-disclosure-textnode-acceptance-handshake-v1
           ! grep -q FLASHNOTE_ACCEPTANCE_TRASH_FAILURE "$LOG"
           grep -q FLASHNOTE_CLOSE_FLUSH_REQUESTED "$LOG"
           grep -q FLASHNOTE_CLOSE_APPROVED "$LOG"
