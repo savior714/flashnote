@@ -27,6 +27,7 @@ fi
 
 cleanup() {
   local exit_code=$?
+  echo "launcher_exit_code=$exit_code" >&2
   if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
@@ -67,5 +68,16 @@ if [[ $ready -ne 1 ]]; then
   exit 1
 fi
 
+set +e
 FLASHNOTE_E2E_BASE_URL="http://127.0.0.1:$PORT" \
 corepack pnpm --dir e2e exec playwright test 2>&1 | tee "$PLAYWRIGHT_LOG"
+pipeline_status=("${PIPESTATUS[@]}")
+set -e
+printf 'playwright_exit_code=%s tee_exit_code=%s\n' "${pipeline_status[0]}" "${pipeline_status[1]}"
+
+if [[ ${pipeline_status[0]} -ne 0 ]]; then
+  exit "${pipeline_status[0]}"
+fi
+if [[ ${pipeline_status[1]} -ne 0 ]]; then
+  exit "${pipeline_status[1]}"
+fi
