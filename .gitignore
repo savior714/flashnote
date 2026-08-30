@@ -6,6 +6,9 @@ bin/
 frontend/node_modules/
 frontend/dist/*
 !frontend/dist/.keep
+e2e/node_modules/
+e2e/playwright-report/
+e2e/test-results/
 
 *.db
 *.db-shm

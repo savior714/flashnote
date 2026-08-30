@@ -71,3 +71,12 @@ tasks:
   dev:
     cmds:
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+
+  e2e:headless:
+    desc: Run isolated Wails server-mode E2E without opening a native window
+    cmds:
+      - corepack pnpm --dir frontend install --frozen-lockfile
+      - corepack pnpm --dir frontend build
+      - corepack pnpm --dir e2e install --frozen-lockfile
+      - corepack pnpm --dir e2e exec playwright install chromium
+      - ./scripts/run-headless-e2e.sh
