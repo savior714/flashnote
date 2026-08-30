@@ -8,7 +8,7 @@ readonly WAILS_PACKAGE="github.com/wailsapp/wails/v3/cmd/wails3"
 
 for dependency in go node corepack; do
   if ! command -v "$dependency" >/dev/null 2>&1; then
-    print -u2 "Flashnote development requires '$dependency' in PATH."
+    print -u2 "Flashnote source run requires '$dependency' in PATH."
     exit 1
   fi
 done
@@ -25,4 +25,11 @@ if [[ "$wails_version" != "$WAILS_VERSION" ]]; then
   wails_bin="$(go env GOPATH)/bin/wails3"
 fi
 
-exec "$wails_bin" dev -config ./build/config.yml "$@"
+# This is the real personal-use launcher. Acceptance modes are test-only and
+# must never leak into the normal user-data process through an inherited shell.
+unset VITE_FLASHNOTE_ACCEPTANCE_TEXT VITE_FLASHNOTE_DATA_SAFETY_ACCEPTANCE
+
+# Deliberately avoid `wails3 dev`: watch/HMR/rebuild restarts are development
+# lifecycle events and can invalidate an in-memory editor draft outside the
+# normal Flashnote close/transition flush path.
+exec "$wails_bin" task run

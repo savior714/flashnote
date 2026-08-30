@@ -1,8 +1,7 @@
 name: macOS release package acceptance
 
+# Personal-use mode: distribution evidence is manual-only until explicitly reopened.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

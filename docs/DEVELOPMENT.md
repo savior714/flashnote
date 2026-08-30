@@ -1,6 +1,6 @@
 # Flashnote Development Operating Contract
 
-_Status: canonical execution/publication contract · 2026-08-27_
+_Status: canonical execution/publication contract · 2026-08-30_
 
 This document owns Flashnote's development execution, concurrency, and `origin/main` publication rules. Product behavior remains owned by `docs/PRODUCT.md`; implementation architecture remains owned by `docs/TECHNICAL.md`.
 
@@ -108,20 +108,26 @@ Start with optimistic parallel work plus exact-base finalization. If repeated me
 
 The system should optimize for productive parallel work while keeping `origin/main` linear, directly explainable, and free of self-created topology recovery.
 
-## 11. Post-MVP dogfood operating mode
+## 11. Post-MVP personal-use operating mode
 
-For the current personal-use macOS path, the functional MVP and the accepted arm64 `.app`/DMG packaging baseline are **CLOSED**. Do not reopen closed MVP acceptance or grow acceptance checklists unless a newly observed regression directly invalidates an existing contract.
+Flashnote is currently a **personal program used directly from the source checkout**. DMG/PKG distribution, Developer ID signing, notarization, Gatekeeper hardening, public release publication, and updater work are **DEFERRED / INACTIVE**. Do not generate, recommend, or automatically validate a DMG for the normal personal-use loop. Reopen distribution work only after an explicit decision to distribute Flashnote outside the current personal-use path.
+
+The canonical real-use launcher is `./Flashnote.command`. It must start one stable source-built application process, not `wails3 dev`. Watch/HMR/rebuild relaunches are development lifecycle events: they may replace the frontend or process without traversing Flashnote's normal note-transition or window-close save flush. They therefore must not be the lifecycle boundary for real notes.
+
+`wails3 dev` remains available only for active coding/debugging. Do not use it as the personal note-taking launcher while source files may change, especially while multiple development sessions are working concurrently.
+
+All native/UI/acceptance/destructive automation must remain isolated from real user data. The default macOS isolation mechanism is a fresh temporary `HOME`, producing a test database under `<temporary HOME>/Library/Application Support/Flashnote/flashnote.db`. Never run such automation against the user's normal Flashnote data directory or `flashnote.db`.
 
 The default development loop is now:
 
-1. install and use the currently accepted build as a real note app;
+1. run the current source through the stable personal-use launcher;
 2. capture the first concrete defect or friction that materially interferes with personal use;
-3. reproduce and bound that single problem against current `origin/main`;
-4. implement the smallest fix that closes it;
-5. run the nearest relevant proof, then return to real use.
+3. reproduce and bound that single problem against current `origin/main` without touching real user data from automation;
+4. implement the smallest root-cause-complete fix;
+5. run the nearest relevant proof in isolation, then return to real use.
 
 Use the question **“Does this materially interfere with using Flashnote now?”** as the first frontier filter. Cosmetic or speculative improvements may be recorded, but they do not preempt an observed user-blocking defect.
 
-Developer ID signing, Apple notarization, and public-distribution hardening are **DEFERRED**. Reopen them only after an explicit decision to distribute Flashnote outside the current personal-use path. Likewise, dependency/toolchain upgrades are not frontiers by themselves; open them only when required by an observed defect, security issue, or compatibility problem.
+A newly observed data-loss or durability contradiction supersedes prior optimistic acceptance status for that exact failure family. Do not treat earlier GREEN package/runtime evidence as proof that a new real-use autosave failure is closed.
 
-Current direct packaging evidence is scoped to Apple Silicon (`arm64`). Do not generalize that evidence to Intel macOS, Windows, or external-distribution readiness.
+Release-package and DMG workflows may remain in the repository as historical/manual evidence owners, but they must not run automatically on ordinary `main` pushes while distribution is inactive. Likewise, dependency/toolchain upgrades are not frontiers by themselves; open them only when required by an observed defect, security issue, or compatibility problem.
