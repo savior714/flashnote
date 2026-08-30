@@ -5,8 +5,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 TEST_HOME="$(mktemp -d "${TMPDIR:-/tmp}/flashnote-headless-e2e.XXXXXX")"
-SERVER_LOG="$(mktemp "${TMPDIR:-/tmp}/flashnote-headless-server.XXXXXX.log")"
+ARTIFACT_DIR="${FLASHNOTE_E2E_ARTIFACT_DIR:-$ROOT_DIR/.artifacts/headless-e2e}"
+SERVER_LOG="$ARTIFACT_DIR/server.log"
 SERVER_PID=""
+
+mkdir -p "$ARTIFACT_DIR"
+: >"$SERVER_LOG"
 
 # Wails server mode initializes runtime state before Flashnote's own app-data
 # directory setup. A synthetic HOME therefore needs its standard XDG roots to
@@ -31,7 +35,6 @@ cleanup() {
     cat "$SERVER_LOG" >&2 || true
   fi
   rm -rf "$TEST_HOME"
-  rm -f "$SERVER_LOG"
   exit "$exit_code"
 }
 trap cleanup EXIT INT TERM
