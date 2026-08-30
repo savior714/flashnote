@@ -821,7 +821,9 @@ import {
     const button = event.currentTarget as HTMLButtonElement
     const disclosure = button.querySelector('.folder-disclosure')
     const target = event.target as Element | null
-    if (target === disclosure || disclosure?.contains(target)) {
+    void disclosure
+    void target
+    if ((event.target as HTMLElement | null)?.closest('.folder-disclosure')) {
       toggleFolder(folderID)
       return
     }
@@ -838,7 +840,9 @@ import {
     const button = event.currentTarget as HTMLButtonElement
     const disclosure = button.querySelector('.folder-disclosure')
     const target = event.target as Element | null
-    if (target === disclosure || disclosure?.contains(target)) {
+    void disclosure
+    void target
+    if ((event.target as HTMLElement | null)?.closest('.folder-disclosure')) {
       toggleTrashFolder(folderID)
       return
     }
