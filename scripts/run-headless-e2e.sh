@@ -7,6 +7,7 @@ cd "$ROOT_DIR"
 TEST_HOME="$(mktemp -d "${TMPDIR:-/tmp}/flashnote-headless-e2e.XXXXXX")"
 ARTIFACT_DIR="${FLASHNOTE_E2E_ARTIFACT_DIR:-$ROOT_DIR/.artifacts/headless-e2e}"
 SERVER_LOG="$ARTIFACT_DIR/server.log"
+PLAYWRIGHT_LOG="$ARTIFACT_DIR/playwright.log"
 SERVER_PID=""
 
 mkdir -p "$ARTIFACT_DIR"
@@ -67,4 +68,4 @@ if [[ $ready -ne 1 ]]; then
 fi
 
 FLASHNOTE_E2E_BASE_URL="http://127.0.0.1:$PORT" \
-corepack pnpm --dir e2e exec playwright test
+corepack pnpm --dir e2e exec playwright test 2>&1 | tee "$PLAYWRIGHT_LOG"
