@@ -50,8 +50,12 @@ function dialogButton(dialog: HTMLElement, label: string): HTMLButtonElement {
   return button
 }
 
+function titleInput(): HTMLInputElement | null {
+  return document.querySelector<HTMLInputElement>('input.title:not([readonly])')
+}
+
 function editableTitleInput(): HTMLInputElement {
-  const input = document.querySelector<HTMLInputElement>('input.title:not([readonly])')
+  const input = titleInput()
   if (!input || input.disabled) {
     throw new Error('acceptance P1B: editable title input is unavailable')
   }
@@ -159,22 +163,39 @@ async function verifyFailedNavigationKeepsDraft(
   )
   siblingRow.click()
 
+  // The save failure is the authority for whether navigation may complete. First
+  // prove that the visible note identity and draft never changed; then separately
+  // require the transition lock to release. Keeping these assertions separate
+  // avoids treating a temporary disabled control during the attempted flush as a
+  // note switch.
   await waitFor(
     () => {
       const row = activeNormalNoteRow()
-      if (row?.dataset.noteId !== originalNoteID || row.disabled) {
-        return null
-      }
-      const input = document.querySelector<HTMLInputElement>('input.title:not([readonly])')
-      return input?.value === expectedTitle ? row : null
+      const input = titleInput()
+      return row?.dataset.noteId === originalNoteID && input?.value === expectedTitle
+        ? true
+        : null
     },
-    'failed navigation to return control without changing the active note',
+    'failed navigation to preserve note identity and draft',
+  )
+
+  await waitFor(
+    () => {
+      const originalRow = normalNoteRow(originalNoteID)
+      const targetRow = normalNoteRow(siblingNoteID)
+      const input = titleInput()
+      return originalRow && targetRow && input &&
+        !originalRow.disabled && !targetRow.disabled && !input.disabled
+        ? true
+        : null
+    },
+    'failed navigation to release transition controls',
   )
 
   if (!saveFailureNotice()) {
     throw new Error('acceptance P1B: failed navigation cleared the unresolved save-failure state')
   }
-  if (editableTitleInput().value !== expectedTitle) {
+  if (titleInput()?.value !== expectedTitle) {
     throw new Error('acceptance P1B: failed navigation lost the latest in-memory draft')
   }
   if (activeNormalNoteRow()?.dataset.noteId !== originalNoteID) {
