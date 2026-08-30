@@ -818,8 +818,10 @@ import {
   }
 
   function handleFolderClick(event: MouseEvent, folderID: string) {
+    const button = event.currentTarget as HTMLButtonElement
+    const disclosure = button.querySelector('.folder-disclosure')
     const target = event.target as Element | null
-    if (target?.closest('.folder-disclosure')) {
+    if (target === disclosure || disclosure?.contains(target)) {
       toggleFolder(folderID)
       return
     }
@@ -833,8 +835,10 @@ import {
   }
 
   function handleTrashFolderClick(event: MouseEvent, folderID: string) {
+    const button = event.currentTarget as HTMLButtonElement
+    const disclosure = button.querySelector('.folder-disclosure')
     const target = event.target as Element | null
-    if (target?.closest('.folder-disclosure')) {
+    if (target === disclosure || disclosure?.contains(target)) {
       toggleTrashFolder(folderID)
       return
     }
