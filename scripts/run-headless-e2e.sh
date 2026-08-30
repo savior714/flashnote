@@ -39,6 +39,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+CGO_ENABLED=0 \
 HOME="$TEST_HOME" \
 XDG_CONFIG_HOME="$TEST_HOME/.config" \
 XDG_CACHE_HOME="$TEST_HOME/.cache" \
