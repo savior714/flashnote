@@ -86,6 +86,7 @@ import {
   let trashNotes: NoteSummary[] = []
   let trashFolders: FolderSummary[] = []
   let selectedTrashFolderID = ''
+  let expandedTrashFolderIDs: string[] = []
   let trashNoteCount = 0
   let trashFolderCount = 0
   let permanentDeleteTargetID = ''
@@ -229,6 +230,21 @@ import {
     trashFolderCount = nextFolderCount
     if (selectedTrashFolderID && !nextFolders.some((folder) => folder.id === selectedTrashFolderID)) {
       selectedTrashFolderID = ''
+    }
+
+    let locatedTrashFolderID = ''
+    if (noteID && selectedTrashFolderID && nextFolders.some((folder) => folder.id === selectedTrashFolderID)) {
+      locatedTrashFolderID = selectedTrashFolderID
+    } else {
+      for (const folder of nextFolders) {
+        if (folder.notes.some((note) => note.id === noteID)) {
+          locatedTrashFolderID = folder.id
+          break
+        }
+      }
+    }
+    if (locatedTrashFolderID && !expandedTrashFolderIDs.includes(locatedTrashFolderID)) {
+      expandedTrashFolderIDs = [...expandedTrashFolderIDs, locatedTrashFolderID]
     }
   }
 
@@ -742,6 +758,9 @@ import {
     moreMenuOpen = false
     try {
       selectedTrashFolderID = folderID
+      if (!expandedTrashFolderIDs.includes(folderID)) {
+        expandedTrashFolderIDs = [...expandedTrashFolderIDs, folderID]
+      }
       if (folder.notes.length > 0) {
         applyNote((await OpenTrashNote(folder.notes[0].id)) as NoteTuple)
       } else {
@@ -805,6 +824,21 @@ import {
       return
     }
     void selectFolder(folderID)
+  }
+
+  function toggleTrashFolder(folderID: string) {
+    expandedTrashFolderIDs = expandedTrashFolderIDs.includes(folderID)
+      ? expandedTrashFolderIDs.filter((id) => id !== folderID)
+      : [...expandedTrashFolderIDs, folderID]
+  }
+
+  function handleTrashFolderClick(event: MouseEvent, folderID: string) {
+    const target = event.target as Element | null
+    if (target?.closest('.folder-disclosure')) {
+      toggleTrashFolder(folderID)
+      return
+    }
+    void selectTrashFolder(folderID)
   }
 
   function folderForNote(targetNoteID: string): string {
@@ -1751,27 +1785,33 @@ import {
               class="folder-row"
               class:active={folder.id === selectedTrashFolderID}
               type="button"
+              aria-current={folder.id === selectedTrashFolderID ? 'location' : undefined}
+              aria-expanded={expandedTrashFolderIDs.includes(folder.id)}
               disabled={noteTransitionActive}
-              onclick={() => void selectTrashFolder(folder.id)}
+              onclick={(event) => handleTrashFolderClick(event, folder.id)}
             >
-              <span class="folder-disclosure" aria-hidden="true">▾</span>
+              <span class="folder-disclosure" aria-hidden="true">
+                {expandedTrashFolderIDs.includes(folder.id) ? '▾' : '▸'}
+              </span>
               <span class="folder-name">{folder.name}</span>
             </button>
-            <div class="folder-notes">
-              {#each folder.notes as note (note.id)}
-                <button
-                  class="note-row nested"
-                  class:active={note.id === noteID && folder.id === selectedTrashFolderID}
-                  type="button"
-                  aria-current={note.id === noteID && folder.id === selectedTrashFolderID ? 'page' : undefined}
-                  disabled={noteTransitionActive}
-                  onclick={() => void selectTrashNote(note.id, folder.id)}
-                >{sidebarTitle(note)}</button>
-              {/each}
-              {#if folder.notes.length === 0}
-                <div class="trash-folder-empty">Empty folder</div>
-              {/if}
-            </div>
+            {#if expandedTrashFolderIDs.includes(folder.id)}
+              <div class="folder-notes">
+                {#each folder.notes as note (note.id)}
+                  <button
+                    class="note-row nested"
+                    class:active={note.id === noteID && folder.id === selectedTrashFolderID}
+                    type="button"
+                    aria-current={note.id === noteID && folder.id === selectedTrashFolderID ? 'page' : undefined}
+                    disabled={noteTransitionActive}
+                    onclick={() => void selectTrashNote(note.id, folder.id)}
+                  >{sidebarTitle(note)}</button>
+                {/each}
+                {#if folder.notes.length === 0}
+                  <div class="trash-folder-empty">Empty folder</div>
+                {/if}
+              </div>
+            {/if}
           </div>
         {/each}
         {#if trashNoteCount === 0 && trashFolderCount === 0}
