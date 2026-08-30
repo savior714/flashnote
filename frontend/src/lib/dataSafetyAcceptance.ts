@@ -64,6 +64,126 @@ function editTitle(nextTitle: string): void {
   input.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
+function activeNormalNoteRow(): HTMLButtonElement | null {
+  return document.querySelector<HTMLButtonElement>(
+    'nav.note-list:not(.trash-list) button.note-row[data-note-id][aria-current="page"]',
+  )
+}
+
+function normalNoteRow(noteID: string): HTMLButtonElement | null {
+  return (
+    Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        'nav.note-list:not(.trash-list) button.note-row[data-note-id]',
+      ),
+    ).find((candidate) => candidate.dataset.noteId === noteID) ?? null
+  )
+}
+
+async function prepareNavigationSibling(): Promise<{ originalNoteID: string; siblingNoteID: string }> {
+  const originalRow = await waitFor(
+    () => {
+      const row = activeNormalNoteRow()
+      return row && !row.disabled ? row : null
+    },
+    'active normal note before navigation setup',
+  )
+  const originalNoteID = originalRow.dataset.noteId ?? ''
+  if (!originalNoteID) {
+    throw new Error('acceptance P1B: active normal note is missing its stable id')
+  }
+
+  const createButton = await waitFor(
+    () => {
+      const button = document.querySelector<HTMLButtonElement>(
+        '.create-controls > button[aria-label="Create"]',
+      )
+      return button && !button.disabled ? button : null
+    },
+    'Create button for navigation setup',
+  )
+  createButton.click()
+
+  const newNoteButton = await waitFor(
+    () =>
+      Array.from(document.querySelectorAll<HTMLButtonElement>('.create-menu button')).find(
+        (button) => button.textContent?.trim() === 'New note' && !button.disabled,
+      ) ?? null,
+    'New note action for navigation setup',
+  )
+  newNoteButton.click()
+
+  const siblingRow = await waitFor(
+    () => {
+      const row = activeNormalNoteRow()
+      const id = row?.dataset.noteId ?? ''
+      return row && id && id !== originalNoteID && !row.disabled ? row : null
+    },
+    'temporary sibling note',
+  )
+  const siblingNoteID = siblingRow.dataset.noteId ?? ''
+  if (!siblingNoteID) {
+    throw new Error('acceptance P1B: temporary sibling note is missing its stable id')
+  }
+
+  const refreshedOriginalRow = await waitFor(
+    () => {
+      const row = normalNoteRow(originalNoteID)
+      return row && !row.disabled ? row : null
+    },
+    'original note after temporary sibling creation',
+  )
+  refreshedOriginalRow.click()
+  await waitFor(
+    () => {
+      const row = activeNormalNoteRow()
+      return row?.dataset.noteId === originalNoteID && !row.disabled ? row : null
+    },
+    'return to original note before forced save failure',
+  )
+
+  return { originalNoteID, siblingNoteID }
+}
+
+async function verifyFailedNavigationKeepsDraft(
+  originalNoteID: string,
+  siblingNoteID: string,
+  expectedTitle: string,
+): Promise<void> {
+  const siblingRow = await waitFor(
+    () => {
+      const row = normalNoteRow(siblingNoteID)
+      return row && !row.disabled ? row : null
+    },
+    'sibling note navigation target while save is failing',
+  )
+  siblingRow.click()
+
+  await waitFor(
+    () => {
+      const row = activeNormalNoteRow()
+      if (row?.dataset.noteId !== originalNoteID || row.disabled) {
+        return null
+      }
+      const input = document.querySelector<HTMLInputElement>('input.title:not([readonly])')
+      return input?.value === expectedTitle ? row : null
+    },
+    'failed navigation to return control without changing the active note',
+  )
+
+  if (!saveFailureNotice()) {
+    throw new Error('acceptance P1B: failed navigation cleared the unresolved save-failure state')
+  }
+  if (editableTitleInput().value !== expectedTitle) {
+    throw new Error('acceptance P1B: failed navigation lost the latest in-memory draft')
+  }
+  if (activeNormalNoteRow()?.dataset.noteId !== originalNoteID) {
+    throw new Error('acceptance P1B: failed save allowed navigation away from the dirty note')
+  }
+
+  console.log('FLASHNOTE_SAVE_FAILURE_NAVIGATION_GUARD_SUCCESS')
+}
+
 async function verifyFailurePersistsAcrossNewerDraft(nextTitle: string): Promise<void> {
   editTitle(nextTitle)
   await delay(120)
@@ -103,9 +223,16 @@ async function runRecoveryAcceptance(): Promise<never> {
 }
 
 async function runDiscardAcceptance(): Promise<never> {
+  const { originalNoteID, siblingNoteID } = await prepareNavigationSibling()
+
   editTitle('P1B discard first draft')
   await waitFor(saveFailureNotice, 'persistent autosave failure state')
   await verifyFailurePersistsAcrossNewerDraft('P1B discard latest draft')
+  await verifyFailedNavigationKeepsDraft(
+    originalNoteID,
+    siblingNoteID,
+    'P1B discard latest draft',
+  )
 
   await Window.Close()
   let dialog = await waitForCloseDialog()
