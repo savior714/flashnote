@@ -229,17 +229,33 @@ async function proveFolderDisclosureTextNodeToggle(folderID: string, noteID: str
     )
   }
 
-  // Row-body clicks keep select/open semantics: selecting must not toggle the disclosure.
+  // Row-body/name clicks toggle normal folders symmetrically while preserving selection.
   const folderNameSpan = row.querySelector<HTMLElement>('.folder-name')
   if (!folderNameSpan) {
     throw new Error(
       `acceptance folder disclosure text-node: folder ${folderID} row is missing its name span`,
     )
   }
+  if (row.getAttribute('aria-current') !== 'location') {
+    throw new Error(
+      `acceptance folder disclosure text-node: folder ${folderID} is not selected before row-body collapse proof`,
+    )
+  }
   clickTextNode(spanTextNode(folderNameSpan, `folder ${folderID} name`))
   await waitFor(
-    () => row.getAttribute('aria-current') === 'location' && row.getAttribute('aria-expanded') === 'true',
-    `folder ${folderID} selection via row-body text-node click without disclosure toggle`,
+    () =>
+      row.getAttribute('aria-current') === 'location' &&
+      row.getAttribute('aria-expanded') === 'false' &&
+      block.querySelector('.folder-notes') === null,
+    `folder ${folderID} collapse via row-body text-node click with selection retained`,
+  )
+  clickTextNode(spanTextNode(folderNameSpan, `folder ${folderID} name`))
+  await waitFor(
+    () =>
+      row.getAttribute('aria-current') === 'location' &&
+      row.getAttribute('aria-expanded') === 'true' &&
+      block.querySelector('.folder-notes')?.querySelector(`[data-note-id="${noteID}"]`) !== null,
+    `folder ${folderID} re-expand via row-body text-node click with selection retained`,
   )
 
   // Go-side observable handshake (console.log never reaches stdout in production builds).

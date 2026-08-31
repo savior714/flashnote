@@ -825,6 +825,10 @@ import {
       toggleFolder(folderID)
       return
     }
+    if (expandedFolderIDs.includes(folderID)) {
+      toggleFolder(folderID)
+      return
+    }
     void selectFolder(folderID)
   }
 
