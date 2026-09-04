@@ -1,112 +1,167 @@
 # Flashnote Development Operating Contract
 
-_Status: canonical execution/publication contract · 2026-08-30_
+_Status: canonical execution/publication contract · 2026-09-04_
 
-This document owns Flashnote's development execution, concurrency, and `origin/main` publication rules. Product behavior remains owned by `docs/PRODUCT.md`; implementation architecture remains owned by `docs/TECHNICAL.md`.
+This document owns Flashnote's development execution, verification cadence, concurrency, handoff, and `origin/main` publication rules. Product behavior remains owned by `docs/PRODUCT.md`; implementation architecture remains owned by `docs/TECHNICAL.md`. A root `AGENTS.md`, when present, is routing only and must not duplicate this contract.
 
-## 1. Core model: parallel work, serialized main finalization
+## 1. Operating priority: current product work first
 
-`origin/main` is the canonical append-only development log. Flashnote uses direct-main single-trunk development; feature branches and pull requests are not the default workflow.
+Flashnote is in active personal-use development. The default is **build/repair first with a correctness gate**, not governance-first or release-qualification-first.
 
-Independent tasks may investigate, edit, build, and test concurrently. Development is **not** globally single-writer. The serialization point is the short finalization interval in which a task is rebound to current `origin/main`, creates its exact task commit, and attempts one non-force publication.
+Use this priority order:
 
-The goal is to preserve parallel throughput without allowing concurrent work to manufacture divergent `main` history that later needs merge/rebase/cherry-pick recovery.
+1. correctness, user-data safety, and intended product semantics;
+2. smallest **root-cause-complete** change that leaves the implementation clearer than before;
+3. nearest faithful proof needed for that change;
+4. ordinary publication and return to real use.
 
-## 2. Publication producers
+Do not reopen already-closed MVP audits, packaging/signing/notarization, broad release qualification, dependency upgrades, or speculative infrastructure unless a current defect, security/compatibility need, or explicit user decision reopens that scope.
 
-A **publication producer** is anything that can move `refs/heads/main`, including:
+For live repository/runtime facts, current direct evidence outranks old handoffs, remembered SHAs, prior task state, and historical acceptance results. Prior decisions remain useful only where current evidence has not superseded them.
 
-- a local developer or local coding agent;
-- Web GPT or another GitHub-API client;
-- GitHub Actions or another CI bot;
-- a scheduled automation or external service.
+## 2. Task shape and semantic convergence
 
-Do not reason only about local sessions. Every publication producer follows the same exact-base, single-commit, non-force finalization contract.
+A bounded task should be one self-contained semantic state transition, not an arbitrary minimum number of lines or files.
 
-## 3. Parallel execution boundary
+Prefer the smallest change that fully removes the demonstrated root cause. A smaller diff is **not** better when it leaves the old semantic path in place and adds another special case, fallback, wrapper, adapter, duplicate resolver/state owner, or parallel implementation.
 
-Parallel work is allowed only when the tasks are genuinely independent in mutation surface, direct contract ownership, and acceptance evidence.
+When a change materially affects semantic ownership:
 
-During normal local work:
+- identify the canonical owner after the change;
+- remove duplicate, obsolete, or superseded paths when safe;
+- justify any temporary coexistence with a concrete current consumer or migration dependency;
+- record the exit/removal condition for temporary coexistence;
+- do not add a new registry, state machine, checker, manifest, framework, or policy layer merely to enforce this rule.
 
-- keep tracked edits uncommitted for as long as practical;
-- do not use commits on local `main` as routine checkpoints while another producer may advance remote `main`;
-- preserve unrelated foreign working state; do not reset, stash, clean, restore, or otherwise reclaim another task's work;
-- long builds, tests, research, review, and preparation may overlap;
-- linked worktrees may be used when they materially improve isolation, but are not a mandatory control plane.
+Compatibility is not a sufficient justification by itself. Preserve compatibility only for an identified current dependency or external contract.
 
-Path-disjointness is necessary but not always sufficient. If an intervening change modifies a shared schema, build/runtime configuration, public interface, canonical contract, or other semantic owner that can invalidate the task, treat it as overlapping even when file paths differ.
+## 3. Parallel work follows architecture boundaries
 
-## 4. Freshness lifecycle
+Flashnote allows parallel investigation, editing, build, and proof. Parallelism is organized by **independently convergent architecture/semantic ownership boundaries**, not by file count, frontend/backend/test layers, or the number of available executors.
 
-At task admission, read current `origin/main` and remember that commit as the task's evidence anchor. The anchor records where the task started; it does not freeze `main` for the duration of the work.
+A good parallel unit owns one coherent concern end-to-end and may touch UI, Go, persistence, tests, and docs when they belong to that concern. Avoid splitting one semantic change horizontally across layers when the units still depend on each other's reasoning or completion.
 
-Before finalization, fetch/read live `origin/main` again and inspect every intervening change relevant to the task.
+Before parallelizing, inspect the current repository and dependency/ownership graph. Path-disjointness helps but does not prove semantic independence. Shared schema, public interfaces, build/runtime configuration, canonical contracts, persistence semantics, or common state owners can couple otherwise different files.
 
-- If live `main` is not a descendant of the admission anchor, STOP.
-- If intervening work overlaps the task mutation/commit surface or directly changes its contract/evidence meaning, preserve the candidate and STOP.
-- If live `main` advanced monotonically and the intervening work is independently established as disjoint, refresh to that descendant with ordinary fast-forward semantics while preserving the task changes, then rerun the nearest verification whose validity could have changed.
-- Never infer semantic independence merely because Git reports no textual conflict.
+Preserve unrelated foreign working state. Do not reset, clean, stash, restore, move, or delete another task's work merely to simplify the current task.
 
-## 5. Finalization is the serialization point
+## 4. Verification cadence: nearest faithful proof
 
-Immediately before creating the task commit:
+Verification should be proportional to the demonstrated risk.
 
-1. read/fetch live `origin/main`;
-2. establish that any intervening change is an allowed disjoint descendant;
-3. require the task's final commit to be based directly on that live `main`;
-4. create exactly one bounded task commit;
-5. attempt exactly one non-force update of `refs/heads/main` to that exact commit;
-6. read/fetch remote again and prove that the exact task commit is contained in live `origin/main`.
+Default loop:
 
-Keep the interval between commit creation and publication as short as possible. Commit creation is part of publication finalization, not a long-lived reservation of history.
+1. reproduce or otherwise establish the current problem;
+2. implement the root-cause-complete change;
+3. run the **nearest faithful proof** that can falsify the intended fix;
+4. add or change regression coverage only when it protects a real contract or reproduced failure;
+5. stop when additional verification cannot materially change the claim.
 
-If another producer wins the race after the task commit is created, the non-force update must fail. Preserve the exact candidate and report `NOT_PUBLISHED`; do not repair ancestry inside the same task.
+Do not run broad native/package/release suites after every ordinary change. Full/canonical release qualification is a separate future frontier and should begin only when external distribution/release preparation is explicitly reopened.
 
-## 6. No topology-repair publication
+Behavioral PASS is necessary but not always sufficient. If a change alters semantic ownership or implementation shape, completion also requires lightweight structural-convergence evidence: one clear canonical owner, obsolete/parallel paths removed or justified, and any temporary coexistence tied to a real consumer plus an exit condition.
 
-Normal development must not turn publication contention into history integration.
+Treat `UNKNOWN` / `UNVERIFIED` as such; never upgrade it to `HEALTHY` merely because code, configuration, a secret name, a health endpoint, or a historical test exists.
 
-A task must not respond to a non-fast-forward or stale-base condition by creating a merge commit, rebasing, cherry-picking/replaying, squashing, resetting shared state, or force-pushing merely to make the candidate publishable.
+Tests are reviewed as production code. Remove or consolidate brittle, implementation-coupled, semantically duplicate, stale legacy-preserving, or unnecessarily broad tests when they no longer protect a meaningful contract.
 
-A multi-parent commit is not a valid contention-recovery artifact for normal direct-main development. If publication would require such an operation, the current task stops with the candidate preserved. Any later recovery is a separately admitted task derived from current repository truth, not an automatic continuation of the failed publication.
+### Native/UI data safety
 
-## 7. Web/GitHub API mutations
+All native/UI/acceptance/destructive/state-mutating automation must remain isolated from real user data. On macOS the default isolation mechanism is a fresh temporary `HOME`, producing the test database at:
 
-Web-based mutation differs from a local working tree because a normal file-update API may create a remote commit immediately.
+`<temporary HOME>/Library/Application Support/Flashnote/flashnote.db`
 
-For one bounded task that changes multiple files, do not advance `main` once per file. Prepare the complete file set first, build one Git tree, create one commit whose sole parent is the live `main` observed for finalization, then perform one non-force ref update.
+Never run such automation against the normal Flashnote data directory or real `flashnote.db`. A real-use process may use normal user data; automated mutating processes may not.
 
-If `main` moves before that ref update, publication fails closed. Do not rebuild or replay automatically in the same task.
+## 5. Handoff continuity: preserve semantics, not mechanics
 
-This keeps one bounded Web task equivalent to one local task commit and minimizes the remote-advance window seen by local work.
+A previous executor's branch, worktree, candidate ref, temporary path, CLI, session topology, launcher variables, tool choice, and similar mechanics are historical execution traces, not automatically inherited requirements.
 
-## 8. CI and automation publishers
+Before continuing prior work, normalize it into:
 
-A CI workflow that writes to `main` is a publication producer, not merely a verifier. Such workflows must:
+- semantic result / intended state transition;
+- valid proof and what it actually establishes;
+- unresolved blockers or residuals;
+- current repository/runtime evidence that must be rechecked.
 
-- publish only a bounded, already-validated candidate;
-- verify that live `main` is still the exact expected base immediately before commit/publication;
-- create at most one task commit for that candidate;
-- use non-force publication;
-- stop rather than merge/rebase/retry when the expected base has moved;
-- prove exact post-publication containment.
+Then derive the next execution mechanics from current repository truth. Reuse old mechanics only when they are still necessary for correctness, safety, preservation, proof, or publication.
 
-Prefer verification-only CI unless automatic source publication is materially necessary.
+Local handoffs are executor-neutral by default. They should be repository-aware and describe `OUTCOME`, `PRESERVE`, `PROOF`, and `ESCALATE ONLY IF` without assuming a specific coding agent, binary path, launcher topology, or permission syntax unless that capability is intrinsic to the task.
 
-## 9. Server-side defense in depth
+When reporting a completed or blocked development session, `FRICTION_OBSERVED` may contain 0–3 concrete friction candidates for later consideration. Reporting friction does not automatically open a new task.
 
-Repository policy should enforce **linear history** and **block force pushes** on `main` when available. Do not require a pull request merely to obtain these protections; Flashnote remains direct-main by default.
+## 6. Publication states: `SEMANTIC_READY` is not `PUBLISHABLE`
 
-Server rules are defense in depth. They do not replace task freshness, semantic-overlap checks, exact commit identity, or non-force publication.
+Flashnote uses direct-main single-trunk development. Feature branches and pull requests are not the default workflow.
 
-## 10. Escalation path
+Keep two concepts separate:
 
-Do not introduce a publication lock, lease, daemon, queue, or branch/PR control plane by default.
+- **`SEMANTIC_READY`**: the bounded semantic delta, relevant base context, proof owner/criterion, and proof result are known.
+- **`PUBLISHABLE`**: fresh remote authority additionally proves there is an immediate non-force fast-forward path from current `origin/main` to the exact candidate to publish, with candidate integrity/direct-impact still valid.
 
-Start with optimistic parallel work plus exact-base finalization. If repeated measured publication races among otherwise independent tasks become a material throughput loss, the next escalation is isolated candidate worktrees/refs with a deliberately serialized integration lane. Traditional PR/merge-queue or stacked-PR workflows are later options only if the scale of concurrent development justifies their ceremony.
+Remote ref movement alone does not invalidate completed semantic work or reusable proof.
 
-The system should optimize for productive parallel work while keeping `origin/main` linear, directly explainable, and free of self-created topology recovery.
+When the user authorizes a bounded repository mutation, that authorization includes the result's ordinary publication unless the user explicitly says `LOCAL_ONLY`, `no push`, `candidate only`, `commit only`, `PR 전까지만`, or gives an equivalent publication restriction. Do not ask for publication permission again after an already-authorized ordinary mutation task.
+
+A local or temporary candidate is not terminal success for a publication-intended task. Normal success ends with `COMPLETE / PUBLISHED`; otherwise report the precise non-publication disposition and preserve reusable work.
+
+## 7. Remote movement and just-in-time final binding
+
+At task start, read current `origin/main` as an evidence anchor. The anchor records where work began; it does not freeze repository truth.
+
+Immediately before publication, read live `origin/main` again and classify intervening movement by **semantic/proof impact**, not merely by SHA inequality or textual conflicts.
+
+- If the existing candidate is already a fast-forward descendant of current `origin/main`, publish that candidate after final integrity checks; do not rematerialize it.
+- If remote movement is topology-only for this task, preserve the semantic delta and reusable proof and perform only the minimum necessary **just-in-time final binding** to current `origin/main`.
+- If intervening work changes the task's semantic owner, contract, mutation meaning, or proof validity, inspect the direct impact and rerun only the proof whose validity could have changed. Stop when correctness cannot be established safely.
+- Do not rebuild, rebind, or recreate a semantically unchanged candidate merely because another writer published first.
+
+A just-in-time binding is publication preparation, not history repair. Do not use merge commits, force-pushes, or automatic chains of rebase/cherry-pick/replay as contention recovery.
+
+If `origin/main` advances again after one topology-only final binding attempt, preserve the semantic result/candidate and stop the rematerialization loop. Re-enter from fresh repository truth rather than repeatedly recreating candidates in the same task.
+
+## 8. Publication critical section
+
+Semantic development stays parallel; serialize only the short final publication critical section for writers targeting the same shared ref.
+
+Immediately before publishing:
+
+1. read live `origin/main`;
+2. establish candidate integrity and direct semantic/proof impact of intervening changes;
+3. perform at most the minimum necessary JIT final binding;
+4. create the exact bounded task commit directly from the admitted live base;
+5. perform one non-force fast-forward update of `refs/heads/main`;
+6. read remote again and prove the exact task commit is contained in live `origin/main`.
+
+For Web/GitHub-API mutation spanning multiple files, prepare the complete file set first, build one Git tree, create one task commit with the live `main` as its sole parent, then perform one non-force ref update. Do not advance `main` once per file.
+
+Do not introduce a lock, lease, daemon, queue, merge queue, or durable publication state machine by default. Explicit publication single-flight/serialization machinery is admitted only after repeated measured contention among otherwise independent writers causes material waste such as recurring non-fast-forward failures, repeated final rebinding/candidate recreation, publication starvation, or unnecessary proof reruns.
+
+## 9. CI, automation, and repository-side defense
+
+CI is verification-first. A workflow that writes to `main` is a publication producer and must follow the same bounded-candidate, fresh-authority, non-force, and read-back contract.
+
+Prefer server-side defense in depth when available:
+
+- require linear history on `main`;
+- block force pushes;
+- avoid requiring a pull request solely to obtain those protections while Flashnote remains direct-main.
+
+Server rules do not replace semantic-overlap checks, proof validity, candidate integrity, or fresh remote authority. If protection/ruleset state has not been directly read, report it as `UNKNOWN/UNVERIFIED`, not healthy.
+
+## 10. Review standard
+
+Review implementation results as strict pair programming, not as a pass/fail formality. Actively look for:
+
+- root cause left partially open;
+- unnecessary complexity or abstraction;
+- duplicate/parallel semantic owners;
+- stale fallback/compatibility paths;
+- over-broad or brittle tests;
+- missing regression proof for a real failure boundary;
+- proof that is much broader or more expensive than the claim requires.
+
+Use `BLOCKING`, `SHOULD FIX`, and `NICE TO HAVE` when severity improves actionability. Do not block forward progress on polish that cannot materially improve correctness, safety, semantic convergence, or maintainability.
 
 ## 11. Post-MVP personal-use operating mode
 
@@ -116,18 +171,17 @@ The canonical real-use launcher is `./Flashnote.command`. It must start one stab
 
 `wails3 dev` remains available only for active coding/debugging. Do not use it as the personal note-taking launcher while source files may change, especially while multiple development sessions are working concurrently.
 
-All native/UI/acceptance/destructive automation must remain isolated from real user data. The default macOS isolation mechanism is a fresh temporary `HOME`, producing a test database under `<temporary HOME>/Library/Application Support/Flashnote/flashnote.db`. Never run such automation against the user's normal Flashnote data directory or `flashnote.db`.
-
-The default development loop is now:
+The default development loop is:
 
 1. run the current source through the stable personal-use launcher;
 2. capture the first concrete defect or friction that materially interferes with personal use;
-3. reproduce and bound that single problem against current `origin/main` without touching real user data from automation;
+3. reproduce and bound that problem against current `origin/main` without touching real user data from automation;
 4. implement the smallest root-cause-complete fix;
-5. run the nearest relevant proof in isolation, then return to real use.
+5. run the nearest relevant proof in isolation;
+6. publish the bounded result under this contract and return to real use.
 
 Use the question **“Does this materially interfere with using Flashnote now?”** as the first frontier filter. Cosmetic or speculative improvements may be recorded, but they do not preempt an observed user-blocking defect.
 
 A newly observed data-loss or durability contradiction supersedes prior optimistic acceptance status for that exact failure family. Do not treat earlier GREEN package/runtime evidence as proof that a new real-use autosave failure is closed.
 
-Release-package and DMG workflows may remain in the repository as historical/manual evidence owners, but they must not run automatically on ordinary `main` pushes while distribution is inactive. Likewise, dependency/toolchain upgrades are not frontiers by themselves; open them only when required by an observed defect, security issue, or compatibility problem.
+Release-package and DMG workflows may remain in the repository as historical/manual evidence owners, but they must not run automatically on ordinary `main` pushes while distribution is inactive. Dependency/toolchain upgrades are not frontiers by themselves; open them only when required by an observed defect, security issue, or compatibility problem.
