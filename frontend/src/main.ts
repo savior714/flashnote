@@ -63,7 +63,9 @@ if (
   import.meta.env.VITE_FLASHNOTE_ACCEPTANCE_TEXT &&
   !import.meta.env.VITE_FLASHNOTE_DATA_SAFETY_ACCEPTANCE
 ) {
-  runMarkdownExportShortcutAcceptance()
+  void runMarkdownExportShortcutAcceptance().catch((error: unknown) => {
+    console.error('FLASHNOTE_ACCEPTANCE_FAILURE', error)
+  })
 }
 
 installAppContextMenuPolicy()

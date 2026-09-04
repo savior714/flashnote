@@ -32,6 +32,7 @@
 import { runNewNoteShortcutAcceptance } from './lib/newNoteShortcutAcceptance'
 import { runSidebarDragDropAcceptance } from './lib/sidebarDragDropAcceptance'
 import { exportCurrentNoteMarkdown } from './lib/export-shortcut'
+import { setMarkdownExportReadiness } from './lib/markdownExportGate'
 import { waitForSaveFlush } from './lib/save-flush-timeout'
 import {
   applyEditorFontSize,
@@ -1715,6 +1716,14 @@ import {
   }
 
   onMount(() => {
+    // Markdown export admission/readiness owner: single-note and library
+    // export both drain through this application-state boundary (never DOM)
+    // before entering the backend SQLite-owned export.
+    setMarkdownExportReadiness({
+      isTrashView: () => trashView,
+      currentNormalNoteId: () => noteID,
+      flushCurrentDraft: () => flushPendingSave(),
+    })
     window.addEventListener('keydown', handleGlobalKeydown)
     window.addEventListener('click', handleWindowClick)
     cleanupSettingsListener = initSettingsListener(() => settings.appearance)
@@ -1724,6 +1733,7 @@ import {
     })
 
     return () => {
+      setMarkdownExportReadiness(null)
       clearSaveTimer()
       clearRetryTimer()
       clearUndoTimer()

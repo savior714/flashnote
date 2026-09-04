@@ -1,9 +1,19 @@
 import { ExportCurrentNoteMarkdown } from '../../bindings/github.com/savior714/flashnote/exportservice'
+import {
+  isSingleNoteExportAdmitted,
+  isSingleNoteExportInFlight,
+  requestSingleNoteExport,
+  resetMarkdownExportGateForTest,
+  setMarkdownExportReadiness,
+} from './markdownExportGate'
 
 type MarkdownExporter = () => Promise<boolean>
 
-let exportInFlight = false
 let markdownExporter: MarkdownExporter = ExportCurrentNoteMarkdown
+
+export function setSingleNoteExporterForTest(exporter: MarkdownExporter | null): void {
+  markdownExporter = exporter ?? ExportCurrentNoteMarkdown
+}
 
 function isMarkdownExportShortcut(event: KeyboardEvent): boolean {
   const modifier = navigator.platform.toLowerCase().includes('mac') ? event.metaKey : event.ctrlKey
@@ -14,19 +24,21 @@ function handleMarkdownExportShortcut(event: KeyboardEvent) {
   if (!isMarkdownExportShortcut(event)) {
     return
   }
-  if (document.querySelector('.trash-row.active') || exportInFlight) {
+  // Admission comes from application state owned by markdownExportGate
+  // (registered by App.svelte), never from DOM discovery, so Trash stays
+  // denied while the sidebar is hidden and a valid hidden-sidebar normal
+  // note stays admitted.
+  if (isSingleNoteExportInFlight() || !isSingleNoteExportAdmitted()) {
     return
   }
 
   event.preventDefault()
-  exportInFlight = true
-  void markdownExporter()
-    .catch((error: unknown) => {
-      console.error('Flashnote Markdown export failed', error)
-    })
-    .finally(() => {
-      exportInFlight = false
-    })
+  // requestSingleNoteExport owns single-flight across the durability flush
+  // plus the backend export: the backend exporter runs exactly once and
+  // only after the required current-draft flush succeeds.
+  void requestSingleNoteExport(() => markdownExporter()).catch((error: unknown) => {
+    console.error('Flashnote Markdown export failed', error)
+  })
 }
 
 export function installMarkdownExportShortcut() {
@@ -34,20 +46,17 @@ export function installMarkdownExportShortcut() {
 }
 
 export function isExportInFlight(): boolean {
-  return exportInFlight
+  return isSingleNoteExportInFlight()
 }
 
 export async function exportCurrentNoteMarkdown(): Promise<void> {
-  if (document.querySelector('.trash-row.active') || exportInFlight) {
+  if (isSingleNoteExportInFlight() || !isSingleNoteExportAdmitted()) {
     return
   }
-  exportInFlight = true
   try {
-    await markdownExporter()
+    await requestSingleNoteExport(() => markdownExporter())
   } catch (error: unknown) {
     console.error('Flashnote Markdown export failed', error)
-  } finally {
-    exportInFlight = false
   }
 }
 
@@ -71,20 +80,38 @@ function acceptanceKeyEvent(
   })
 }
 
-export function runMarkdownExportShortcutAcceptance(): void {
+function acceptanceTick(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0)
+  })
+}
+
+export async function runMarkdownExportShortcutAcceptance(): Promise<void> {
   const originalExporter = markdownExporter
-  const originalInFlight = exportInFlight
   const isMac = navigator.platform.toLowerCase().includes('mac')
   const primaryModifier = isMac ? { metaKey: true } : { ctrlKey: true }
+  resetMarkdownExportGateForTest()
+
+  let trashView = false
+  let currentNoteID = 'acceptance-note'
+  let flushShouldSucceed = true
+  let flushCallCount = 0
   const pendingExport = new Promise<boolean>(() => {})
   let exportCallCount = 0
   const getExportCallCount = (): number => exportCallCount
 
+  setMarkdownExportReadiness({
+    isTrashView: () => trashView,
+    currentNormalNoteId: () => currentNoteID,
+    flushCurrentDraft: () => {
+      flushCallCount += 1
+      return Promise.resolve(flushShouldSucceed)
+    },
+  })
   markdownExporter = () => {
     exportCallCount += 1
     return pendingExport
   }
-  exportInFlight = false
   window.addEventListener('keydown', handleMarkdownExportShortcut)
 
   try {
@@ -96,6 +123,7 @@ export function runMarkdownExportShortcutAcceptance(): void {
     ]
     for (const event of negativeEvents) {
       window.dispatchEvent(event)
+      await acceptanceTick()
       if (event.defaultPrevented || getExportCallCount() !== 0) {
         throw new Error('acceptance single-note export: invalid modifier unexpectedly triggered export')
       }
@@ -103,33 +131,61 @@ export function runMarkdownExportShortcutAcceptance(): void {
 
     const firstExport = acceptanceKeyEvent('e', { ...primaryModifier, shiftKey: true })
     window.dispatchEvent(firstExport)
-    if (!firstExport.defaultPrevented || getExportCallCount() !== 1 || !exportInFlight) {
+    await acceptanceTick()
+    await acceptanceTick()
+    if (!firstExport.defaultPrevented || getExportCallCount() !== 1 || !isSingleNoteExportInFlight()) {
       throw new Error('acceptance single-note export: Cmd/Ctrl+Shift+E did not enter the export boundary exactly once')
+    }
+    if (flushCallCount !== 1) {
+      throw new Error('acceptance single-note export: backend exporter was entered before the required flush')
     }
 
     const duplicateExport = acceptanceKeyEvent('e', { ...primaryModifier, shiftKey: true })
     window.dispatchEvent(duplicateExport)
+    await acceptanceTick()
     if (getExportCallCount() !== 1) {
       throw new Error('acceptance single-note export: in-flight shortcut triggered a duplicate export')
     }
 
-    exportInFlight = false
-    const trashMarker = document.createElement('div')
-    trashMarker.className = 'trash-row active'
-    document.body.appendChild(trashMarker)
-    try {
-      const trashExport = acceptanceKeyEvent('e', { ...primaryModifier, shiftKey: true })
-      window.dispatchEvent(trashExport)
-      if (trashExport.defaultPrevented || getExportCallCount() !== 1) {
-        throw new Error('acceptance single-note export: Trash state did not block the shortcut')
-      }
-    } finally {
-      trashMarker.remove()
+    // Trash admission comes from application state. No sidebar marker is
+    // mounted here by design: hiding the sidebar (or never mounting it)
+    // must not change the verdict.
+    resetMarkdownExportGateForTest()
+    trashView = true
+    setMarkdownExportReadiness({
+      isTrashView: () => trashView,
+      currentNormalNoteId: () => currentNoteID,
+      flushCurrentDraft: () => {
+        flushCallCount += 1
+        return Promise.resolve(true)
+      },
+    })
+    const callsBeforeTrash = getExportCallCount()
+    const trashExport = acceptanceKeyEvent('e', { ...primaryModifier, shiftKey: true })
+    window.dispatchEvent(trashExport)
+    await acceptanceTick()
+    if (trashExport.defaultPrevented || getExportCallCount() !== callsBeforeTrash) {
+      throw new Error('acceptance single-note export: Trash state did not block the shortcut')
     }
 
+    // A valid hidden-sidebar normal note stays admitted: no sidebar or
+    // trash marker is mounted, yet admission plus flush releases export.
+    resetMarkdownExportGateForTest()
+    trashView = false
+    flushShouldSucceed = true
+    setMarkdownExportReadiness({
+      isTrashView: () => trashView,
+      currentNormalNoteId: () => currentNoteID,
+      flushCurrentDraft: () => {
+        flushCallCount += 1
+        return Promise.resolve(flushShouldSucceed)
+      },
+    })
     const reusableExport = acceptanceKeyEvent('e', { ...primaryModifier, shiftKey: true })
     window.dispatchEvent(reusableExport)
-    if (!reusableExport.defaultPrevented || getExportCallCount() !== 2) {
+    await acceptanceTick()
+    await acceptanceTick()
+    if (!reusableExport.defaultPrevented || getExportCallCount() !== callsBeforeTrash + 1) {
       throw new Error('acceptance single-note export: shortcut did not become reusable after the in-flight state cleared')
     }
 
@@ -137,6 +193,6 @@ export function runMarkdownExportShortcutAcceptance(): void {
   } finally {
     window.removeEventListener('keydown', handleMarkdownExportShortcut)
     markdownExporter = originalExporter
-    exportInFlight = originalInFlight
+    resetMarkdownExportGateForTest()
   }
 }
