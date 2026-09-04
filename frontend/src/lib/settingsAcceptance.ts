@@ -173,6 +173,116 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // B2. SETTINGS MODAL FOCUS LIFECYCLE PROOF
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    const focusInvoker =
+      document.querySelector<HTMLElement>('.title') ??
+      document.querySelector<HTMLElement>('.prose-editor')
+    if (!focusInvoker) {
+      throw new Error('acceptance: no focusable editor element available for Settings focus proof')
+    }
+    focusInvoker.focus()
+    await tick()
+    await delay(20)
+    if (document.activeElement !== focusInvoker) {
+      throw new Error('acceptance: could not place initial focus on the editor element')
+    }
+    const docJSONBeforeFocusProof = JSON.stringify(editor.getJSON())
+
+    // A. INITIAL FOCUS: open through the real shortcut path (which itself
+    // moves no focus) and prove focus transfers into the modal.
+    dispatchKey(window, ',', primaryModifier)
+    await tick()
+    await delay(50)
+    dialog = document.querySelector<HTMLElement>('.settings-dialog')
+    if (!dialog) {
+      throw new Error('acceptance: failed to open Settings for focus lifecycle proof')
+    }
+    if (!dialog.contains(document.activeElement)) {
+      throw new Error('acceptance: opening Settings did not move focus into the modal')
+    }
+    if (document.activeElement === focusInvoker) {
+      throw new Error('acceptance: background editor element remained the keyboard target after opening Settings')
+    }
+
+    function settingsTabbables(): HTMLElement[] {
+      const root = document.querySelector<HTMLElement>('.settings-dialog')
+      if (!root) {
+        return []
+      }
+      return Array.from(
+        root.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => el.getClientRects().length > 0)
+    }
+
+    // B. TAB CONTAINMENT: Tab from the last boundary must wrap inside,
+    // proved by interception (defaultPrevented) and not by markup alone.
+    const tabbables = settingsTabbables()
+    if (tabbables.length < 2) {
+      throw new Error(`acceptance: expected at least 2 tabbable Settings controls, got ${tabbables.length}`)
+    }
+    const firstTabbable = tabbables[0]
+    const lastTabbable = tabbables[tabbables.length - 1]
+    lastTabbable.focus()
+    await tick()
+    await delay(20)
+    const tabEvent = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+    lastTabbable.dispatchEvent(tabEvent)
+    await tick()
+    await delay(20)
+    if (!tabEvent.defaultPrevented) {
+      throw new Error('acceptance: Tab from the last Settings control was not contained')
+    }
+    if (document.activeElement !== firstTabbable) {
+      throw new Error('acceptance: Tab from the last Settings control did not wrap inside the modal')
+    }
+
+    // Shift+Tab from the first boundary must likewise wrap inside.
+    firstTabbable.focus()
+    await tick()
+    await delay(20)
+    const shiftTabEvent = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      bubbles: true,
+      cancelable: true,
+      shiftKey: true,
+    })
+    firstTabbable.dispatchEvent(shiftTabEvent)
+    await tick()
+    await delay(20)
+    if (!shiftTabEvent.defaultPrevented) {
+      throw new Error('acceptance: Shift+Tab from the first Settings control was not contained')
+    }
+    if (document.activeElement !== lastTabbable) {
+      throw new Error('acceptance: Shift+Tab from the first Settings control did not wrap inside the modal')
+    }
+
+    // C. CLOSE RESTORATION: ordinary close-button close must restore focus
+    // to the invoking element while it still exists.
+    const focusCloseBtn = dialog.querySelector<HTMLButtonElement>('.settings-close-button')
+    if (!focusCloseBtn) {
+      throw new Error('acceptance: Settings close button missing for focus restoration proof')
+    }
+    focusCloseBtn.click()
+    await tick()
+    await delay(50)
+    if (document.querySelector('.settings-dialog') !== null) {
+      throw new Error('acceptance: Settings dialog failed to close during focus restoration proof')
+    }
+    if (document.activeElement !== focusInvoker) {
+      throw new Error('acceptance: closing Settings did not restore focus to the invoking element')
+    }
+
+    // D. FOCUS-NAVIGATION REGRESSION: merely opening/navigating/closing
+    // Settings must not mutate the document.
+    if (JSON.stringify(editor.getJSON()) !== docJSONBeforeFocusProof) {
+      throw new Error('acceptance: Settings focus navigation mutated document JSON')
+    }
+    console.log('FLASHNOTE_SETTINGS_FOCUS_LIFECYCLE_ACCEPTANCE_SUCCESS')
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // C. SEARCH REGRESSION PROOF
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Cmd/Ctrl+K must open search, not settings

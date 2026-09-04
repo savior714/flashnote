@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy, onMount, tick } from 'svelte'
   import { exportLibraryMarkdown } from './libraryExport'
   import {
     type AppearanceMode,
@@ -18,6 +19,84 @@
 
   let exportStatus = $state<'' | 'exporting' | 'success' | 'error'>('')
   let exportMessage = $state('')
+
+  // SettingsDialog owns its own modal focus lifecycle: the element focused
+  // before open (for close-time restoration), the dialog root (for
+  // open-time focus transfer), and Tab/Shift+Tab containment while mounted.
+  let dialogEl = $state<HTMLDivElement | null>(null)
+  let previouslyFocused: HTMLElement | null = null
+
+  function tabbableInDialog(): HTMLElement[] {
+    if (!dialogEl) {
+      return []
+    }
+    const candidates = Array.from(
+      dialogEl.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    )
+    return candidates.filter((el) => el.getClientRects().length > 0)
+  }
+
+  function containTab(event: KeyboardEvent) {
+    if (event.key !== 'Tab' || !dialogEl) {
+      return
+    }
+    const tabbables = tabbableInDialog()
+    if (tabbables.length === 0) {
+      event.preventDefault()
+      event.stopPropagation()
+      dialogEl.focus({ preventScroll: true })
+      return
+    }
+    const first = tabbables[0]
+    const last = tabbables[tabbables.length - 1]
+    const active = document.activeElement as HTMLElement | null
+    if (event.shiftKey) {
+      if (active === first || active === dialogEl || !dialogEl.contains(active)) {
+        event.preventDefault()
+        event.stopPropagation()
+        last.focus({ preventScroll: true })
+      }
+    } else if (active === last || !dialogEl.contains(active)) {
+      event.preventDefault()
+      event.stopPropagation()
+      first.focus({ preventScroll: true })
+    }
+  }
+
+  function isStillFocusable(el: HTMLElement): boolean {
+    if (!document.contains(el)) {
+      return false
+    }
+    if ((el as HTMLButtonElement).disabled === true) {
+      return false
+    }
+    return typeof el.focus === 'function'
+  }
+
+  onMount(() => {
+    previouslyFocused = document.activeElement as HTMLElement | null
+    // Dialog-owned containment: a document-level listener registered only for
+    // this dialog's mounted lifetime, so Tab from any focused element
+    // (including the dialog root or a backdrop click target) stays inside.
+    document.addEventListener('keydown', containTab, true)
+    void tick().then(() => {
+      dialogEl?.focus({ preventScroll: true })
+    })
+  })
+
+  onDestroy(() => {
+    document.removeEventListener('keydown', containTab, true)
+    if (previouslyFocused && isStillFocusable(previouslyFocused)) {
+      try {
+        previouslyFocused.focus({ preventScroll: true })
+      } catch {
+        // Restoration is best-effort; a stale invoker must not break close.
+      }
+    }
+    previouslyFocused = null
+  })
 
   function handleAppearanceChange(mode: AppearanceMode) {
     onUpdate((prev) => ({ ...prev, appearance: mode }))
@@ -81,6 +160,7 @@
   onkeydown={handleDialogKeydown}
 >
   <div
+    bind:this={dialogEl}
     class="settings-dialog"
     role="dialog"
     aria-modal="true"
