@@ -103,7 +103,11 @@ Remote ref movement alone does not invalidate completed semantic work or reusabl
 
 When the user authorizes a bounded repository mutation, that authorization includes the result's ordinary publication unless the user explicitly says `LOCAL_ONLY`, `no push`, `candidate only`, `commit only`, `PR 전까지만`, or gives an equivalent publication restriction. Do not ask for publication permission again after an already-authorized ordinary mutation task.
 
+Semantic authorization and runtime permission are distinct. An already-authorized bounded mutation's ordinary publication remains semantically authorized; an OpenCode/runtime `ask` prompt is a mechanical permission gate, not a reopening of that semantic decision. Do not add a second conversational confirmation when the runtime itself can surface its permission request. `git push*` remains `ask` in runtime permission config and is not broadened by this rule. Rebase/checkout are not ordinary Flashnote publication mechanics and remain ask-gated.
+
 A local or temporary candidate is not terminal success for a publication-intended task. Normal success ends with `COMPLETE / PUBLISHED`; otherwise report the precise non-publication disposition and preserve reusable work.
+
+Never present `SEMANTIC_READY` as `COMPLETE`/`PUBLISHED`. On a publication stop, report `DISPOSITION: SEMANTIC_READY / NOT PUBLISHED` with the reusable semantic delta/proof, the exact resume condition, and the next semantic action. Do not require a candidate ref or executor-specific exact command when one is not intrinsically needed to resume.
 
 ## 7. Remote movement and just-in-time final binding
 
