@@ -50,6 +50,15 @@ export function setMarkdownExportReadiness(next: MarkdownExportReadiness | null)
   readiness = next
 }
 
+// Test-only accessor so Settings acceptance can install a deterministic
+// readiness for its UI proof (success/error feedback, single request,
+// in-flight suppression) without racing the real App autosave flush, then
+// restore the live App registration. Production export still flows through
+// requestLibraryExport/requestSingleNoteExport and remains fail-closed.
+export function getMarkdownExportReadinessForTest(): MarkdownExportReadiness | null {
+  return readiness
+}
+
 // Resolves the single admitted normal-note identity, or null when no
 // unambiguous current-note export may proceed (no provider, Trash,
 // active transition, or no normal note open).

@@ -25,6 +25,7 @@
     acceptanceText?: string
     editable?: boolean
     onAcceptanceReady?: () => void
+    onAcceptanceFailed?: (error: unknown) => void
   }
 
   let {
@@ -33,6 +34,7 @@
     acceptanceText = '',
     editable = true,
     onAcceptanceReady,
+    onAcceptanceFailed,
   }: Props = $props()
   let element!: HTMLDivElement
   let bubbleElement!: HTMLDivElement
@@ -335,6 +337,15 @@
           })
           .catch((error) => {
             console.error('FLASHNOTE_EDITOR_ACCEPTANCE_FAILURE', error)
+            // Terminal acceptance failure: success-only onAcceptanceReady
+            // would otherwise leave the native app alive until an external
+            // timeout. Emit the existing pipeline failure marker so the
+            // native runner can distinguish this from success, then hand
+            // control to the App-owned fail-fast close. Ordinary
+            // non-acceptance behavior is untouched (this branch only runs
+            // when acceptanceText is set).
+            console.error('FLASHNOTE_ACCEPTANCE_FAILURE', error)
+            onAcceptanceFailed?.(error)
           })
       })
     }

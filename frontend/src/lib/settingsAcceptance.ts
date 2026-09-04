@@ -2,6 +2,10 @@ import type { Editor } from '@tiptap/core'
 import { tick } from 'svelte'
 import { setLibraryExporterForTest } from './libraryExport'
 import {
+  getMarkdownExportReadinessForTest,
+  setMarkdownExportReadiness,
+} from './markdownExportGate'
+import {
   applyEditorFontSize,
   applyTheme,
   DEFAULT_SETTINGS,
@@ -485,8 +489,30 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
       throw new Error(`acceptance: unexpected export button label: "${exportButton.textContent}"`)
     }
 
+    // Settings export UI proof is isolated from the real App autosave race.
+    // Production still flows through requestLibraryExport (fail-closed on
+    // flush failure); here we install a deterministic readiness so the UI
+    // contract — one request, in-flight disabled, duplicate suppression,
+    // success/error feedback — completes without depending on accidental
+    // draft/flush timing. Readiness/order/fail-closed semantics remain owned
+    // by markdown-export-gate unit tests.
+    const liveReadiness = getMarkdownExportReadinessForTest()
+    const deterministicSuccessReadiness = {
+      isTrashView: () => false,
+      currentNormalNoteId: () => 'settings-acceptance-note',
+      isNoteTransitionActive: () => false,
+      flushCurrentDraft: () => Promise.resolve(true),
+    }
+    const deterministicBlockedReadiness = {
+      isTrashView: () => false,
+      currentNormalNoteId: () => 'settings-acceptance-note',
+      isNoteTransitionActive: () => false,
+      flushCurrentDraft: () => Promise.resolve(false),
+    }
+
     let exportCallCount = 0
     let resolveExport!: (path: string) => void
+    setMarkdownExportReadiness(deterministicSuccessReadiness)
     setLibraryExporterForTest(() => {
       exportCallCount++
       return new Promise<string>((resolve) => {
@@ -526,8 +552,35 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
       if (!feedbackEl || !feedbackEl.textContent?.includes('successfully')) {
         throw new Error(`acceptance: export success feedback missing or incorrect: "${feedbackEl?.textContent}"`)
       }
+
+      // Error feedback: a fail-closed flush must surface as an explicit
+      // error without invoking the exporter behind the gate and without
+      // leaving the button stuck disabled.
+      setMarkdownExportReadiness(deterministicBlockedReadiness)
+      let blockedExporterCalls = 0
+      setLibraryExporterForTest(() => {
+        blockedExporterCalls++
+        return Promise.resolve('/path/to/exported-library')
+      })
+      exportButton.click()
+      await tick()
+      await delay(40)
+
+      if (blockedExporterCalls !== 0) {
+        throw new Error(`acceptance: blocked flush unexpectedly invoked exporter (${blockedExporterCalls})`)
+      }
+      if (exportButton.disabled) {
+        throw new Error('acceptance: export button remained disabled after blocked export')
+      }
+      const blockedFeedbackEl = dialog.querySelector<HTMLElement>('.export-feedback.is-error')
+      if (!blockedFeedbackEl || !blockedFeedbackEl.textContent?.includes('could not be durably saved')) {
+        throw new Error(
+          `acceptance: export blocked feedback missing or incorrect: "${blockedFeedbackEl?.textContent}"`,
+        )
+      }
     } finally {
       setLibraryExporterForTest(null)
+      setMarkdownExportReadiness(liveReadiness)
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

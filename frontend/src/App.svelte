@@ -1830,10 +1830,32 @@ import {
           console.log('FLASHNOTE_ACCEPTANCE_FULL_PIPELINE_SUCCESS')
           await Window.Close()
         } catch (error) {
+          // Terminal pipeline failure: close promptly so the native runner
+          // sees a terminal state instead of waiting for its external
+          // timeout. Success remains the only path that logs
+          // FULL_PIPELINE_SUCCESS.
           console.error('FLASHNOTE_ACCEPTANCE_FAILURE', error)
+          try {
+            await Window.Close()
+          } catch (closeError) {
+            console.error('FLASHNOTE_ACCEPTANCE_FAILURE', closeError)
+          }
         }
       })()
     }, 200)
+  }
+
+  function handleAcceptanceFailed(_error: unknown) {
+    // Early editor acceptance failure (runSlashAcceptance or its checklist
+    // continuation rejected before onAcceptanceReady). The editor already
+    // emitted FLASHNOTE_ACCEPTANCE_FAILURE; close promptly for the same
+    // terminal-failure contract. Ordinary non-acceptance behavior is
+    // untouched: this handler is only reachable when acceptanceText set up
+    // the editor acceptance run.
+    editorAcceptanceConsumed = true
+    void Window.Close().catch((closeError: unknown) => {
+      console.error('FLASHNOTE_ACCEPTANCE_FAILURE', closeError)
+    })
   }
 
   async function initialise() {
@@ -2380,6 +2402,7 @@ import {
             acceptanceText={editorAcceptanceConsumed ? '' : acceptanceText}
             editable={!noteTransitionActive}
             onAcceptanceReady={handleAcceptanceReady}
+            onAcceptanceFailed={handleAcceptanceFailed}
           />
         {/key}
         {#if saveError}
