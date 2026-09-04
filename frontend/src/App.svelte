@@ -304,6 +304,7 @@ import {
     createMenuOpen = false
     moveMenuNoteID = ''
     moreMenuOpen = false
+    trashMoreMenuOpen = false
     closeSearch()
     settingsOpen = true
   }
@@ -323,6 +324,7 @@ import {
     createMenuOpen = false
     moveMenuNoteID = ''
     moreMenuOpen = false
+    trashMoreMenuOpen = false
     closeSettings()
     searchOpen = true
     searchQuery = ''
@@ -510,6 +512,7 @@ import {
     createMenuOpen = false
     moveMenuNoteID = ''
     moreMenuOpen = false
+    trashMoreMenuOpen = false
     clearNoteDrag()
     if (folderNaming) {
       folderNaming = false
@@ -577,6 +580,7 @@ import {
     createMenuOpen = false
     moveMenuNoteID = ''
     moreMenuOpen = false
+    trashMoreMenuOpen = false
     noteTransitionActive = true
     operationError = ''
     try {
