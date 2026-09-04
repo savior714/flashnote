@@ -1,8 +1,6 @@
 name: Native scaffold acceptance
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
