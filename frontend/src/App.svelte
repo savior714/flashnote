@@ -1251,8 +1251,35 @@ import {
     }
   }
 
+  // App-owned blocking confirmations (destructive/close) take precedence over
+  // global navigation/application shortcuts. While any of these is unresolved,
+  // Cmd/Ctrl+N, Cmd/Ctrl+K, Cmd/Ctrl+, and Cmd/Ctrl+\ must not mutate or
+  // navigate the underlying application state.
+  function isBlockingConfirmationActive(): boolean {
+    return (
+      noteDeleteTargetID !== '' ||
+      folderDeleteTargetID !== '' ||
+      permanentDeleteTargetID !== '' ||
+      permanentDeleteFolderTargetID !== '' ||
+      emptyTrashConfirmVisible ||
+      closePromptVisible
+    )
+  }
+
   function handleGlobalKeydown(event: KeyboardEvent) {
     const modifier = event.metaKey || event.ctrlKey
+
+    if (modifier && !event.shiftKey && !event.altKey && isBlockingConfirmationActive()) {
+      const key = event.key
+      const isNewNoteShortcut = !event.isComposing && key.toLowerCase() === 'n'
+      const isSearchShortcut = !event.isComposing && key.toLowerCase() === 'k'
+      const isSettingsShortcut = key === ','
+      const isSidebarShortcut = key === '\\'
+      if (isNewNoteShortcut || isSearchShortcut || isSettingsShortcut || isSidebarShortcut) {
+        event.preventDefault()
+        return
+      }
+    }
 
     if (modifier && !event.shiftKey && !event.altKey && !event.isComposing && event.key.toLowerCase() === 'n') {
       event.preventDefault()
@@ -1570,8 +1597,131 @@ import {
     if (!stillInFolderIDs.includes(expectedID)) {
       throw new Error('acceptance note was trashed before confirmation')
     }
+
+    // BLOCKING-CONFIRMATION-SHORTCUT-GUARD-01: while this real "Move note to
+    // Trash?" confirmation is open, global app shortcuts must neither mutate
+    // nor navigate the underlying application state.
+    const guardNoteIDBefore = noteID
+    const guardSidebarBefore = sidebarVisible
+    const guardIsMac = typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac')
+    const dispatchGuardShortcut = (key: string): KeyboardEvent => {
+      const guardEvent = new KeyboardEvent('keydown', {
+        key,
+        bubbles: true,
+        cancelable: true,
+        metaKey: guardIsMac,
+        ctrlKey: !guardIsMac,
+      })
+      window.dispatchEvent(guardEvent)
+      return guardEvent
+    }
+    const [guardRootBefore] = (await ListRootNotes()) as [string[], string[]]
+    const [guardFolderBefore] = (await ListFolderNotes(folderID)) as [string[], string[]]
+    const assertGuardHeld = async (label: string): Promise<void> => {
+      await tick()
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      if (noteDeleteTargetID !== expectedID || !document.getElementById('trash-note-title')) {
+        throw new Error(`acceptance blocking-guard: confirmation did not stay open through ${label}`)
+      }
+      if (noteID !== guardNoteIDBefore) {
+        throw new Error(`acceptance blocking-guard: ${label} changed the current note`)
+      }
+    }
+
+    const guardNewNoteEvent = dispatchGuardShortcut('n')
+    if (!guardNewNoteEvent.defaultPrevented) {
+      throw new Error('acceptance blocking-guard: Cmd/Ctrl+N was not suppressed')
+    }
+    await assertGuardHeld('Cmd/Ctrl+N')
+    const [guardRootAfterN] = (await ListRootNotes()) as [string[], string[]]
+    const [guardFolderAfterN] = (await ListFolderNotes(folderID)) as [string[], string[]]
+    if (
+      guardRootAfterN.length !== guardRootBefore.length ||
+      guardFolderAfterN.length !== guardFolderBefore.length
+    ) {
+      throw new Error('acceptance blocking-guard: Cmd/Ctrl+N created a note behind the confirmation')
+    }
+
+    const guardSearchEvent = dispatchGuardShortcut('k')
+    if (!guardSearchEvent.defaultPrevented) {
+      throw new Error('acceptance blocking-guard: Cmd/Ctrl+K was not suppressed')
+    }
+    await assertGuardHeld('Cmd/Ctrl+K')
+    if (searchOpen || document.querySelector('.search-dialog') !== null) {
+      throw new Error('acceptance blocking-guard: Cmd/Ctrl+K opened Search behind the confirmation')
+    }
+
+    const guardSettingsEvent = dispatchGuardShortcut(',')
+    if (!guardSettingsEvent.defaultPrevented) {
+      throw new Error('acceptance blocking-guard: Cmd/Ctrl+, was not suppressed')
+    }
+    await assertGuardHeld('Cmd/Ctrl+,')
+    if (settingsOpen || document.querySelector('.settings-dialog') !== null) {
+      throw new Error('acceptance blocking-guard: Cmd/Ctrl+, opened Settings behind the confirmation')
+    }
+
+    const guardSidebarEvent = dispatchGuardShortcut('\\')
+    if (!guardSidebarEvent.defaultPrevented) {
+      throw new Error('acceptance blocking-guard: Cmd/Ctrl+\\ was not suppressed')
+    }
+    await assertGuardHeld('Cmd/Ctrl+\\')
+    if (sidebarVisible !== guardSidebarBefore) {
+      throw new Error('acceptance blocking-guard: Cmd/Ctrl+\\ changed sidebar visibility behind the confirmation')
+    }
+    console.log('FLASHNOTE_BLOCKING_CONFIRMATION_SHORTCUT_GUARD_SUCCESS')
+
     noteDeleteTargetID = ''
     await tick()
+
+    // Guard released: ordinary shortcuts work again (non-mutating representatives).
+    const guardSearchReopen = dispatchGuardShortcut('k')
+    if (!guardSearchReopen.defaultPrevented) {
+      throw new Error('acceptance blocking-guard: Cmd/Ctrl+K was not handled after confirmation resolved')
+    }
+    const guardSearchStart = Date.now()
+    while (Date.now() - guardSearchStart < 4000) {
+      await tick()
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      const guardSearchInput = document.querySelector<HTMLInputElement>('.search-input')
+      if (guardSearchInput && document.activeElement === guardSearchInput) {
+        break
+      }
+    }
+    const guardSearchInput = document.querySelector<HTMLInputElement>('.search-input')
+    if (!guardSearchInput || document.activeElement !== guardSearchInput) {
+      throw new Error('acceptance blocking-guard: Search did not open after confirmation resolved')
+    }
+    const guardSearchEscape = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    })
+    guardSearchInput.dispatchEvent(guardSearchEscape)
+    await tick()
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    if (!guardSearchEscape.defaultPrevented || document.querySelector('.search-dialog') !== null) {
+      throw new Error('acceptance blocking-guard: Search did not dismiss after confirmation resolved')
+    }
+
+    const guardSidebarHide = dispatchGuardShortcut('\\')
+    if (!guardSidebarHide.defaultPrevented) {
+      throw new Error('acceptance blocking-guard: Cmd/Ctrl+\\ was not handled after confirmation resolved')
+    }
+    await tick()
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    if (sidebarVisible === guardSidebarBefore) {
+      throw new Error('acceptance blocking-guard: sidebar did not toggle after confirmation resolved')
+    }
+    const guardSidebarRestore = dispatchGuardShortcut('\\')
+    if (!guardSidebarRestore.defaultPrevented) {
+      throw new Error('acceptance blocking-guard: Cmd/Ctrl+\\ restore was not handled after confirmation resolved')
+    }
+    await tick()
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    if (sidebarVisible !== guardSidebarBefore) {
+      throw new Error('acceptance blocking-guard: sidebar did not restore after confirmation resolved')
+    }
+    console.log('FLASHNOTE_BLOCKING_GUARD_RELEASE_SUCCESS')
 
     await MoveNoteToTrash(expectedID)
     const [trashIDs] = (await ListTrashNotes()) as [string[], string[]]
