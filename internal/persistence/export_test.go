@@ -30,15 +30,15 @@ func TestSingleNoteMarkdownExportIncludesTitleBodyAndImage(t *testing.T) {
 		t.Fatalf("SaveNote() error = %v", err)
 	}
 
-	targetID, filename, err := store.CurrentNoteExportTarget(ctx)
+	targetID, filename, err := store.ExactNoteExportTarget(ctx, note.ID)
 	if err != nil {
-		t.Fatalf("CurrentNoteExportTarget() error = %v", err)
+		t.Fatalf("ExactNoteExportTarget() error = %v", err)
 	}
 	if targetID != note.ID {
-		t.Fatalf("CurrentNoteExportTarget() id = %q, want %q", targetID, note.ID)
+		t.Fatalf("ExactNoteExportTarget() id = %q, want %q", targetID, note.ID)
 	}
 	if filename != "Plan_ Q3_Review_.md" {
-		t.Fatalf("CurrentNoteExportTarget() filename = %q", filename)
+		t.Fatalf("ExactNoteExportTarget() filename = %q", filename)
 	}
 
 	exportDir := t.TempDir()
@@ -100,6 +100,55 @@ func TestSingleNoteMarkdownExportUsesExactRequestedNote(t *testing.T) {
 	}
 	if !strings.Contains(string(markdown), "# First") || strings.Contains(string(markdown), "Second") {
 		t.Fatalf("export did not preserve exact requested note:\n%s", markdown)
+	}
+}
+
+func TestExactNoteExportTargetIgnoresPersistedPointer(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "flashnote.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	admitted, _, err := store.OpenInitialNote(ctx)
+	if err != nil {
+		t.Fatalf("OpenInitialNote() error = %v", err)
+	}
+	if _, err := store.SaveNote(ctx, admitted.ID, "Admitted", `{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"admitted body"}]}]}}`, admitted.Revision); err != nil {
+		t.Fatalf("SaveNote(admitted) error = %v", err)
+	}
+	// A concurrent normal-note transition moves the persisted last-note
+	// pointer (OpenNote commits it) before the export runs.
+	other, err := store.CreateNote(ctx)
+	if err != nil {
+		t.Fatalf("CreateNote() error = %v", err)
+	}
+	if _, err := store.OpenNote(ctx, other.ID); err != nil {
+		t.Fatalf("OpenNote(other) error = %v", err)
+	}
+
+	targetID, filename, err := store.ExactNoteExportTarget(ctx, admitted.ID)
+	if err != nil {
+		t.Fatalf("ExactNoteExportTarget(admitted) error = %v", err)
+	}
+	if targetID != admitted.ID {
+		t.Fatalf("ExactNoteExportTarget(admitted) id = %q, want %q", targetID, admitted.ID)
+	}
+	if filename != "Admitted.md" {
+		t.Fatalf("ExactNoteExportTarget(admitted) filename = %q, want %q", filename, "Admitted.md")
+	}
+
+	for _, badID := range []string{"", "   ", "missing-note", other.ID + "-nope"} {
+		if _, _, err := store.ExactNoteExportTarget(ctx, badID); err == nil {
+			t.Fatalf("ExactNoteExportTarget(%q) succeeded, want error", badID)
+		}
+	}
+	if err := store.MoveNoteToTrash(ctx, admitted.ID); err != nil {
+		t.Fatalf("MoveNoteToTrash(admitted) error = %v", err)
+	}
+	if _, _, err := store.ExactNoteExportTarget(ctx, admitted.ID); err == nil {
+		t.Fatal("ExactNoteExportTarget(trashed) succeeded, want error")
 	}
 }
 

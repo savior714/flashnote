@@ -18,12 +18,15 @@ func NewExportService(store *persistence.Store) *ExportService {
 	return &ExportService{store: store}
 }
 
-// ExportCurrentNoteMarkdown exports the exact normal note captured before the
-// native Save dialog opens. Returning false with no error means the user
+// ExportCurrentNoteMarkdown exports the exact admitted normal note as
+// Markdown. The note identity is bound by the frontend export gate before
+// the durability drain and passed in explicitly, so a concurrent note
+// transition cannot redirect this export via the persisted last-note
+// pointer at backend entry. Returning false with no error means the user
 // cancelled the dialog.
-func (s *ExportService) ExportCurrentNoteMarkdown() (bool, error) {
+func (s *ExportService) ExportCurrentNoteMarkdown(admittedNoteID string) (bool, error) {
 	ctx := context.Background()
-	noteID, filename, err := s.store.CurrentNoteExportTarget(ctx)
+	noteID, filename, err := s.store.ExactNoteExportTarget(ctx, admittedNoteID)
 	if err != nil {
 		return false, err
 	}

@@ -10,10 +10,14 @@
 //   -> canonical SQLite state
 //   -> existing backend Markdown export
 //
-// Single-note export is admitted only when an actual normal note is open
-// (non-empty current note id) and the app is not in Trash. Admission comes
-// from application state supplied at registration time, never from DOM
-// discovery (no `.trash-row.active`, sidebar visibility, or other
+// Single-note export is admitted only when one exact normal note is open
+// (non-empty current note id), the app is not in Trash, and no normal-note
+// transition is active. The admitted note identity is captured before the
+// durability drain and must still be the current normal note after the
+// drain, so a concurrent transition to a different normal note can never
+// silently turn the request into an export of that other note. Admission
+// comes from application state supplied at registration time, never from
+// DOM discovery (no `.trash-row.active`, sidebar visibility, or other
 // presentation-only markers), so Trash stays denied while the sidebar is
 // hidden and a valid hidden-sidebar normal note stays admitted.
 //
@@ -28,6 +32,12 @@
 export type MarkdownExportReadiness = {
   isTrashView: () => boolean
   currentNormalNoteId: () => string
+  // Existing normal-note transition lifecycle owned by App.svelte
+  // (noteTransitionActive). While a transition is active the current note
+  // is ambiguous: the backend current-note pointer may already have moved
+  // before the frontend note id follows, so no current-note export may be
+  // admitted or released.
+  isNoteTransitionActive: () => boolean
   flushCurrentDraft: () => Promise<boolean>
 }
 
@@ -40,14 +50,25 @@ export function setMarkdownExportReadiness(next: MarkdownExportReadiness | null)
   readiness = next
 }
 
-export function isSingleNoteExportAdmitted(): boolean {
+// Resolves the single admitted normal-note identity, or null when no
+// unambiguous current-note export may proceed (no provider, Trash,
+// active transition, or no normal note open).
+export function admittedNormalNoteId(): string | null {
   if (!readiness) {
-    return false
+    return null
   }
   if (readiness.isTrashView()) {
-    return false
+    return null
   }
-  return readiness.currentNormalNoteId().trim().length > 0
+  if (readiness.isNoteTransitionActive()) {
+    return null
+  }
+  const noteId = readiness.currentNormalNoteId().trim()
+  return noteId.length > 0 ? noteId : null
+}
+
+export function isSingleNoteExportAdmitted(): boolean {
+  return admittedNormalNoteId() !== null
 }
 
 export function isSingleNoteExportInFlight(): boolean {
@@ -66,18 +87,38 @@ async function flushSafely(): Promise<boolean> {
 }
 
 // Ensures the latest required current draft is durable for a single-note
-// export. Re-checks admission after the flush so a transition into Trash
-// (or away from a normal note) during the flush cannot release a stale
-// export.
-export async function ensureSingleNoteExportReady(): Promise<boolean> {
-  if (!isSingleNoteExportAdmitted()) {
-    return false
+// export and binds the export to the admitted note identity. Captures the
+// admitted id before the flush, then requires after the flush that no
+// transition into Trash, away from a normal note, onto a different normal
+// note, or into an active transition happened during the flush. Any
+// identity change or ambiguity blocks the export so the exporter is never
+// entered for an unintended note.
+async function ensureSingleNoteExportAdmittedId(): Promise<string | null> {
+  const admittedId = admittedNormalNoteId()
+  if (admittedId === null) {
+    return null
   }
   const flushed = await flushSafely()
   if (!flushed) {
-    return false
+    return null
   }
-  return isSingleNoteExportAdmitted()
+  if (!readiness) {
+    return null
+  }
+  if (readiness.isTrashView()) {
+    return null
+  }
+  if (readiness.isNoteTransitionActive()) {
+    return null
+  }
+  if (readiness.currentNormalNoteId().trim() !== admittedId) {
+    return null
+  }
+  return admittedId
+}
+
+export async function ensureSingleNoteExportReady(): Promise<boolean> {
+  return (await ensureSingleNoteExportAdmittedId()) !== null
 }
 
 // Library export shares the same durability boundary: the current
@@ -91,29 +132,31 @@ export async function ensureLibraryExportReady(): Promise<boolean> {
   return flushSafely()
 }
 
-// Runs one single-note export through admission, durability, and
-// single-flight. The exporter (backend SQLite-owned Markdown operation) is
-// invoked exactly once and only after the required flush succeeds.
-// Returns 'busy' without invoking the exporter when another single-note
-// export is in flight, and 'blocked' without invoking the exporter when
-// admission fails or the required flush fails. Exporter rejections
-// propagate to the caller for logging; the in-flight flag always clears.
+// Runs one single-note export through admission, durability, identity
+// binding, and single-flight. The exporter (backend SQLite-owned Markdown
+// operation) receives the admitted note identity and is invoked exactly
+// once, only after the required flush succeeds with that same identity
+// still current. Returns 'busy' without invoking the exporter when another
+// single-note export is in flight, and 'blocked' without invoking the
+// exporter when admission fails, the required flush fails, or the admitted
+// identity did not survive the flush. Exporter rejections propagate to the
+// caller for logging; the in-flight flag always clears.
 export async function requestSingleNoteExport(
-  exporter: () => Promise<unknown>,
+  exporter: (admittedNoteId: string) => Promise<unknown>,
 ): Promise<SingleNoteExportOutcome> {
   if (singleNoteExportInFlight) {
     return 'busy'
   }
-  if (!isSingleNoteExportAdmitted()) {
+  if (admittedNormalNoteId() === null) {
     return 'blocked'
   }
   singleNoteExportInFlight = true
   try {
-    const ready = await ensureSingleNoteExportReady()
-    if (!ready) {
+    const admittedId = await ensureSingleNoteExportAdmittedId()
+    if (admittedId === null) {
       return 'blocked'
     }
-    await exporter()
+    await exporter(admittedId)
     return 'exported'
   } finally {
     singleNoteExportInFlight = false

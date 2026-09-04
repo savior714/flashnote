@@ -7,7 +7,7 @@ import {
   setMarkdownExportReadiness,
 } from './markdownExportGate'
 
-type MarkdownExporter = () => Promise<boolean>
+type MarkdownExporter = (admittedNoteId: string) => Promise<boolean>
 
 let markdownExporter: MarkdownExporter = ExportCurrentNoteMarkdown
 
@@ -34,9 +34,10 @@ function handleMarkdownExportShortcut(event: KeyboardEvent) {
 
   event.preventDefault()
   // requestSingleNoteExport owns single-flight across the durability flush
-  // plus the backend export: the backend exporter runs exactly once and
-  // only after the required current-draft flush succeeds.
-  void requestSingleNoteExport(() => markdownExporter()).catch((error: unknown) => {
+  // plus the backend export: the backend exporter runs exactly once, bound
+  // to the admitted note identity, and only after the required
+  // current-draft flush succeeds with that same identity still current.
+  void requestSingleNoteExport((admittedNoteId) => markdownExporter(admittedNoteId)).catch((error: unknown) => {
     console.error('Flashnote Markdown export failed', error)
   })
 }
@@ -54,7 +55,7 @@ export async function exportCurrentNoteMarkdown(): Promise<void> {
     return
   }
   try {
-    await requestSingleNoteExport(() => markdownExporter())
+    await requestSingleNoteExport((admittedNoteId) => markdownExporter(admittedNoteId))
   } catch (error: unknown) {
     console.error('Flashnote Markdown export failed', error)
   }
@@ -94,6 +95,7 @@ export async function runMarkdownExportShortcutAcceptance(): Promise<void> {
 
   let trashView = false
   let currentNoteID = 'acceptance-note'
+  let noteTransitionActive = false
   let flushShouldSucceed = true
   let flushCallCount = 0
   const pendingExport = new Promise<boolean>(() => {})
@@ -103,6 +105,7 @@ export async function runMarkdownExportShortcutAcceptance(): Promise<void> {
   setMarkdownExportReadiness({
     isTrashView: () => trashView,
     currentNormalNoteId: () => currentNoteID,
+    isNoteTransitionActive: () => noteTransitionActive,
     flushCurrentDraft: () => {
       flushCallCount += 1
       return Promise.resolve(flushShouldSucceed)
@@ -155,6 +158,7 @@ export async function runMarkdownExportShortcutAcceptance(): Promise<void> {
     setMarkdownExportReadiness({
       isTrashView: () => trashView,
       currentNormalNoteId: () => currentNoteID,
+      isNoteTransitionActive: () => noteTransitionActive,
       flushCurrentDraft: () => {
         flushCallCount += 1
         return Promise.resolve(true)
@@ -176,6 +180,7 @@ export async function runMarkdownExportShortcutAcceptance(): Promise<void> {
     setMarkdownExportReadiness({
       isTrashView: () => trashView,
       currentNormalNoteId: () => currentNoteID,
+      isNoteTransitionActive: () => noteTransitionActive,
       flushCurrentDraft: () => {
         flushCallCount += 1
         return Promise.resolve(flushShouldSucceed)

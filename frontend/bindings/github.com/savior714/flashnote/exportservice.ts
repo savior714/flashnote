@@ -6,12 +6,15 @@
 import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Create } from "@wailsio/runtime";
 
 /**
- * ExportCurrentNoteMarkdown exports the exact normal note captured before the
- * native Save dialog opens. Returning false with no error means the user
+ * ExportCurrentNoteMarkdown exports the exact admitted normal note as
+ * Markdown. The note identity is bound by the frontend export gate before
+ * the durability drain and passed in explicitly, so a concurrent note
+ * transition cannot redirect this export via the persisted last-note
+ * pointer at backend entry. Returning false with no error means the user
  * cancelled the dialog.
  */
-export function ExportCurrentNoteMarkdown(): $CancellablePromise<boolean> {
-    return $Call.ByID(3522548611);
+export function ExportCurrentNoteMarkdown(admittedNoteID: string): $CancellablePromise<boolean> {
+    return $Call.ByID(3522548611, admittedNoteID);
 }
 
 /**

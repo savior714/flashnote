@@ -14,15 +14,15 @@ import (
 	"github.com/savior714/flashnote/internal/document"
 )
 
-// CurrentNoteExportTarget returns the exact normal note currently represented by
-// the persisted last-note pointer plus a safe default Markdown filename.
-func (s *Store) CurrentNoteExportTarget(ctx context.Context) (string, string, error) {
-	var noteID string
-	if err := s.db.QueryRowContext(ctx, `SELECT value FROM app_meta WHERE key = ?`, lastNoteIDKey).Scan(&noteID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return "", "", fmt.Errorf("%w: no current note", ErrNoteNotFound)
-		}
-		return "", "", fmt.Errorf("read current note for export: %w", err)
+// ExactNoteExportTarget resolves the Markdown export target for the
+// explicitly admitted normal note plus a safe default Markdown filename.
+// It never consults the persisted last-note pointer, so a concurrent note
+// transition (which moves that pointer via OpenNote/CreateNote/SaveNote)
+// cannot redirect an admitted current-note export at backend entry.
+func (s *Store) ExactNoteExportTarget(ctx context.Context, admittedNoteID string) (string, string, error) {
+	noteID := strings.TrimSpace(admittedNoteID)
+	if noteID == "" {
+		return "", "", fmt.Errorf("%w: empty id", ErrNoteNotFound)
 	}
 
 	note, err := s.loadNormalNoteForExport(ctx, noteID)

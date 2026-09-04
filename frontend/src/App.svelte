@@ -1872,6 +1872,7 @@ import {
     setMarkdownExportReadiness({
       isTrashView: () => trashView,
       currentNormalNoteId: () => noteID,
+      isNoteTransitionActive: () => noteTransitionActive,
       flushCurrentDraft: () => flushPendingSave(),
     })
     window.addEventListener('keydown', handleGlobalKeydown)
