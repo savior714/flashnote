@@ -94,6 +94,16 @@ When reporting a completed or blocked development session, `FRICTION_OBSERVED` m
 
 Flashnote uses direct-main single-trunk development. Feature branches and pull requests are not the default workflow.
 
+### Branch discipline
+
+- A new task does not imply a new branch. Do not create `task/*`, `fix/*`, `feat/*`, or similarly disposable branches for task isolation, naming, convenience, experimentation, verification, review, or publication preparation. Reuse the current appropriate branch or the existing canonical development branch, completing bounded tasks sequentially on it.
+- Before mutating, inspect the current branch and worktree state, determine whether the current branch is semantically appropriate for the task, and preserve unrelated dirty or in-flight work. Do not create a branch as a precaution, solely to obtain a clean worktree, or as a substitute for handling unrelated dirty state correctly.
+- If the current branch is unsuitable, first look for an existing appropriate canonical branch and switch to it only when doing so is safe and preserves current work. Do not solve the problem by inventing another task branch.
+- A new branch is allowed only when the user explicitly requests one, when established repository policy genuinely requires a separate branch, or when concurrent work makes mutation on every existing appropriate branch unsafe and no non-branch isolation mechanism can preserve both scopes. Even then, explain the concrete necessity before creating it, create at most one branch for the required scope, and do not recursively create sub-task branches. Do not create temporary publication/reconciliation branches unless explicitly required by repository authority.
+- If safe continuation requires a branch decision that cannot be derived from repository authority, stop before branch creation and report `BRANCH_DECISION_NEEDED` with the exact conflict and the smallest decision required.
+- Steady state is few long-lived, semantically meaningful branches: bounded tasks are expressed as commits/worktree changes, not branch topology, and topology changes only when they carry real repository semantics. Do not leave abandoned task branches as routine residue.
+- At task completion, report `BRANCH_USED: <branch>` and `BRANCH_CREATED: yes/no`; when yes, add `NECESSITY: <explicit authority or unavoidable isolation reason>`.
+
 Keep two concepts separate:
 
 - **`SEMANTIC_READY`**: the bounded semantic delta, relevant base context, proof owner/criterion, and proof result are known.

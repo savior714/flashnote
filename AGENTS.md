@@ -6,7 +6,7 @@ Before changing the repository, read the current versions of:
 
 1. `docs/PRODUCT.md` — product behavior and UX contract.
 2. `docs/TECHNICAL.md` — implementation architecture and technical baseline.
-3. `docs/DEVELOPMENT.md` — development execution, verification cadence, handoff, concurrency, data safety, and publication contract.
+3. `docs/DEVELOPMENT.md` — development execution, verification cadence, handoff, concurrency, branch discipline, data safety, and publication contract.
 
 Use current repository/runtime evidence for live state. Treat prior handoffs, remembered SHAs, temporary branches/worktrees, candidate refs, CLI/session topology, and executor-specific mechanics as historical context unless the current task still requires them.
 
