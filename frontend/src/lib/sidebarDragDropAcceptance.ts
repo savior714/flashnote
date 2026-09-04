@@ -264,7 +264,7 @@ async function proveFolderDisclosureTextNodeToggle(folderID: string, noteID: str
 }
 
 async function proveTrashFolderDisclosureTextNodeToggle(folderName: string): Promise<void> {
-  const block = Array.from(document.querySelectorAll<HTMLElement>('.trash-folder-block')).find(
+  const block = Array.from(document.querySelectorAll<HTMLElement>('.trash-list .folder-block')).find(
     (candidate) => candidate.querySelector('.folder-name')?.textContent?.trim() === folderName,
   )
   if (!block) {
@@ -752,12 +752,34 @@ async function proveInlineActionsTrashUndo(
   // toggles when the click target is the glyph text node itself.
   await proveTrashFolderDisclosureTextNodeToggle(targetFolderName)
 
-  const emptyTrashButton = document.querySelector<HTMLButtonElement>('.trash-empty-button')
+  // Empty Trash lives behind the trailing Trash More menu as a destructive
+  // action, not beside the Trash title as plain navigation text.
+  if (document.querySelector('.trash-list .trash-empty-button') !== null) {
+    throw new Error('acceptance Empty Trash: legacy plain-text Empty Trash action is still rendered')
+  }
+  const trashMoreButton = document.querySelector<HTMLButtonElement>(
+    '.trash-list [data-trash-more-button]',
+  )
+  if (!trashMoreButton || trashMoreButton.disabled) {
+    throw new Error('acceptance Empty Trash: Trash More menu is missing or disabled with Trash contents')
+  }
+  trashMoreButton.click()
+  await tick()
+  await delay(30)
+  const emptyTrashButton = document.querySelector<HTMLButtonElement>(
+    '.trash-list [data-trash-empty-menu-item]',
+  )
   if (!emptyTrashButton || emptyTrashButton.disabled) {
     throw new Error('acceptance Empty Trash: Empty Trash… action is missing or disabled with Trash contents')
   }
   if (emptyTrashButton.textContent?.trim() !== 'Empty Trash…') {
     throw new Error('acceptance Empty Trash: bulk destructive action label is unexpected')
+  }
+  if (!emptyTrashButton.classList.contains('danger')) {
+    throw new Error('acceptance Empty Trash: bulk destructive action is missing its destructive treatment')
+  }
+  if (emptyTrashButton.closest('[role="menu"]') === null) {
+    throw new Error('acceptance Empty Trash: bulk destructive action is not inside the Trash More menu')
   }
   emptyTrashButton.click()
   await tick()

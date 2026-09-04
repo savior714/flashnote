@@ -74,6 +74,7 @@ import {
   let expandedFolderIDs: string[] = []
   let createMenuOpen = false
   let moreMenuOpen = false
+  let trashMoreMenuOpen = false
   let folderNaming = false
   let newFolderName = ''
   let moveMenuNoteID = ''
@@ -638,6 +639,7 @@ import {
     createMenuOpen = false
     moveMenuNoteID = ''
     moreMenuOpen = false
+    trashMoreMenuOpen = false
     clearNoteDrag()
     closeSearch()
     closeSettings()
@@ -714,6 +716,7 @@ import {
     noteTransitionActive = true
     operationError = ''
     moreMenuOpen = false
+    trashMoreMenuOpen = false
     try {
       await returnToNormalLibrary()
     } catch (error) {
@@ -732,6 +735,7 @@ import {
     }
 
     moreMenuOpen = false
+    trashMoreMenuOpen = false
     noteTransitionActive = true
     operationError = ''
     try {
@@ -1296,6 +1300,12 @@ import {
       return
     }
 
+    if (trashMoreMenuOpen && !event.isComposing && event.key === 'Escape') {
+      event.preventDefault()
+      trashMoreMenuOpen = false
+      return
+    }
+
     if (!searchOpen || event.isComposing) {
       return
     }
@@ -1338,6 +1348,9 @@ import {
     }
     if (!target?.closest('.more-button') && !target?.closest('.more-menu')) {
       moreMenuOpen = false
+    }
+    if (!target?.closest('.trash-more-controls')) {
+      trashMoreMenuOpen = false
     }
   }
 
@@ -1760,23 +1773,47 @@ import {
       <div class="sidebar-placeholder">Opening…</div>
     {:else if trashView}
       <nav class="note-list trash-list" aria-label="Trash notes">
-        <div class="trash-heading-row">
+        <div class="trash-nav-row">
           <button
-            class="quiet-button"
+            class="trash-back-button"
             type="button"
             aria-label="Back to notes"
             data-trash-back-button
             disabled={noteTransitionActive}
             onclick={() => void leaveTrashView()}
-          >← Notes</button>
-          <div class="trash-heading">Trash</div>
-          <button
-            class="trash-empty-button"
-            type="button"
-            disabled={noteTransitionActive || (trashNoteCount === 0 && trashFolderCount === 0)}
-            onclick={() => (emptyTrashConfirmVisible = true)}
-          >Empty Trash…</button>
+          ><span aria-hidden="true">←</span> Notes</button>
+          <div class="more-controls trash-more-controls">
+            <button
+              class="quiet-button more-button"
+              type="button"
+              aria-label="Trash actions"
+              aria-expanded={trashMoreMenuOpen}
+              aria-haspopup="menu"
+              data-trash-more-button
+              disabled={noteTransitionActive}
+              onclick={() => (trashMoreMenuOpen = !trashMoreMenuOpen)}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="1" />
+                <circle cx="19" cy="12" r="1" />
+                <circle cx="5" cy="12" r="1" />
+              </svg>
+            </button>
+            {#if trashMoreMenuOpen}
+              <div class="sidebar-menu more-menu" role="menu" aria-label="Trash actions">
+                <button
+                  type="button"
+                  role="menuitem"
+                  class="danger"
+                  data-trash-empty-menu-item
+                  disabled={noteTransitionActive || (trashNoteCount === 0 && trashFolderCount === 0)}
+                  onclick={() => { trashMoreMenuOpen = false; emptyTrashConfirmVisible = true; }}
+                >Empty Trash…</button>
+              </div>
+            {/if}
+          </div>
         </div>
+        <div class="trash-title" aria-current="page">Trash</div>
         {#each trashNotes as note (note.id)}
           <button
             class="note-row"
@@ -1788,7 +1825,7 @@ import {
           >{sidebarTitle(note)}</button>
         {/each}
         {#each trashFolders as folder (folder.id)}
-          <div class="folder-block trash-folder-block">
+          <div class="folder-block">
             <button
               class="folder-row"
               class:active={folder.id === selectedTrashFolderID}
