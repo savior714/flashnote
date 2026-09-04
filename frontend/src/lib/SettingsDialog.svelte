@@ -21,9 +21,12 @@
   let exportMessage = $state('')
 
   // SettingsDialog owns its own modal focus lifecycle: the element focused
-  // before open (for close-time restoration), the dialog root (for
-  // open-time focus transfer), and Tab/Shift+Tab containment while mounted.
+  // before open (for close-time restoration), a deterministic descendant
+  // control (for open-time focus transfer), and Tab/Shift+Tab containment
+  // while mounted. The role="dialog" root itself is deliberately not
+  // focusable per W3C APG modal-dialog guidance.
   let dialogEl = $state<HTMLDivElement | null>(null)
+  let closeButtonEl = $state<HTMLButtonElement | null>(null)
   let previouslyFocused: HTMLElement | null = null
 
   function tabbableInDialog(): HTMLElement[] {
@@ -46,14 +49,13 @@
     if (tabbables.length === 0) {
       event.preventDefault()
       event.stopPropagation()
-      dialogEl.focus({ preventScroll: true })
       return
     }
     const first = tabbables[0]
     const last = tabbables[tabbables.length - 1]
     const active = document.activeElement as HTMLElement | null
     if (event.shiftKey) {
-      if (active === first || active === dialogEl || !dialogEl.contains(active)) {
+      if (active === first || !dialogEl.contains(active)) {
         event.preventDefault()
         event.stopPropagation()
         last.focus({ preventScroll: true })
@@ -79,10 +81,13 @@
     previouslyFocused = document.activeElement as HTMLElement | null
     // Dialog-owned containment: a document-level listener registered only for
     // this dialog's mounted lifetime, so Tab from any focused element
-    // (including the dialog root or a backdrop click target) stays inside.
+    // (including a backdrop click target) stays inside.
     document.addEventListener('keydown', containTab, true)
     void tick().then(() => {
-      dialogEl?.focus({ preventScroll: true })
+      // Deterministic initial focus on the visible close control (the first
+      // tabbable descendant), never on the role="dialog" root itself.
+      const initial = closeButtonEl ?? tabbableInDialog()[0] ?? null
+      initial?.focus({ preventScroll: true })
     })
   })
 
@@ -165,11 +170,11 @@
     role="dialog"
     aria-modal="true"
     aria-labelledby="settings-title"
-    tabindex="-1"
   >
     <div class="settings-header">
       <h2 id="settings-title">Settings</h2>
       <button
+        bind:this={closeButtonEl}
         type="button"
         class="quiet-button settings-close-button"
         aria-label="Close settings"

@@ -190,7 +190,10 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     const docJSONBeforeFocusProof = JSON.stringify(editor.getJSON())
 
     // A. INITIAL FOCUS: open through the real shortcut path (which itself
-    // moves no focus) and prove focus transfers into the modal.
+    // moves no focus) and prove focus transfers to the deterministic
+    // descendant control — never the role="dialog" root itself (W3C APG
+    // modal-dialog guidance advises against making the dialog container
+    // focusable).
     dispatchKey(window, ',', primaryModifier)
     await tick()
     await delay(50)
@@ -200,6 +203,16 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     }
     if (!dialog.contains(document.activeElement)) {
       throw new Error('acceptance: opening Settings did not move focus into the modal')
+    }
+    if (document.activeElement === dialog) {
+      throw new Error('acceptance: initial Settings focus landed on the dialog root itself instead of a descendant control')
+    }
+    const initialFocusTarget = dialog.querySelector<HTMLButtonElement>('.settings-close-button')
+    if (!initialFocusTarget) {
+      throw new Error('acceptance: Settings close button missing for initial-focus proof')
+    }
+    if (document.activeElement !== initialFocusTarget) {
+      throw new Error('acceptance: opening Settings did not focus the deterministic close-button descendant')
     }
     if (document.activeElement === focusInvoker) {
       throw new Error('acceptance: background editor element remained the keyboard target after opening Settings')
@@ -260,12 +273,9 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     }
 
     // C. CLOSE RESTORATION: ordinary close-button close must restore focus
-    // to the invoking element while it still exists.
-    const focusCloseBtn = dialog.querySelector<HTMLButtonElement>('.settings-close-button')
-    if (!focusCloseBtn) {
-      throw new Error('acceptance: Settings close button missing for focus restoration proof')
-    }
-    focusCloseBtn.click()
+    // to the invoking element while it still exists (reusing the proven
+    // initial-focus descendant as the ordinary close control).
+    initialFocusTarget.click()
     await tick()
     await delay(50)
     if (document.querySelector('.settings-dialog') !== null) {
