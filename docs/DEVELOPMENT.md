@@ -1,6 +1,6 @@
 # Flashnote Development Operating Contract
 
-_Status: canonical execution/publication contract · 2026-09-04_
+_Status: canonical execution/publication contract · 2026-09-06_
 
 This document owns Flashnote's development execution, verification cadence, concurrency, handoff, and `origin/main` publication rules. Product behavior remains owned by `docs/PRODUCT.md`; implementation architecture remains owned by `docs/TECHNICAL.md`. A root `AGENTS.md`, when present, is routing only and must not duplicate this contract.
 
@@ -44,6 +44,8 @@ A good parallel unit owns one coherent concern end-to-end and may touch UI, Go, 
 Before parallelizing, inspect the current repository and dependency/ownership graph. Path-disjointness helps but does not prove semantic independence. Shared schema, public interfaces, build/runtime configuration, canonical contracts, persistence semantics, or common state owners can couple otherwise different files.
 
 Preserve unrelated foreign working state. Do not reset, clean, stash, restore, move, or delete another task's work merely to simplify the current task.
+
+The collision unit for issuance is `SEMANTIC_OWNER` (see §12). A coordinator that can read active work checks it before issuing runnable parallel work; an already-active semantic owner normally blocks another mutating task for that owner, even when file paths look disjoint.
 
 ## 4. Verification cadence: nearest faithful proof
 
@@ -134,6 +136,8 @@ A just-in-time binding is publication preparation, not history repair. Do not us
 
 If `origin/main` advances again after one topology-only final binding attempt, preserve the semantic result/candidate and stop the rematerialization loop. Re-enter from fresh repository truth rather than repeatedly recreating candidates in the same task.
 
+Topology classification for the movement above, shared with coordination reporting, binds as follows: `TOPOLOGY_ONLY_OR_DISJOINT` means remote movement with no semantic/proof impact on this task (publish directly or apply minimal JIT binding); `SEMANTIC_OVERLAP` means intervening work changed this task's semantic owner, contract, or mutation meaning; `PROOF_OWNER_MOVED` means the recorded proof's owner, criterion, or validity moved even when the delta text looks intact (rerun only the affected proof); `PUBLICATION_TOPOLOGY_CONFLICT` means the candidate cannot advance `origin/main` fast-forward without binding mechanics despite intact semantics (single binding attempt, then stop per above); `UNKNOWN` means impact cannot be established from available evidence (treat as unverified, never coerce). These names only label §7/§8 outcomes; they create no second framework.
+
 ## 8. Publication critical section
 
 Semantic development stays parallel; serialize only the short final publication critical section for writers targeting the same shared ref.
@@ -199,3 +203,14 @@ Use the question **“Does this materially interfere with using Flashnote now?�
 A newly observed data-loss or durability contradiction supersedes prior optimistic acceptance status for that exact failure family. Do not treat earlier GREEN package/runtime evidence as proof that a new real-use autosave failure is closed.
 
 Release-package and DMG workflows may remain in the repository as historical/manual evidence owners, but they must not run automatically on ordinary `main` pushes while distribution is inactive. Dependency/toolchain upgrades are not frontiers by themselves; open them only when required by an observed defect, security issue, or compatibility problem.
+
+## 12. External coordination ledger (non-authoritative continuity aid)
+
+A coordinator session may additionally consult the project's external coordination surface (durable context, active work, shared protocol) as a continuity aid. That surface never owns product, technical, or development semantics: this document, `docs/PRODUCT.md`, `docs/TECHNICAL.md`, and current repository/Git/runtime/artifact evidence remain final authority. Whenever current state matters, live evidence wins over ledger entries, remembered context, stored SHAs/bases/candidates, and topology observations.
+
+- Only work that was actually issued is represented as `IN_FLIGHT`. Absence from the ledger is not proof that no unpublished or concurrent work exists.
+- Executor-reported candidates, proof, publication claims, and runtime state are reported evidence until independently verified where the claim requires verification. Stored SHAs, bases, candidates, and topology observations never establish current publishability.
+- Semantic freshness (the delta still means the same thing on the current base), proof freshness (the recorded proof still falsifies the current candidate), and publication freshness (an immediate non-force fast-forward path exists right now) are distinct; none implies the others.
+- `UNKNOWN` / `UNVERIFIED` is never coerced into disjoint, healthy, proven, or published.
+- Ledger unavailability alone never blocks otherwise-safe work: reconstruct from live repository/Git/runtime authority, treat coordination state as `UNKNOWN`, proceed only as far as live evidence independently justifies, and resynchronize the ledger later.
+- Local executors do not require access to the external coordination surface. The coordinator owns ledger synchronization; executors return structured results (`OUTCOME`, `PRESERVE`, `PROOF`, terminal report fields) derived from live repository evidence.
