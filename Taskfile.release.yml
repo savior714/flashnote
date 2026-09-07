@@ -9,12 +9,25 @@ includes:
   darwin: ./build/darwin/Taskfile.yml
 
 tasks:
+  prepare:icon:
+    summary: Seeds Wails icon staging from the durable selected source
+    internal: true
+    cmds:
+      - cp assets/appicon.png build/appicon.png
+      - rm -rf build/appicon.icon build/darwin/Assets.car
+      # `generate build-assets` rewrites the derived icons behind go-task's
+      # back, leaving a stale up-to-date fingerprint; drop the derived
+      # outputs so common:generate:icons always re-derives from canonical.
+      - rm -f build/darwin/icons.icns build/windows/icon.ico
+
   package:macos:
     summary: Packages the production macOS app bundle for release acceptance
+    deps: [prepare:icon]
     cmds:
       - task: darwin:package
 
   package:macos:dmg:
     summary: Packages the production macOS DMG for release acceptance
+    deps: [prepare:icon]
     cmds:
       - task: darwin:package:dmg

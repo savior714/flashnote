@@ -18,3 +18,10 @@ coverage/
 /flashnote
 /flashnote.exe
 .task/
+
+# Wails icon staging derived from assets/appicon.png
+# (see prepare:icon in Taskfile.release.yml).
+build/appicon.png
+build/darwin/icons.icns
+build/darwin/Assets.car
+build/windows/icon.ico
