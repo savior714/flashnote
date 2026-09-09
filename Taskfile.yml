@@ -2,6 +2,11 @@ version: '3'
 
 vars:
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+  APP_NAME: flashnote
+  BIN_DIR: bin
+
+includes:
+  darwin: ./build/darwin/Taskfile.yml
 
 tasks:
   frontend:install:
@@ -63,10 +68,39 @@ tasks:
     cmds:
       - go build . 2>&1 | grep -v "was built for newer"
 
+  # The ordinary user-facing launch path (Flashnote.command). On macOS it must
+  # never terminate in a bare `go run .`: the running process needs a real
+  # `.app` bundle context (Info.plist + Resources/icons.icns) so macOS owns the
+  # app identity and Dock artwork. This reuses the canonical Wails Darwin dev-app
+  # bundle/run machinery in build/darwin instead of bespoke packaging.
   run:
-    deps: [frontend:build]
+    summary: Runs Flashnote as a real macOS .app bundle via the canonical Wails Darwin dev-app path
+    platforms: [darwin]
+    deps: [frontend:build, run:icons]
     cmds:
-      - go run .
+      # Sequential after frontend:build: the binary embeds frontend/dist via go:embed.
+      - task: run:binary
+      - task: darwin:run
+
+  run:binary:
+    internal: true
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+      CGO_CFLAGS: "-mmacosx-version-min=12.0"
+      CGO_LDFLAGS: "-mmacosx-version-min=12.0"
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+      - go build -o "{{.BIN_DIR}}/{{.APP_NAME}}" . 2>&1 | grep -v "was built for newer"
+
+  run:icons:
+    internal: true
+    status:
+      - test -f darwin/icons.icns
+    cmds:
+      # Seeds icon staging only when missing, derived deterministically from the canonical artwork.
+      - cp ../assets/appicon.png appicon.png
+      - wails3 generate icons -input appicon.png -macfilename darwin/icons.icns
+    dir: build
 
   dev:
     cmds:
