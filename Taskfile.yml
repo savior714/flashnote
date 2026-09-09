@@ -40,6 +40,11 @@ tasks:
     dir: frontend
     cmds:
       - corepack pnpm build
+      # Vite's emptyOutDir wipes the tracked dist/.keep placeholder that keeps
+      # `go:embed all:frontend/dist` resolvable on a fresh clone. The build
+      # output contract owns restoring it so an ordinary launch never dirties
+      # tracked source state.
+      - printf 'Generated frontend assets replace this marker during builds.\n' > dist/.keep
 
   frontend:dev:
     deps: [frontend:install]
