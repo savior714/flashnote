@@ -18,7 +18,17 @@ func (s *Store) MoveNoteToTrash(ctx context.Context, noteID string) error {
 	if noteID == "" {
 		return fmt.Errorf("%w: empty id", ErrNoteNotFound)
 	}
-	result, err := s.db.ExecContext(ctx, `
+	// Serializes the notes+search writes against index rebuilds.
+	s.searchMu.Lock()
+	defer s.searchMu.Unlock()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin trash move transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	result, err := tx.ExecContext(ctx, `
 		UPDATE notes
 		SET deleted_at = strftime('%Y-%m-%d %H:%M:%f','now'), deleted_with_folder_id = NULL
 		WHERE id = ? AND deleted_at IS NULL
@@ -32,6 +42,14 @@ func (s *Store) MoveNoteToTrash(ctx context.Context, noteID string) error {
 	}
 	if affected != 1 {
 		return fmt.Errorf("%w: %s", ErrNoteNotFound, noteID)
+	}
+	// Trashed notes are excluded from search; drop only this note's entry in the
+	// same transaction so the index cannot stay valid yet stale.
+	if err := removeNoteSearchTx(ctx, tx, noteID); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit trash move: %w", err)
 	}
 	return nil
 }
@@ -89,7 +107,17 @@ func (s *Store) RestoreNote(ctx context.Context, noteID string) error {
 	if noteID == "" {
 		return fmt.Errorf("%w: empty id", ErrNoteNotFound)
 	}
-	result, err := s.db.ExecContext(ctx, `
+	// Serializes the notes+search writes against index rebuilds.
+	s.searchMu.Lock()
+	defer s.searchMu.Unlock()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin note restore transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	result, err := tx.ExecContext(ctx, `
 		UPDATE notes
 		SET deleted_at = NULL,
 			folder_id = CASE
@@ -106,17 +134,41 @@ func (s *Store) RestoreNote(ctx context.Context, noteID string) error {
 	if err != nil {
 		return fmt.Errorf("inspect note restore: %w", err)
 	}
-	if affected == 1 {
-		return nil
+	if affected != 1 {
+		// Release the transaction before the non-transactional state lookup below.
+		_ = tx.Rollback()
+		return s.trashStateError(ctx, noteID)
 	}
-	return s.trashStateError(ctx, noteID)
+	// A restored note rejoins active search; reindex only this note in the same
+	// transaction so the index cannot stay valid yet stale.
+	var title, documentJSON string
+	if err := tx.QueryRowContext(ctx, `SELECT title, document_json FROM notes WHERE id = ?`, noteID).Scan(&title, &documentJSON); err != nil {
+		return fmt.Errorf("read restored note for search index: %w", err)
+	}
+	if err := indexNoteSearchTx(ctx, tx, noteID, title, documentJSON); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit note restore: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) PermanentlyDeleteNote(ctx context.Context, noteID string) error {
 	if noteID == "" {
 		return fmt.Errorf("%w: empty id", ErrNoteNotFound)
 	}
-	result, err := s.db.ExecContext(ctx, `
+	// Serializes the notes+search writes against index rebuilds.
+	s.searchMu.Lock()
+	defer s.searchMu.Unlock()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin permanent note delete transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	result, err := tx.ExecContext(ctx, `
 		DELETE FROM notes
 		WHERE id = ? AND deleted_at IS NOT NULL AND deleted_with_folder_id IS NULL
 	`, noteID)
@@ -127,10 +179,19 @@ func (s *Store) PermanentlyDeleteNote(ctx context.Context, noteID string) error 
 	if err != nil {
 		return fmt.Errorf("inspect permanent delete: %w", err)
 	}
-	if affected == 1 {
-		return nil
+	if affected != 1 {
+		// Release the transaction before the non-transactional state lookup below.
+		_ = tx.Rollback()
+		return s.trashStateError(ctx, noteID)
 	}
-	return s.trashStateError(ctx, noteID)
+	// The note row is gone; drop its index entry, if any, in the same transaction.
+	if err := removeNoteSearchTx(ctx, tx, noteID); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit permanent note delete: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) trashStateError(ctx context.Context, noteID string) error {

@@ -13,6 +13,10 @@ func (s *Store) MoveFolderToTrash(ctx context.Context, folderID string) (int, er
 	if folderID == "" {
 		return 0, fmt.Errorf("%w: empty id", ErrFolderNotFound)
 	}
+	// Serializes the notes+search writes against index rebuilds.
+	s.searchMu.Lock()
+	defer s.searchMu.Unlock()
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, fmt.Errorf("begin folder trash transaction: %w", err)
@@ -33,6 +37,14 @@ func (s *Store) MoveFolderToTrash(ctx context.Context, folderID string) (int, er
 	affected, err := result.RowsAffected()
 	if err != nil {
 		return 0, fmt.Errorf("inspect trashed folder notes: %w", err)
+	}
+	// Trashed notes leave active search; drop exactly this recovery unit's index
+	// entries in the same transaction. This is O(unit), never O(library).
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM note_search
+		WHERE note_id IN (SELECT id FROM notes WHERE deleted_with_folder_id = ? AND deleted_at IS NOT NULL)
+	`, folderID); err != nil {
+		return 0, fmt.Errorf("remove trashed folder notes from search index: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE folders
@@ -113,6 +125,10 @@ func (s *Store) RestoreFolder(ctx context.Context, folderID string) (int, error)
 	if folderID == "" {
 		return 0, fmt.Errorf("%w: empty id", ErrFolderNotFound)
 	}
+	// Serializes the notes+search writes against index rebuilds.
+	s.searchMu.Lock()
+	defer s.searchMu.Unlock()
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, fmt.Errorf("begin folder restore transaction: %w", err)
@@ -121,6 +137,38 @@ func (s *Store) RestoreFolder(ctx context.Context, folderID string) (int, error)
 
 	if err := ensureTrashFolderExistsTx(ctx, tx, folderID); err != nil {
 		return 0, err
+	}
+	// Snapshot restorable content before the UPDATE clears the recovery-unit key.
+	// Title/document are untouched by restore, so the pre-update read is exact.
+	type restoreSource struct {
+		id           string
+		title        string
+		documentJSON string
+	}
+	restoreRows, err := tx.QueryContext(ctx, `
+		SELECT id, title, document_json
+		FROM notes
+		WHERE deleted_at IS NOT NULL AND deleted_with_folder_id = ?
+		ORDER BY id ASC
+	`, folderID)
+	if err != nil {
+		return 0, fmt.Errorf("read folder restore notes for search index: %w", err)
+	}
+	sources := make([]restoreSource, 0)
+	for restoreRows.Next() {
+		var source restoreSource
+		if err := restoreRows.Scan(&source.id, &source.title, &source.documentJSON); err != nil {
+			_ = restoreRows.Close()
+			return 0, fmt.Errorf("scan folder restore note for search index: %w", err)
+		}
+		sources = append(sources, source)
+	}
+	if err := restoreRows.Err(); err != nil {
+		_ = restoreRows.Close()
+		return 0, fmt.Errorf("iterate folder restore notes for search index: %w", err)
+	}
+	if err := restoreRows.Close(); err != nil {
+		return 0, fmt.Errorf("close folder restore source rows: %w", err)
 	}
 	result, err := tx.ExecContext(ctx, `
 		UPDATE notes
@@ -133,6 +181,13 @@ func (s *Store) RestoreFolder(ctx context.Context, folderID string) (int, error)
 	affected, err := result.RowsAffected()
 	if err != nil {
 		return 0, fmt.Errorf("inspect restored folder notes: %w", err)
+	}
+	// Restored notes rejoin active search; reindex exactly this recovery unit in
+	// the same transaction. This is O(unit), never O(library).
+	for _, source := range sources {
+		if err := indexNoteSearchTx(ctx, tx, source.id, source.title, source.documentJSON); err != nil {
+			return 0, err
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE folders SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL`, folderID); err != nil {
 		return 0, fmt.Errorf("restore folder: %w", err)
@@ -147,6 +202,10 @@ func (s *Store) PermanentlyDeleteFolder(ctx context.Context, folderID string) (i
 	if folderID == "" {
 		return 0, fmt.Errorf("%w: empty id", ErrFolderNotFound)
 	}
+	// Serializes the notes+search writes against index rebuilds.
+	s.searchMu.Lock()
+	defer s.searchMu.Unlock()
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, fmt.Errorf("begin permanent folder delete: %w", err)
@@ -156,6 +215,27 @@ func (s *Store) PermanentlyDeleteFolder(ctx context.Context, folderID string) (i
 	if err := ensureTrashFolderExistsTx(ctx, tx, folderID); err != nil {
 		return 0, err
 	}
+	// Capture doomed index keys before the notes DELETE removes the mapping.
+	doomedRows, err := tx.QueryContext(ctx, `SELECT id FROM notes WHERE deleted_at IS NOT NULL AND deleted_with_folder_id = ? ORDER BY id ASC`, folderID)
+	if err != nil {
+		return 0, fmt.Errorf("read doomed folder notes for search index: %w", err)
+	}
+	doomed := make([]string, 0)
+	for doomedRows.Next() {
+		var id string
+		if err := doomedRows.Scan(&id); err != nil {
+			_ = doomedRows.Close()
+			return 0, fmt.Errorf("scan doomed folder note for search index: %w", err)
+		}
+		doomed = append(doomed, id)
+	}
+	if err := doomedRows.Err(); err != nil {
+		_ = doomedRows.Close()
+		return 0, fmt.Errorf("iterate doomed folder notes for search index: %w", err)
+	}
+	if err := doomedRows.Close(); err != nil {
+		return 0, fmt.Errorf("close doomed folder note rows: %w", err)
+	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM notes WHERE deleted_at IS NOT NULL AND deleted_with_folder_id = ?`, folderID)
 	if err != nil {
 		return 0, fmt.Errorf("delete folder recovery notes: %w", err)
@@ -163,6 +243,13 @@ func (s *Store) PermanentlyDeleteFolder(ctx context.Context, folderID string) (i
 	affected, err := result.RowsAffected()
 	if err != nil {
 		return 0, fmt.Errorf("inspect deleted folder recovery notes: %w", err)
+	}
+	// The note rows are gone; drop their index entries, if any, in the same
+	// transaction. Trashed notes normally have no entries, so this is a no-op.
+	for _, id := range doomed {
+		if err := removeNoteSearchTx(ctx, tx, id); err != nil {
+			return 0, err
+		}
 	}
 	folderResult, err := tx.ExecContext(ctx, `DELETE FROM folders WHERE id = ? AND deleted_at IS NOT NULL`, folderID)
 	if err != nil {
@@ -193,6 +280,10 @@ func (s *Store) TrashCounts(ctx context.Context) (int, int, error) {
 }
 
 func (s *Store) EmptyTrash(ctx context.Context) (int, int, error) {
+	// Serializes the notes+search writes against index rebuilds.
+	s.searchMu.Lock()
+	defer s.searchMu.Unlock()
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, 0, fmt.Errorf("begin empty trash: %w", err)
@@ -205,6 +296,15 @@ func (s *Store) EmptyTrash(ctx context.Context) (int, int, error) {
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM folders WHERE deleted_at IS NOT NULL`).Scan(&folderCount); err != nil {
 		return 0, 0, fmt.Errorf("count folders before empty trash: %w", err)
+	}
+	// Drop index entries for doomed trash rows before the notes DELETE removes the
+	// mapping. Trashed notes were already removed from the index at trash time,
+	// so this is normally a no-op and never O(active library).
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM note_search
+		WHERE note_id IN (SELECT id FROM notes WHERE deleted_at IS NOT NULL)
+	`); err != nil {
+		return 0, 0, fmt.Errorf("remove trash notes from search index: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM notes WHERE deleted_at IS NOT NULL`); err != nil {
 		return 0, 0, fmt.Errorf("delete trash notes: %w", err)

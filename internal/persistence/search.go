@@ -191,19 +191,33 @@ func (s *Store) recentNotes(ctx context.Context) ([]SearchResult, error) {
 	return results, nil
 }
 
+// indexNoteSearchTx replaces the note_search entry for one active note inside the
+// caller's notes-mutating transaction, so the note row and its index entry commit
+// atomically. Callers must hold s.searchMu across the transaction to serialize
+// against ensureSearchIndex rebuilds.
 func indexNoteSearchTx(ctx context.Context, tx *sql.Tx, noteID, title, documentJSON string) error {
 	fields, err := buildSearchFields(title, documentJSON)
 	if err != nil {
 		return fmt.Errorf("derive search fields for note %s: %w", noteID, err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM note_search WHERE note_id = ?`, noteID); err != nil {
-		return fmt.Errorf("remove stale search entry for note %s: %w", noteID, err)
+	if err := removeNoteSearchTx(ctx, tx, noteID); err != nil {
+		return err
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO note_search(note_id, explicit_title, display_title, body_text)
 		VALUES (?, ?, ?, ?)
 	`, noteID, fields.explicitTitle, fields.displayTitle, fields.bodyText); err != nil {
 		return fmt.Errorf("index note %s: %w", noteID, err)
+	}
+	return nil
+}
+
+// removeNoteSearchTx drops the note_search entry for one note inside the caller's
+// notes-mutating transaction. It is a no-op when the note has no index entry
+// (for example a note that was already trashed).
+func removeNoteSearchTx(ctx context.Context, tx *sql.Tx, noteID string) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM note_search WHERE note_id = ?`, noteID); err != nil {
+		return fmt.Errorf("remove search entry for note %s: %w", noteID, err)
 	}
 	return nil
 }

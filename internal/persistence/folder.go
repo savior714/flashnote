@@ -82,6 +82,10 @@ func (s *Store) CreateNoteInFolder(ctx context.Context, folderID string) (Note, 
 	if folderID == "" {
 		return Note{}, fmt.Errorf("%w: empty id", ErrFolderNotFound)
 	}
+	// Serializes the notes+search writes against index rebuilds.
+	s.searchMu.Lock()
+	defer s.searchMu.Unlock()
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Note{}, fmt.Errorf("begin folder note creation: %w", err)
@@ -101,6 +105,10 @@ func (s *Store) CreateNoteInFolder(ctx context.Context, folderID string) (Note, 
 		VALUES (?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'), strftime('%Y-%m-%d %H:%M:%f', 'now'), ?)
 	`, note.ID, note.Title, note.DocumentJSON, note.Revision, folderID); err != nil {
 		return Note{}, fmt.Errorf("insert folder note: %w", err)
+	}
+	// The note row and its index entry commit together in this transaction.
+	if err := indexNoteSearchTx(ctx, tx, note.ID, note.Title, note.DocumentJSON); err != nil {
+		return Note{}, err
 	}
 	if err := setLastNoteIDTx(ctx, tx, note.ID); err != nil {
 		return Note{}, err

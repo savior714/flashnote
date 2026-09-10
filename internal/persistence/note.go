@@ -62,6 +62,10 @@ func (s *Store) ListNotes(ctx context.Context) ([]NoteSummary, error) {
 }
 
 func (s *Store) OpenInitialNote(ctx context.Context) (Note, bool, error) {
+	// Serializes the create path's notes+search writes against index rebuilds.
+	s.searchMu.Lock()
+	defer s.searchMu.Unlock()
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Note{}, false, fmt.Errorf("begin initial note transaction: %w", err)
@@ -128,6 +132,10 @@ func (s *Store) OpenNote(ctx context.Context, noteID string) (Note, error) {
 }
 
 func (s *Store) CreateNote(ctx context.Context) (Note, error) {
+	// Serializes the notes+search writes against index rebuilds.
+	s.searchMu.Lock()
+	defer s.searchMu.Unlock()
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Note{}, fmt.Errorf("begin create note transaction: %w", err)
@@ -159,6 +167,10 @@ func (s *Store) SaveNote(ctx context.Context, noteID, title, documentJSON string
 	if err != nil {
 		return 0, err
 	}
+
+	// Serializes the notes+search writes against index rebuilds.
+	s.searchMu.Lock()
+	defer s.searchMu.Unlock()
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -195,6 +207,12 @@ func (s *Store) SaveNote(ctx context.Context, noteID, title, documentJSON string
 		}
 	}
 
+	// The revision guard above already rejected conflict/missing notes, so only a
+	// successfully persisted save reaches its incremental index entry. A failed
+	// save returns before this point and leaves note_search untouched.
+	if err := indexNoteSearchTx(ctx, tx, noteID, title, normalizedDocument); err != nil {
+		return 0, err
+	}
 	if err := setLastNoteIDTx(ctx, tx, noteID); err != nil {
 		return 0, err
 	}
@@ -220,6 +238,10 @@ func createNoteTx(ctx context.Context, tx *sql.Tx) (Note, error) {
 		VALUES (?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'), strftime('%Y-%m-%d %H:%M:%f', 'now'))
 	`, note.ID, note.Title, note.DocumentJSON, note.Revision); err != nil {
 		return Note{}, fmt.Errorf("insert note: %w", err)
+	}
+	// Callers hold s.searchMu; the note row and its index entry commit together.
+	if err := indexNoteSearchTx(ctx, tx, note.ID, note.Title, note.DocumentJSON); err != nil {
+		return Note{}, err
 	}
 	return note, nil
 }
