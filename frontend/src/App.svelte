@@ -10,6 +10,7 @@
     ListFolderNotes,
     ListFolders,
     ListRootNotes,
+    ListSidebar,
     ListTrashFolderNotes,
     ListTrashFolders,
     ListTrashNotes,
@@ -159,25 +160,27 @@ import {
   }
 
   async function refreshSidebar() {
-    const [rootTuple, folderTuple] = await Promise.all([ListRootNotes(), ListFolders()])
-    const [rootIDs, rootTitles] = rootTuple as [string[], string[]]
-    const [folderIDs, folderNames] = folderTuple as [string[], string[]]
-    if (folderIDs.length !== folderNames.length) {
-      throw new Error('Flashnote received an invalid folder list')
+    // One logical refresh is one canonical projection round trip, constant in
+    // folder count. The backend returns root notes plus every folder with its
+    // notes in canonical order, Trash excluded.
+    const projection = (await ListSidebar()) as {
+      rootNotes: { id: string; displayTitle: string }[]
+      folders: { id: string; name: string; notes: { id: string; displayTitle: string }[] }[]
     }
 
-    const nextFolders = await Promise.all(
-      folderIDs.map(async (id, index) => {
-        const [ids, titles] = (await ListFolderNotes(id)) as [string[], string[]]
-        return {
-          id,
-          name: folderNames[index] ?? '',
-          notes: noteSummaries(ids, titles),
-        }
-      }),
-    )
+    const nextFolders = projection.folders.map((folder) => ({
+      id: folder.id,
+      name: folder.name ?? '',
+      notes: noteSummaries(
+        folder.notes.map((note) => note.id),
+        folder.notes.map((note) => note.displayTitle),
+      ),
+    }))
 
-    rootNotes = noteSummaries(rootIDs, rootTitles)
+    rootNotes = noteSummaries(
+      projection.rootNotes.map((note) => note.id),
+      projection.rootNotes.map((note) => note.displayTitle),
+    )
     folders = nextFolders
 
     if (trashView) {

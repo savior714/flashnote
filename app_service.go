@@ -130,6 +130,54 @@ func (s *AppService) ListFolderNotes(folderID string) ([]string, []string, error
 	return ids, displayTitles, nil
 }
 
+// SidebarNote is one title-only sidebar row.
+type SidebarNote struct {
+	ID           string `json:"id"`
+	DisplayTitle string `json:"displayTitle"`
+}
+
+// SidebarFolder groups one active folder with its note summaries in canonical
+// sidebar order. Empty folders carry an empty non-nil Notes slice.
+type SidebarFolder struct {
+	ID    string       `json:"id"`
+	Name  string       `json:"name"`
+	Notes []SidebarNote `json:"notes"`
+}
+
+// SidebarProjection is the single canonical bounded read backing one logical
+// sidebar refresh: active root note summaries plus every active folder with
+// its note summaries, in canonical order, Trash excluded.
+type SidebarProjection struct {
+	RootNotes []SidebarNote   `json:"rootNotes"`
+	Folders   []SidebarFolder `json:"folders"`
+}
+
+// ListSidebar materializes the whole normal-library sidebar in one
+// frontend→backend round trip and a constant number of database queries,
+// regardless of folder count. It replaces the previous refresh fan-out of
+// ListRootNotes + ListFolders + one ListFolderNotes per folder.
+func (s *AppService) ListSidebar() (SidebarProjection, error) {
+	projection, err := s.store.ListSidebar(context.Background())
+	if err != nil {
+		return SidebarProjection{}, err
+	}
+	out := SidebarProjection{
+		RootNotes: make([]SidebarNote, 0, len(projection.RootNotes)),
+		Folders:   make([]SidebarFolder, 0, len(projection.Folders)),
+	}
+	for _, summary := range projection.RootNotes {
+		out.RootNotes = append(out.RootNotes, SidebarNote{ID: summary.ID, DisplayTitle: summary.DisplayTitle})
+	}
+	for _, folder := range projection.Folders {
+		notes := make([]SidebarNote, 0, len(folder.Notes))
+		for _, summary := range folder.Notes {
+			notes = append(notes, SidebarNote{ID: summary.ID, DisplayTitle: summary.DisplayTitle})
+		}
+		out.Folders = append(out.Folders, SidebarFolder{ID: folder.Folder.ID, Name: folder.Folder.Name, Notes: notes})
+	}
+	return out, nil
+}
+
 func (s *AppService) ListTrashNotes() ([]string, []string, error) {
 	summaries, err := s.store.ListTrashNotes(context.Background())
 	if err != nil {

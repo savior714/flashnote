@@ -67,6 +67,18 @@ export function ListRootNotes(): $CancellablePromise<[string[], string[]]> {
     });
 }
 
+/**
+ * ListSidebar materializes the whole normal-library sidebar in one
+ * frontend→backend round trip and a constant number of database queries,
+ * regardless of folder count. It replaces the previous refresh fan-out of
+ * ListRootNotes + ListFolders + one ListFolderNotes per folder.
+ */
+export function ListSidebar(): $CancellablePromise<$models.SidebarProjection> {
+    return $Call.ByID(3472350010).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
 export function ListTrashFolderNotes(folderID: string): $CancellablePromise<[string[], string[]]> {
     return $Call.ByID(466940197, folderID).then(($result: any) => {
         $result[0] = $$createType1($result[0]);
@@ -151,3 +163,4 @@ export function TrashCounts(): $CancellablePromise<[number, number]> {
 // Private type creation functions
 const $$createType0 = $models.RuntimeInfo.createFrom;
 const $$createType1 = $Create.Array($Create.Any);
+const $$createType2 = $models.SidebarProjection.createFrom;

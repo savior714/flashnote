@@ -33,7 +33,7 @@ type NoteSummary struct {
 
 func (s *Store) ListNotes(ctx context.Context) ([]NoteSummary, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, title, document_json
+		SELECT id, display_title
 		FROM notes
 		WHERE deleted_at IS NULL
 		ORDER BY updated_at DESC, id ASC
@@ -45,15 +45,11 @@ func (s *Store) ListNotes(ctx context.Context) ([]NoteSummary, error) {
 
 	summaries := make([]NoteSummary, 0)
 	for rows.Next() {
-		var id, title, documentJSON string
-		if err := rows.Scan(&id, &title, &documentJSON); err != nil {
+		var summary NoteSummary
+		if err := rows.Scan(&summary.ID, &summary.DisplayTitle); err != nil {
 			return nil, fmt.Errorf("scan note summary: %w", err)
 		}
-		displayTitle, err := deriveDisplayTitle(title, documentJSON)
-		if err != nil {
-			return nil, fmt.Errorf("derive display title for note %s: %w", id, err)
-		}
-		summaries = append(summaries, NoteSummary{ID: id, DisplayTitle: displayTitle})
+		summaries = append(summaries, summary)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate note summaries: %w", err)
@@ -167,6 +163,10 @@ func (s *Store) SaveNote(ctx context.Context, noteID, title, documentJSON string
 	if err != nil {
 		return 0, err
 	}
+	displayTitle, err := deriveDisplayTitle(title, normalizedDocument)
+	if err != nil {
+		return 0, err
+	}
 
 	// Serializes the notes+search writes against index rebuilds.
 	s.searchMu.Lock()
@@ -182,10 +182,11 @@ func (s *Store) SaveNote(ctx context.Context, noteID, title, documentJSON string
 		UPDATE notes
 		SET title = ?,
 			document_json = ?,
+			display_title = ?,
 			revision = revision + 1,
 			updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now')
 		WHERE id = ? AND revision = ? AND deleted_at IS NULL
-	`, title, normalizedDocument, noteID, expectedRevision)
+	`, title, normalizedDocument, displayTitle, noteID, expectedRevision)
 	if err != nil {
 		return 0, fmt.Errorf("update note: %w", err)
 	}
@@ -233,10 +234,16 @@ func createNoteTx(ctx context.Context, tx *sql.Tx) (Note, error) {
 		DocumentJSON: document.EmptyJSON(),
 		Revision:     1,
 	}
+	// display_title is the write-time projection of (title, document_json) with
+	// the canonical deriveDisplayTitle; an empty note derives "Untitled".
+	displayTitle, err := deriveDisplayTitle(note.Title, note.DocumentJSON)
+	if err != nil {
+		return Note{}, fmt.Errorf("derive display title for new note: %w", err)
+	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO notes(id, title, document_json, revision, created_at, updated_at)
-		VALUES (?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'), strftime('%Y-%m-%d %H:%M:%f', 'now'))
-	`, note.ID, note.Title, note.DocumentJSON, note.Revision); err != nil {
+		INSERT INTO notes(id, title, document_json, display_title, revision, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'), strftime('%Y-%m-%d %H:%M:%f', 'now'))
+	`, note.ID, note.Title, note.DocumentJSON, displayTitle, note.Revision); err != nil {
 		return Note{}, fmt.Errorf("insert note: %w", err)
 	}
 	// Callers hold s.searchMu; the note row and its index entry commit together.

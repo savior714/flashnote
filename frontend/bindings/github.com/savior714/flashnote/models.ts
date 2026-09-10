@@ -49,3 +49,112 @@ export class RuntimeInfo {
         return new RuntimeInfo($$parsedSource as Partial<RuntimeInfo>);
     }
 }
+
+/**
+ * SidebarFolder groups one active folder with its note summaries in canonical
+ * sidebar order. Empty folders carry an empty non-nil Notes slice.
+ */
+export class SidebarFolder {
+    "id": string;
+    "name": string;
+    "notes": SidebarNote[];
+
+    /** Creates a new SidebarFolder instance. */
+    constructor($$source: Partial<SidebarFolder> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("notes" in $$source)) {
+            this["notes"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SidebarFolder instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SidebarFolder {
+        const $$createField2_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("notes" in $$parsedSource) {
+            $$parsedSource["notes"] = $$createField2_0($$parsedSource["notes"]);
+        }
+        return new SidebarFolder($$parsedSource as Partial<SidebarFolder>);
+    }
+}
+
+/**
+ * SidebarNote is one title-only sidebar row.
+ */
+export class SidebarNote {
+    "id": string;
+    "displayTitle": string;
+
+    /** Creates a new SidebarNote instance. */
+    constructor($$source: Partial<SidebarNote> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("displayTitle" in $$source)) {
+            this["displayTitle"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SidebarNote instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SidebarNote {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SidebarNote($$parsedSource as Partial<SidebarNote>);
+    }
+}
+
+/**
+ * SidebarProjection is the single canonical bounded read backing one logical
+ * sidebar refresh: active root note summaries plus every active folder with
+ * its note summaries, in canonical order, Trash excluded.
+ */
+export class SidebarProjection {
+    "rootNotes": SidebarNote[];
+    "folders": SidebarFolder[];
+
+    /** Creates a new SidebarProjection instance. */
+    constructor($$source: Partial<SidebarProjection> = {}) {
+        if (!("rootNotes" in $$source)) {
+            this["rootNotes"] = [];
+        }
+        if (!("folders" in $$source)) {
+            this["folders"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SidebarProjection instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SidebarProjection {
+        const $$createField0_0 = $$createType1;
+        const $$createField1_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("rootNotes" in $$parsedSource) {
+            $$parsedSource["rootNotes"] = $$createField0_0($$parsedSource["rootNotes"]);
+        }
+        if ("folders" in $$parsedSource) {
+            $$parsedSource["folders"] = $$createField1_0($$parsedSource["folders"]);
+        }
+        return new SidebarProjection($$parsedSource as Partial<SidebarProjection>);
+    }
+}
+
+// Private type creation functions
+const $$createType0 = SidebarNote.createFrom;
+const $$createType1 = $Create.Array($$createType0);
+const $$createType2 = SidebarFolder.createFrom;
+const $$createType3 = $Create.Array($$createType2);

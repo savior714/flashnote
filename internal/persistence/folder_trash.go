@@ -93,7 +93,7 @@ func (s *Store) ListTrashFolderNotes(ctx context.Context, folderID string) ([]No
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, title, document_json
+		SELECT id, display_title
 		FROM notes
 		WHERE deleted_at IS NOT NULL AND deleted_with_folder_id = ?
 		ORDER BY updated_at DESC, id ASC
@@ -105,15 +105,11 @@ func (s *Store) ListTrashFolderNotes(ctx context.Context, folderID string) ([]No
 
 	summaries := make([]NoteSummary, 0)
 	for rows.Next() {
-		var id, title, documentJSON string
-		if err := rows.Scan(&id, &title, &documentJSON); err != nil {
+		var summary NoteSummary
+		if err := rows.Scan(&summary.ID, &summary.DisplayTitle); err != nil {
 			return nil, fmt.Errorf("scan trash folder note: %w", err)
 		}
-		displayTitle, err := deriveDisplayTitle(title, documentJSON)
-		if err != nil {
-			return nil, fmt.Errorf("derive trash folder note title for %s: %w", id, err)
-		}
-		summaries = append(summaries, NoteSummary{ID: id, DisplayTitle: displayTitle})
+		summaries = append(summaries, summary)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate trash folder notes: %w", err)

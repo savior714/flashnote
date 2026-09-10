@@ -9,5 +9,8 @@ export {
 };
 
 export {
-    RuntimeInfo
+    RuntimeInfo,
+    SidebarFolder,
+    SidebarNote,
+    SidebarProjection
 } from "./models.js";
