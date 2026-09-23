@@ -100,12 +100,14 @@ tasks:
   run:icons:
     internal: true
     status:
-      - test -f darwin/icons.icns
+      - test -f build/darwin/icons.icns
     cmds:
       # Seeds icon staging only when missing, derived deterministically from the canonical artwork.
-      - cp ../assets/appicon.png appicon.png
-      - wails3 generate icons -input appicon.png -macfilename darwin/icons.icns
-    dir: build
+      # Runs from the repository root: wails3 generate icons resolves its platform output
+      # paths against the project root, so invoking it from build/ writes into build/build/.
+      - mkdir -p build/windows
+      - cp assets/appicon.png build/appicon.png
+      - wails3 generate icons -input build/appicon.png -macfilename build/darwin/icons.icns
 
   dev:
     cmds:
