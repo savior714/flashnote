@@ -151,6 +151,7 @@ jobs:
           export HOME="$RUNNER_TEMP/flashnote-dev-home"
           mkdir -p "$HOME"
           LOG="$RUNNER_TEMP/wails-dev.log"
+          trap 'echo "=== wails-dev.log (failure) ==="; cat "$LOG" 2>/dev/null || true; echo "=== end wails-dev.log ==="' EXIT
           wails3 dev -config ./build/config.yml -port 9245 >"$LOG" 2>&1 &
           pid=$!
           cleanup() {
