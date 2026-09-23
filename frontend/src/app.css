@@ -311,6 +311,32 @@ input {
   margin: 0 0 0.85em;
 }
 
+.editor-host .prose-editor pre {
+  margin: 0 0 0.85em;
+  overflow-x: auto;
+  padding: 0.8em 1em;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: var(--surface-app);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.editor-host .prose-editor pre code {
+  color: inherit;
+  font: inherit;
+}
+
+.editor-host .prose-editor pre.ProseMirror-selectednode {
+  border-color: var(--border-input-focus);
+  outline: 2px solid var(--border-input-focus);
+  outline-offset: 2px;
+  background: var(--surface-active);
+}
+
 .editor-host .prose-editor ul[data-type="taskList"] {
   margin: 0 0 0.85em;
   padding: 0;

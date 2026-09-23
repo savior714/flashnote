@@ -8,6 +8,7 @@ import {
 } from './linkHelper'
 import { dispatchPasteEvent, runRichPasteAcceptance } from './richPasteAcceptance'
 import { runImageResizeAcceptance } from './imageResizeAcceptance'
+import { runCodeBlockAcceptance } from './codeBlockAcceptance'
 import { runSettingsAcceptance } from './settingsAcceptance'
 import { runNavigationShellAcceptance } from './navigationShellAcceptance'
 
@@ -170,6 +171,8 @@ export async function runSlashAcceptance(
     if (firstNode?.type !== 'paragraph') {
       throw new Error(`acceptance: expected paragraph after Escape, got node type "${firstNode?.type}"`)
     }
+
+    await runCodeBlockAcceptance(editor)
 
     // 6. Execution: reopen /hea, navigate to Heading 2, press Enter
     editor.commands.setContent({
@@ -659,6 +662,7 @@ export async function runSlashAcceptance(
     )
 
     console.log('FLASHNOTE_SLASH_ACCEPTANCE_SUCCESS')
+    console.log('FLASHNOTE_CODE_BLOCK_ACCEPTANCE_SUCCESS')
     console.log('FLASHNOTE_E2_ACCEPTANCE_SUCCESS')
     console.log('FLASHNOTE_E3_ACCEPTANCE_SUCCESS')
     console.log('FLASHNOTE_E4_ACCEPTANCE_SUCCESS')

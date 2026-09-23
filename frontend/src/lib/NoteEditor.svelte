@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Editor, isTextSelection, type JSONContent, type Range } from '@tiptap/core'
   import BubbleMenu from '@tiptap/extension-bubble-menu'
+  import { NodeSelection } from '@tiptap/pm/state'
   import StarterKit from '@tiptap/starter-kit'
   import { onDestroy, onMount } from 'svelte'
   import { IngestImage } from '../../bindings/github.com/savior714/flashnote/appservice'
@@ -277,10 +278,50 @@
         )
       },
       editorProps: {
+        handleKeyDown: (view, event) => {
+          if (!editable || slashOpen || event.key !== 'Escape') {
+            return false
+          }
+          const { selection } = view.state
+          if (!isTextSelection(selection) || selection.$from.parent.type.name !== 'codeBlock') {
+            return false
+          }
+          const position = selection.$from.before(selection.$from.depth)
+          view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, position)))
+          return true
+        },
         attributes: {
           class: 'prose-editor',
         },
         handleDOMEvents: {
+          mousedown: (view, event) => {
+            if (!editable || event.button !== 0) {
+              return false
+            }
+            const target = event.target
+            if (!(target instanceof HTMLElement) || target.tagName !== 'PRE') {
+              return false
+            }
+            const domPosition = view.posAtDOM(target, 0)
+            const resolvedPosition = view.state.doc.resolve(domPosition)
+            let position: number | null = null
+            for (let depth = resolvedPosition.depth; depth > 0; depth--) {
+              if (resolvedPosition.node(depth).type.name === 'codeBlock') {
+                position = resolvedPosition.before(depth)
+                break
+              }
+            }
+            if (position === null && resolvedPosition.nodeAfter?.type.name === 'codeBlock') {
+              position = domPosition
+            }
+            if (position === null) {
+              return false
+            }
+            event.preventDefault()
+            view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, position)))
+            view.focus()
+            return true
+          },
           click: (_view, event) => {
             const target = event.target as HTMLElement | null
             const anchor = target?.closest('a')
