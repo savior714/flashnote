@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"time"
 
 	"github.com/savior714/flashnote/internal/persistence"
 )
@@ -337,16 +338,28 @@ func (s *AppService) OpenTrashNote(noteID string) (string, string, string, int64
 }
 
 func (s *AppService) SaveNote(noteID string, title string, documentJSON string, expectedRevision int64) (int64, error) {
+	started := time.Now()
+	wireBytes := len(documentJSON)
+	documentJSON, err := decodeSavedDocument(documentJSON)
+	if err != nil {
+		log.Printf("FLASHNOTE_NOTE_SAVE_FAILED id=%s revision=%d stage=document-wire error=%v", noteID, expectedRevision, err)
+		return 0, err
+	}
 	ctx := context.Background()
 	if err := s.store.ValidateDocumentAttachments(ctx, documentJSON); err != nil {
+		log.Printf("FLASHNOTE_NOTE_SAVE_FAILED id=%s revision=%d bytes=%d stage=attachment-validation error=%v", noteID, expectedRevision, len(documentJSON), err)
 		return 0, err
 	}
 	revision, err := s.store.SaveNote(ctx, noteID, title, documentJSON, expectedRevision)
 	if err != nil {
-		log.Printf("FLASHNOTE_NOTE_SAVE_FAILED id=%s revision=%d error=%v", noteID, expectedRevision, err)
+		log.Printf("FLASHNOTE_NOTE_SAVE_FAILED id=%s revision=%d bytes=%d stage=store duration=%s error=%v", noteID, expectedRevision, len(documentJSON), time.Since(started).Round(time.Millisecond), err)
 		return 0, err
 	}
-	log.Printf("FLASHNOTE_NOTE_SAVED id=%s revision=%d", noteID, revision)
+	if wireBytes != len(documentJSON) {
+		log.Printf("FLASHNOTE_NOTE_SAVED id=%s revision=%d bytes=%d wire=%d duration=%s", noteID, revision, len(documentJSON), wireBytes, time.Since(started).Round(time.Millisecond))
+	} else {
+		log.Printf("FLASHNOTE_NOTE_SAVED id=%s revision=%d bytes=%d duration=%s", noteID, revision, len(documentJSON), time.Since(started).Round(time.Millisecond))
+	}
 	return revision, nil
 }
 

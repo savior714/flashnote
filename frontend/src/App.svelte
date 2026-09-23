@@ -34,6 +34,7 @@ import { runNewNoteShortcutAcceptance } from './lib/newNoteShortcutAcceptance'
 import { runSidebarDragDropAcceptance } from './lib/sidebarDragDropAcceptance'
 import { exportCurrentNoteMarkdown } from './lib/export-shortcut'
 import { setMarkdownExportReadiness } from './lib/markdownExportGate'
+import { encodeDocumentForSave } from './lib/documentWire'
 import { waitForSaveFlush } from './lib/save-flush-timeout'
 import {
   applyEditorFontSize,
@@ -431,12 +432,8 @@ import {
     const capturedSequence = draftSequence
     const capturedGeneration = saveGeneration
 
-    const operation = SaveNote(
-      capturedID,
-      capturedTitle,
-      capturedDocument,
-      capturedRevision,
-    )
+    const operation = Promise.resolve(encodeDocumentForSave(capturedDocument))
+      .then((wireDocument) => SaveNote(capturedID, capturedTitle, wireDocument, capturedRevision))
       .then((newRevision) => {
         if (saveGeneration !== capturedGeneration || noteID !== capturedID || trashView) {
           return false
