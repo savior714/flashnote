@@ -151,7 +151,6 @@ jobs:
           export HOME="$RUNNER_TEMP/flashnote-dev-home"
           mkdir -p "$HOME"
           LOG="$RUNNER_TEMP/wails-dev.log"
-          trap 'echo "=== wails-dev.log (failure) ==="; cat "$LOG" 2>/dev/null || true; echo "=== end wails-dev.log ==="' EXIT
           wails3 dev -config ./build/config.yml -port 9245 >"$LOG" 2>&1 &
           pid=$!
           cleanup() {
@@ -159,8 +158,9 @@ jobs:
             kill "$pid" 2>/dev/null || true
             wait "$pid" 2>/dev/null || true
           }
-          trap cleanup EXIT
-          for _ in {1..90}; do
+          dump() { echo "=== wails-dev.log ==="; cat "$LOG" 2>/dev/null || true; echo "=== end wails-dev.log ==="; cleanup; }
+          trap dump EXIT
+          for _ in {1..180}; do
             if grep -q FLASHNOTE_RUNTIME_READY "$LOG" && grep -q FLASHNOTE_NOTE_OPEN "$LOG"; then break; fi
             kill -0 "$pid"
             sleep 1
