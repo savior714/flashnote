@@ -1,8 +1,8 @@
 # Flashnote Development Operating Contract
 
-_Status: canonical execution/publication contract · 2026-09-06_
+_Status: canonical execution/publication contract · 2026-09-23_
 
-This document owns Flashnote's development execution, verification cadence, concurrency, handoff, and `origin/main` publication rules. Product behavior remains owned by `docs/PRODUCT.md`; implementation architecture remains owned by `docs/TECHNICAL.md`. A root `AGENTS.md`, when present, is routing only and must not duplicate this contract.
+This document owns Flashnote's development execution lifecycle, verification cadence, concurrency, handoff, and `origin/main` publication rules. The repository itself is the execution authority: the canonical task lifecycle (§6) runs entirely on Git state and requires no external coordination control plane (§12). Product behavior remains owned by `docs/PRODUCT.md`; implementation architecture remains owned by `docs/TECHNICAL.md`. A root `AGENTS.md`, when present, is routing only and must not duplicate this contract.
 
 ## 1. Operating priority: current product work first
 
@@ -17,7 +17,7 @@ Use this priority order:
 
 Do not reopen already-closed MVP audits, packaging/signing/notarization, broad release qualification, dependency upgrades, or speculative infrastructure unless a current defect, security/compatibility need, or explicit user decision reopens that scope.
 
-For live repository/runtime facts, current direct evidence outranks old handoffs, remembered SHAs, prior task state, and historical acceptance results. Prior decisions remain useful only where current evidence has not superseded them.
+For live repository/runtime facts, current direct evidence outranks old handoffs, remembered SHAs, prior task state, and historical acceptance results. Prior decisions remain useful only where current evidence has not superseded them. Live repository/Git state always outranks any external coordination or continuity material (§12); such material may inform but never overrides it.
 
 ## 2. Task shape and semantic convergence
 
@@ -45,7 +45,7 @@ Before parallelizing, inspect the current repository and dependency/ownership gr
 
 Preserve unrelated foreign working state. Do not reset, clean, stash, restore, move, or delete another task's work merely to simplify the current task.
 
-The collision unit for issuance is `SEMANTIC_OWNER` (see §12). A coordinator that can read active work checks it before issuing runnable parallel work; an already-active semantic owner normally blocks another mutating task for that owner, even when file paths look disjoint.
+The collision unit for task issuance is `SEMANTIC_OWNER`. Before starting or parallelizing a mutating task, check active semantic owners from live Git state — recent `origin/main` history, current branches/worktrees, and the canonical contracts each task touches. An already-active semantic owner normally blocks another mutating task for that owner, even when file paths look disjoint. No external reservation ledger or registry is consulted or required for this check; the check is judgment against live repository evidence, and a genuine tie-break that repository evidence cannot resolve is escalated, not silently co-issued.
 
 ## 4. Verification cadence: nearest faithful proof
 
@@ -92,19 +92,31 @@ Local handoffs are executor-neutral by default. They should be repository-aware 
 
 When reporting a completed or blocked development session, `FRICTION_OBSERVED` may contain 0–3 concrete friction candidates for later consideration. Reporting friction does not automatically open a new task.
 
-## 6. Publication states: `SEMANTIC_READY` is not `PUBLISHABLE`
+## 6. Canonical task lifecycle: isolated workspace, direct-main publication
 
-Flashnote uses direct-main single-trunk development. Feature branches and pull requests are not the default workflow.
+Flashnote uses direct-main single-trunk development. Feature branches and pull requests are not the workflow; a task branch exists only as a short-lived isolation carrier that fast-forwards into `main` and is then deleted.
+
+Every mutation task runs this lifecycle:
+
+1. **Fresh remote authority** — fetch `origin` and admit the resulting `origin/main` as the task base; record it (`ADMITTED_BASE`).
+2. **Bounded scope and semantic owner** — bound the task to one semantic transition and identify its `SEMANTIC_OWNER` (§2, §3).
+3. **Isolated workspace** — create one dedicated worktree plus one task branch from the freshly admitted `origin/main`. Do not mutate directly in a shared checkout carrying unrelated dirty or foreign state, and do not absorb, overwrite, stash, or clean unrelated work.
+4. **Bounded implementation** — smallest root-cause-complete change (§2).
+5. **Nearest faithful proof** — run the cheapest proof that can falsify the change (§4).
+6. **Just-in-time reconcile** — immediately before publication, fetch `origin` again and classify intervening movement by semantic/proof/publication impact (§7); reconcile only the minimum affected.
+7. **Non-destructive publication** — one non-force fast-forward update of `refs/heads/main` from a clean readiness state (§8). Force-push, history rewrite, and destructive recovery are prohibited.
+8. **Remote read-back** — re-read `origin/main` and prove the exact task commit is contained in it. Publication is not established by a local commit or a push command's exit status alone.
+9. **Residue cleanup** — remove the task-owned worktree and task branch. Pre-existing unrelated residue is left untouched.
+
+Local implementation completion is never `COMPLETE` / `PUBLISHED`; only steps 7–9 establish that. A task that stops earlier reports the precise non-publication disposition and resume condition below.
 
 ### Branch discipline
 
-- A new task does not imply a new branch. Do not create `task/*`, `fix/*`, `feat/*`, or similarly disposable branches for task isolation, naming, convenience, experimentation, verification, review, or publication preparation. Reuse the current appropriate branch or the existing canonical development branch, completing bounded tasks sequentially on it.
-- Before mutating, inspect the current branch and worktree state, determine whether the current branch is semantically appropriate for the task, and preserve unrelated dirty or in-flight work. Do not create a branch as a precaution, solely to obtain a clean worktree, or as a substitute for handling unrelated dirty state correctly.
-- If the current branch is unsuitable, first look for an existing appropriate canonical branch and switch to it only when doing so is safe and preserves current work. Do not solve the problem by inventing another task branch.
-- A new branch is allowed only when the user explicitly requests one, when established repository policy genuinely requires a separate branch, or when concurrent work makes mutation on every existing appropriate branch unsafe and no non-branch isolation mechanism can preserve both scopes. Even then, explain the concrete necessity before creating it, create at most one branch for the required scope, and do not recursively create sub-task branches. Do not create temporary publication/reconciliation branches unless explicitly required by repository authority.
-- If safe continuation requires a branch decision that cannot be derived from repository authority, stop before branch creation and report `BRANCH_DECISION_NEEDED` with the exact conflict and the smallest decision required.
-- Steady state is few long-lived, semantically meaningful branches: bounded tasks are expressed as commits/worktree changes, not branch topology, and topology changes only when they carry real repository semantics. Do not leave abandoned task branches as routine residue.
-- At task completion, report `BRANCH_USED: <branch>` and `BRANCH_CREATED: yes/no`; when yes, add `NECESSITY: <explicit authority or unavoidable isolation reason>`.
+- One task = one short-lived task branch + worktree created from fresh `origin/main` (step 3). The branch carries no independent semantics beyond that isolation.
+- Publish by fast-forwarding `main`, then delete the branch and worktree in the same task. Do not leave abandoned task branches or worktrees as routine residue.
+- Do not create additional branches for naming, experimentation, review, publication mechanics, or sub-tasks; do not stack or recursively fork task branches; do not keep long-lived parallel branches diverging from `main`.
+- If isolation is unsafe (e.g., the intended base cannot be established without touching foreign state), stop and report `BRANCH_DECISION_NEEDED` with the exact conflict and the smallest decision required.
+- At task completion, report `BRANCH_USED: <branch>` and `WORKTREE_CLEANED: yes/no`.
 
 Keep two concepts separate:
 
@@ -136,7 +148,7 @@ A just-in-time binding is publication preparation, not history repair. Do not us
 
 If `origin/main` advances again after one topology-only final binding attempt, preserve the semantic result/candidate and stop the rematerialization loop. Re-enter from fresh repository truth rather than repeatedly recreating candidates in the same task.
 
-Topology classification for the movement above, shared with coordination reporting, binds as follows: `TOPOLOGY_ONLY_OR_DISJOINT` means remote movement with no semantic/proof impact on this task (publish directly or apply minimal JIT binding); `SEMANTIC_OVERLAP` means intervening work changed this task's semantic owner, contract, or mutation meaning; `PROOF_OWNER_MOVED` means the recorded proof's owner, criterion, or validity moved even when the delta text looks intact (rerun only the affected proof); `PUBLICATION_TOPOLOGY_CONFLICT` means the candidate cannot advance `origin/main` fast-forward without binding mechanics despite intact semantics (single binding attempt, then stop per above); `UNKNOWN` means impact cannot be established from available evidence (treat as unverified, never coerce). These names only label §7/§8 outcomes; they create no second framework.
+Topology classification for the movement above binds as follows: `TOPOLOGY_ONLY_OR_DISJOINT` means remote movement with no semantic/proof impact on this task (publish directly or apply minimal JIT binding); `SEMANTIC_OVERLAP` means intervening work changed this task's semantic owner, contract, or mutation meaning; `PROOF_OWNER_MOVED` means the recorded proof's owner, criterion, or validity moved even when the delta text looks intact (rerun only the affected proof); `PUBLICATION_TOPOLOGY_CONFLICT` means the candidate cannot advance `origin/main` fast-forward without binding mechanics despite intact semantics (single binding attempt, then stop per above); `UNKNOWN` means impact cannot be established from available evidence (treat as unverified, never coerce). These names only label §7/§8 outcomes; they create no second framework.
 
 ## 8. Publication critical section
 
@@ -204,13 +216,25 @@ A newly observed data-loss or durability contradiction supersedes prior optimist
 
 Release-package and DMG workflows may remain in the repository as historical/manual evidence owners, but they must not run automatically on ordinary `main` pushes while distribution is inactive. Dependency/toolchain upgrades are not frontiers by themselves; open them only when required by an observed defect, security issue, or compatibility problem.
 
-## 12. External coordination ledger (non-authoritative continuity aid)
+## 12. Execution authority and legacy coordination surface
 
-A coordinator session may additionally consult the project's external coordination surface (durable context, active work, shared protocol) as a continuity aid. That surface never owns product, technical, or development semantics: this document, `docs/PRODUCT.md`, `docs/TECHNICAL.md`, and current repository/Git/runtime/artifact evidence remain final authority. Whenever current state matters, live evidence wins over ledger entries, remembered context, stored SHAs/bases/candidates, and topology observations.
+The repository owns the execution lifecycle. Authority for judging current task state, in priority order:
 
-- Only work that was actually issued is represented as `IN_FLIGHT`. Absence from the ledger is not proof that no unpublished or concurrent work exists.
-- Executor-reported candidates, proof, publication claims, and runtime state are reported evidence until independently verified where the claim requires verification. Stored SHAs, bases, candidates, and topology observations never establish current publishability.
+1. live repository/Git state (`origin/main`, current worktrees/branches, commit history);
+2. runtime/artifact evidence when the claim involves runtime behavior;
+3. the canonical repository specifications (`docs/PRODUCT.md`, `docs/TECHNICAL.md`, this document).
+
+The normal task lifecycle (§6–§8) must not require any external coordination control plane: no Drive/Active-Coordination surface, `READY` registration, `IN_FLIGHT` ledger, persistent semantic-owner reservation store, Work Inbox, claim/lease mechanism, relay, Executor Report Inbox, completion transport, revision/cursor synchronization, or heartbeat/daemon/scheduler. A task missing any such state reconstructs everything it needs from live Git (§6 step 1) and proceeds.
+
+External coordination or continuity material may exist and may be consulted as a supplementary historical aid at best. It never overrides live Git state, never gates publication, and never reopens a `CLOSED` scope. Legacy coordination machinery may still physically exist in or around this repository; its footprint is a migration inventory, not a contract input. Until an explicit follow-up task removes a piece, it stays untouched and inactive — but no canonical rule may add a new normal-path dependency on it, and no compatibility/shadow/fallback coordination path may be introduced.
+
+These invariants survive as repository development rules, independent of any ledger:
+
+- `SEMANTIC_OWNER` is the collision unit; file disjointness never proves semantic independence (§3).
+- Never issue parallel mutations against the same active semantic owner (§3).
+- Evidence-first verification with the nearest faithful proof (§4); `UNKNOWN` / `UNVERIFIED` is never promoted to proven, healthy, or published.
+- Remote revision movement alone is not semantic invalidation (§7).
 - Semantic freshness (the delta still means the same thing on the current base), proof freshness (the recorded proof still falsifies the current candidate), and publication freshness (an immediate non-force fast-forward path exists right now) are distinct; none implies the others.
-- `UNKNOWN` / `UNVERIFIED` is never coerced into disjoint, healthy, proven, or published.
-- Ledger unavailability alone never blocks otherwise-safe work: reconstruct from live repository/Git/runtime authority, treat coordination state as `UNKNOWN`, proceed only as far as live evidence independently justifies, and resynchronize the ledger later.
-- Local executors do not require access to the external coordination surface. The coordinator owns ledger synchronization; executors return structured results (`OUTCOME`, `PRESERVE`, `PROOF`, terminal report fields) derived from live repository evidence.
+- Absence of a task from any record is not proof that no concurrent or unpublished work exists; check live Git.
+- A blocker must state its exact blocked boundary, what remains possible, and the concrete resume condition.
+- A `CLOSED` scope is not reopened without new direct evidence or a change in a governing decision (§1, §11).
