@@ -1,6 +1,6 @@
 # Flashnote Development Operating Contract
 
-_Status: canonical execution/publication contract · 2026-09-23_
+_Status: canonical execution/publication contract · 2026-09-24_
 
 This document owns Flashnote's development execution lifecycle, verification cadence, concurrency, handoff, and `origin/main` publication rules. The repository itself is the execution authority: the canonical task lifecycle (§6) runs entirely on Git state and requires no external coordination control plane (§12). Product behavior remains owned by `docs/PRODUCT.md`; implementation architecture remains owned by `docs/TECHNICAL.md`. A root `AGENTS.md`, when present, is routing only and must not duplicate this contract.
 
@@ -45,7 +45,7 @@ Before parallelizing, inspect the current repository and dependency/ownership gr
 
 Preserve unrelated foreign working state. Do not reset, clean, stash, restore, move, or delete another task's work merely to simplify the current task.
 
-The collision unit for task issuance is `SEMANTIC_OWNER`. Before starting or parallelizing a mutating task, check active semantic owners from live Git state — recent `origin/main` history, current branches/worktrees, and the canonical contracts each task touches. An already-active semantic owner normally blocks another mutating task for that owner, even when file paths look disjoint. No external reservation ledger or registry is consulted or required for this check; the check is judgment against live repository evidence, and a genuine tie-break that repository evidence cannot resolve is escalated, not silently co-issued.
+The collision unit for task issuance is `SEMANTIC_OWNER`. Before starting or parallelizing a mutating task, check active semantic owners from live Git state — recent `origin/main` history, current worktrees/refs, and the canonical contracts each task touches. An already-active semantic owner normally blocks another mutating task for that owner, even when file paths look disjoint. No external reservation ledger or registry is consulted or required for this check; the check is judgment against live repository evidence, and a genuine tie-break that repository evidence cannot resolve is escalated, not silently co-issued.
 
 ## 4. Verification cadence: nearest faithful proof
 
@@ -58,6 +58,8 @@ Default loop:
 3. run the **nearest faithful proof** that can falsify the intended fix;
 4. add or change regression coverage only when it protects a real contract or reproduced failure;
 5. stop when additional verification cannot materially change the claim.
+
+Changes to `scripts/git/workspace.py`, `scripts/git/publish.py`, or the staged-scope gate use `task git:contract-test` as their nearest regression proof. The suite uses Python stdlib `unittest` plus temporary real Git repositories/worktrees; it does not add a Python test dependency or require the broad product suite for a Git-mechanics-only change.
 
 Do not run broad native/package/release suites after every ordinary change. Full/canonical release qualification is a separate future frontier and should begin only when external distribution/release preparation is explicitly reopened.
 
@@ -94,29 +96,34 @@ When reporting a completed or blocked development session, `FRICTION_OBSERVED` m
 
 ## 6. Canonical task lifecycle: isolated workspace, direct-main publication
 
-Flashnote uses direct-main single-trunk development. Feature branches and pull requests are not the workflow; a task branch exists only as a short-lived isolation carrier that fast-forwards into `main` and is then deleted.
+Flashnote uses direct-main single-trunk development. Feature branches and pull requests are not the ordinary workflow. The default mutation workspace is a **detached transient worktree** created from fresh `origin/main`; a named branch/ref is created only when current evidence establishes a need beyond workspace isolation itself.
 
 Every mutation task runs this lifecycle:
 
 1. **Fresh remote authority** — fetch `origin` and admit the resulting `origin/main` as the task base; record it (`ADMITTED_BASE`).
 2. **Bounded scope and semantic owner** — bound the task to one semantic transition and identify its `SEMANTIC_OWNER` (§2, §3).
-3. **Isolated workspace** — create one dedicated worktree plus one task branch from the freshly admitted `origin/main`. Do not mutate directly in a shared checkout carrying unrelated dirty or foreign state, and do not absorb, overwrite, stash, or clean unrelated work.
-4. **Bounded implementation** — smallest root-cause-complete change (§2).
-5. **Nearest faithful proof** — run the cheapest proof that can falsify the change (§4).
-6. **Just-in-time reconcile** — immediately before publication, fetch `origin` again and classify intervening movement by semantic/proof/publication impact (§7); reconcile only the minimum affected.
-7. **Non-destructive publication** — one non-force fast-forward update of `refs/heads/main` from a clean readiness state (§8). Force-push, history rewrite, and destructive recovery are prohibited.
-8. **Remote read-back** — re-read `origin/main` and prove the exact task commit is contained in it. Publication is not established by a local commit or a push command's exit status alone.
-9. **Residue cleanup** — remove the task-owned worktree and task branch. Pre-existing unrelated residue is left untouched.
+3. **Isolated workspace** — use `scripts/git/workspace.py create` (or an exactly equivalent bounded Git operation when the helper itself is under repair) to create one clean detached worktree at the freshly admitted revision. Do not mutate directly in a shared checkout carrying unrelated dirty or foreign state.
+4. **Bounded implementation** — make the smallest root-cause-complete change (§2). Mutating formatters/autofixers/codemods receive only the explicit task-owned path set.
+5. **Explicit staging scope** — stage only explicit task-owned paths. Before a mutation commit, set `TASK_OWNED_PATHS` and run `task git:staged-scope-check`; the staged set must be a subset of that declared set.
+6. **Nearest faithful proof** — run the cheapest proof that can falsify the change (§4).
+7. **Just-in-time reconcile** — immediately before publication, fetch `origin` again and classify intervening movement by task meaning, proof validity, and publication topology (§7); reconcile only the affected boundary.
+8. **Non-destructive publication** — use `scripts/git/publish.py --base <ADMITTED_BASE>` for the Git-mechanical publication path (§8). Ordinary publication is one non-force update of `refs/heads/main`; force-push and history rewrite are prohibited.
+9. **Remote read-back** — re-read `origin/main` and prove the exact published task commit is contained in it. A local commit or successful push command alone is not publication proof.
+10. **Published-only cleanup** — use `scripts/git/workspace.py cleanup <workspace>` only after publication/read-back. The helper removes exactly one helper-managed detached worktree only when its clean current HEAD is contained in fresh `origin/main`; dirty, unpublished, active-operation, unregistered, fetch-failed, or otherwise unknown state is preserved.
 
-Local implementation completion is never `COMPLETE` / `PUBLISHED`; only steps 7–9 establish that. A task that stops earlier reports the precise non-publication disposition and resume condition below.
+Local implementation completion is never `COMPLETE` / `PUBLISHED`; only publication, read-back, and applicable cleanup establish that terminal result. A task that stops earlier reports the precise non-publication disposition and resume condition below.
 
-### Branch discipline
+### Workspace and commit discipline
 
-- One task = one short-lived task branch + worktree created from fresh `origin/main` (step 3). The branch carries no independent semantics beyond that isolation.
-- Publish by fast-forwarding `main`, then delete the branch and worktree in the same task. Do not leave abandoned task branches or worktrees as routine residue.
-- Do not create additional branches for naming, experimentation, review, publication mechanics, or sub-tasks; do not stack or recursively fork task branches; do not keep long-lived parallel branches diverging from `main`.
-- If isolation is unsafe (e.g., the intended base cannot be established without touching foreign state), stop and report `BRANCH_DECISION_NEEDED` with the exact conflict and the smallest decision required.
-- At task completion, report `BRANCH_USED: <branch>` and `WORKTREE_CLEANED: yes/no`.
+- Branchless detached worktrees are the default isolation carrier. A named branch has no default lifecycle role and is created only for a concrete current need that a detached worktree cannot satisfy.
+- Do not create branches for naming, experimentation, routine review, publication mechanics, or sub-tasks; do not stack or recursively fork temporary branches.
+- Ordinary bounded staging is explicit path enumeration: use `git add -- <path>...`. `git add -A`, `git add .`, and wildcard pathspec staging are not ordinary mutation steps because they can sweep foreign state.
+- `TASK_OWNED_PATHS` is mandatory for a mutation commit. `task git:staged-scope-check` is read-only, prints the exact staged set, fails closed when `TASK_OWNED_PATHS` is absent, and refuses a staged path outside the declared set.
+- A foreign staged path is a stop-and-report event. Do not automatically reset, restore, clean, stash, or otherwise rewrite foreign state to make the gate pass.
+- A mutating formatter, autofixer, or codemod receives only task-owned paths or an equivalently bounded mechanically derived set. Whole-repository read-only checks remain allowed.
+- `scripts/git/workspace.py` owns only fresh admission, detached-worktree creation/inspection, and published-only cleanup. It owns no semantic admission, task identity, queue/registry, owner token, frontier claim, publication, or unpublished-candidate disposal.
+- If isolation or ownership cannot be established without touching foreign state, stop and report `WORKSPACE_DECISION_NEEDED` with the exact conflict and smallest decision required.
+- At task completion report the admitted base, workspace used, publication result, and whether the task-owned workspace was cleaned or deliberately preserved.
 
 Keep two concepts separate:
 
@@ -137,6 +144,10 @@ Never present `SEMANTIC_READY` as `COMPLETE`/`PUBLISHED`. On a publication stop,
 
 At task start, read current `origin/main` as an evidence anchor. The anchor records where work began; it does not freeze repository truth.
 
+Evidence remains bound to the exact revision actually observed when it was gathered. Never relabel old evidence as current merely because it is still reusable; re-observe fresh authority only when the next decision materially depends on current state.
+
+If fresh upstream already satisfies the exact bounded outcome, stop duplicate mutation after the smallest faithful semantic confirmation. Mechanical candidate-delta containment is a Git fact, not proof of task identity or broader semantic equivalence; the caller owns that semantic closure decision.
+
 Immediately before publication, read live `origin/main` again and classify intervening movement by **semantic/proof impact**, not merely by SHA inequality or textual conflicts.
 
 - If the existing candidate is already a fast-forward descendant of current `origin/main`, publish that candidate after final integrity checks; do not rematerialize it.
@@ -152,16 +163,18 @@ Topology classification for the movement above binds as follows: `TOPOLOGY_ONLY_
 
 ## 8. Publication critical section
 
-Semantic development stays parallel; serialize only the short final publication critical section for writers targeting the same shared ref.
+Semantic development stays parallel. Publication is the short final integration boundary; Flashnote does **not** add a host-local publication lease/lock by default because repeated measured contention has not established that cost.
 
 Immediately before publishing:
 
 1. read live `origin/main`;
-2. establish candidate integrity and direct semantic/proof impact of intervening changes;
-3. perform at most the minimum necessary JIT final binding;
-4. create the exact bounded task commit directly from the admitted live base;
-5. perform one non-force fast-forward update of `refs/heads/main`;
-6. read remote again and prove the exact task commit is contained in live `origin/main`.
+2. establish candidate integrity and let the caller classify direct semantic/proof impact of intervening changes;
+3. invoke `scripts/git/publish.py --base <ADMITTED_BASE>`; the helper owns Git mechanics only and never decides task identity, semantic equivalence, or proof sufficiency;
+4. if fresh remote is no longer an ancestor of the candidate, the default result is `REMOTE_ADVANCED`; only after the caller has independently classified the movement as topology-only may it explicitly request one `--rebind`;
+5. perform at most that one full-delta rebind, one ordinary non-force push, and no automatic retry/rebind loop;
+6. read remote again and prove the exact published commit is contained in live `origin/main`.
+
+The publication helper may report `PUBLISHED`, `NO_CHANGE`, `ALREADY_PRESENT`, `REMOTE_ADVANCED`, `BINDING_CONFLICT`, `PUSH_RACE`, or `ERROR`. These are mechanical facts. In particular, `ALREADY_PRESENT` means only that the candidate's changed paths already match fresh remote; any higher semantic conclusion remains with the caller. A caller-authorized rebind uses a helper-owned scratch worktree so an apply conflict leaves the original candidate untouched; after a successful rebind the detached task workspace advances to the rebound commit so publication and later published-only cleanup refer to the same representation.
 
 For Web/GitHub-API mutation spanning multiple files, prepare the complete file set first, build one Git tree, create one task commit with the live `main` as its sole parent, then perform one non-force ref update. Do not advance `main` once per file.
 

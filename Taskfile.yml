@@ -52,6 +52,42 @@ tasks:
     cmds:
       - corepack pnpm dev
 
+  git:staged-scope-check:
+    summary: Read-only staged-path guard for bounded mutation commits
+    cmds:
+      - |
+        set -eu
+        if [ -z "${TASK_OWNED_PATHS:-}" ]; then
+          echo "SCOPE_GATE: TASK_OWNED_PATHS is required for mutation commits" >&2
+          exit 1
+        fi
+        staged="$(git diff --cached --name-only --no-renames)"
+        if [ -z "$staged" ]; then
+          echo "no staged paths" >&2
+          exit 0
+        fi
+        echo "staged paths:" >&2
+        printf '%s\n' "$staged" | sed 's/^/  - /' >&2
+        printf '%s\n' "$staged" | while IFS= read -r p; do
+          owned=0
+          for o in $TASK_OWNED_PATHS; do
+            if [ "$p" = "$o" ]; then
+              owned=1
+              break
+            fi
+          done
+          if [ "$owned" -ne 1 ]; then
+            echo "SCOPE_GATE: staged path $p is outside TASK_OWNED_PATHS" >&2
+            exit 1
+          fi
+        done
+        echo "[OK] staged set is within TASK_OWNED_PATHS" >&2
+
+  git:contract-test:
+    summary: Runs the bounded Git workspace/publication safety contract
+    cmds:
+      - python3 -m unittest discover -s tests/git -p 'test_*.py'
+
   go:check:
     env:
       MACOSX_DEPLOYMENT_TARGET: "12.0"
