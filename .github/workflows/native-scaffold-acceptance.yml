@@ -377,6 +377,102 @@ jobs:
           cp "$DISCARD_LOG" "$RUNNER_TEMP/p1b-discard.log.saved"
           cp "$REOPEN_LOG" "$RUNNER_TEMP/p1b-discard-reopen.log.saved"
 
+      - name: Save-failure navigation liveness
+        run: |
+          set -euo pipefail
+
+          NAV_HOME="$RUNNER_TEMP/flashnote-p1b-navigation-home"
+          rm -rf "$NAV_HOME"
+          mkdir -p "$NAV_HOME"
+          NAV_SEED_LOG="$RUNNER_TEMP/p1b-navigation-seed.log"
+          HOME="$NAV_HOME" "$RUNNER_TEMP/flashnote-normal" >"$NAV_SEED_LOG" 2>&1 &
+          seed_pid=$!
+          for _ in {1..30}; do
+            if grep -q FLASHNOTE_NOTE_OPEN "$NAV_SEED_LOG"; then break; fi
+            kill -0 "$seed_pid"
+            sleep 1
+          done
+          grep -q FLASHNOTE_NOTE_OPEN "$NAV_SEED_LOG"
+          kill "$seed_pid" 2>/dev/null || true
+          wait "$seed_pid" 2>/dev/null || true
+
+          NAV_DB="$NAV_HOME/Library/Application Support/Flashnote/flashnote.db"
+          nav_note_id="$(sqlite3 "$NAV_DB" 'SELECT id FROM notes WHERE deleted_at IS NULL LIMIT 1;')"
+          test -n "$nav_note_id"
+          nav_base_revision="$(sqlite3 "$NAV_DB" "SELECT revision FROM notes WHERE id = '$nav_note_id';")"
+          sqlite3 "$NAV_DB" <<'SQL'
+          CREATE TRIGGER flashnote_acceptance_fail_p1b_nav
+          BEFORE UPDATE ON notes
+          WHEN NEW.title LIKE 'P1B navfail %'
+          BEGIN
+            SELECT RAISE(ABORT, 'flashnote acceptance forced save failure');
+          END;
+          SQL
+
+          rm -rf .task frontend/dist flashnote
+          VITE_FLASHNOTE_ACCEPTANCE_TEXT="P1B navigation bootstrap" \
+            VITE_FLASHNOTE_DATA_SAFETY_ACCEPTANCE=navigation \
+            wails3 build
+          test -x ./flashnote
+
+          NAV_LOG="$RUNNER_TEMP/p1b-navigation.log"
+          HOME="$NAV_HOME" ./flashnote >"$NAV_LOG" 2>&1 &
+          pid=$!
+          cleanup() { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
+          trap cleanup EXIT
+          # The in-app acceptance requests trigger removal at the retry-success
+          # phase through a fixed-length SearchNotes handshake (query_len=50).
+          for _ in {1..90}; do
+            if grep -q 'FLASHNOTE_NOTE_SEARCH query_len=50 ' "$NAV_LOG"; then break; fi
+            kill -0 "$pid"
+            sleep 1
+          done
+          grep -q 'FLASHNOTE_NOTE_SEARCH query_len=50 ' "$NAV_LOG"
+          sqlite3 "$NAV_DB" 'DROP TRIGGER flashnote_acceptance_fail_p1b_nav;'
+          nav_rev_at_drop="$(sqlite3 "$NAV_DB" "SELECT revision FROM notes WHERE id = '$nav_note_id';")"
+
+          for _ in {1..60}; do
+            if ! kill -0 "$pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if kill -0 "$pid" 2>/dev/null; then
+            echo "P1B navigation acceptance did not exit after retry-success recovery" >&2
+            cat "$NAV_LOG" >&2 || true
+            exit 1
+          fi
+          wait "$pid"
+          trap - EXIT
+
+          # Fixed-unique-length SearchNotes handshakes order the semantic phases:
+          # stay=42, retry-failure=51, discard=45, trigger-drop=50, retry-success=53.
+          stay_line="$(grep -m1 -n 'FLASHNOTE_NOTE_SEARCH query_len=42 ' "$NAV_LOG" | cut -d: -f1)"
+          retry_failure_line="$(grep -m1 -n 'FLASHNOTE_NOTE_SEARCH query_len=51 ' "$NAV_LOG" | cut -d: -f1)"
+          discard_line="$(grep -m1 -n 'FLASHNOTE_NOTE_SEARCH query_len=45 ' "$NAV_LOG" | cut -d: -f1)"
+          drop_line="$(grep -m1 -n 'FLASHNOTE_NOTE_SEARCH query_len=50 ' "$NAV_LOG" | cut -d: -f1)"
+          retry_success_line="$(grep -m1 -n 'FLASHNOTE_NOTE_SEARCH query_len=53 ' "$NAV_LOG" | cut -d: -f1)"
+          test "$stay_line" -lt "$retry_failure_line"
+          test "$retry_failure_line" -lt "$discard_line"
+          test "$discard_line" -lt "$drop_line"
+          test "$drop_line" -lt "$retry_success_line"
+
+          # The forced failure was genuinely exercised across Stay/Retry, and the
+          # discarded draft neither resurrected a retry nor ever became durable:
+          # after the trigger drop any resurrected retry would have succeeded and
+          # written 'P1B navfail latest draft'. The acceptance bootstrap and
+          # slash chain legitimately persist earlier document writes, so durable
+          # write counting anchors on the revision observed at trigger-drop:
+          # exactly one further write came from the retry-success flush.
+          nav_failure_count="$(grep -c "FLASHNOTE_NOTE_SAVE_FAILED id=$nav_note_id" "$NAV_LOG")"
+          test "$nav_failure_count" -ge 6
+          test "$(sqlite3 "$NAV_DB" "SELECT title FROM notes WHERE id = '$nav_note_id';")" = 'P1B navfail retry draft'
+          test "$(sqlite3 "$NAV_DB" "SELECT revision FROM notes WHERE id = '$nav_note_id';")" = "$((nav_rev_at_drop + 1))"
+          test "$(sqlite3 "$NAV_DB" "SELECT COUNT(*) FROM notes WHERE title = 'P1B navfail latest draft';")" = 0
+          test "$(sqlite3 "$NAV_DB" "SELECT COUNT(*) FROM notes WHERE title = 'P1B navok durable draft';")" = 1
+          grep -q FLASHNOTE_CLOSE_APPROVED "$NAV_LOG"
+          ! grep -q FLASHNOTE_CLOSE_DISCARDED "$NAV_LOG"
+          test "$(sqlite3 "$NAV_DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name='flashnote_acceptance_fail_p1b_nav';")" = 0
+          cp "$NAV_LOG" "$RUNNER_TEMP/p1b-navigation.log.saved"
+
       - name: Durable note round trip
         env:
           ACCEPTANCE_TEXT: Flashnote durable vertical slice
@@ -607,6 +703,8 @@ jobs:
             ${{ runner.temp }}/p1b-discard-seed.log
             ${{ runner.temp }}/p1b-discard.log.saved
             ${{ runner.temp }}/p1b-discard-reopen.log.saved
+            ${{ runner.temp }}/p1b-navigation-seed.log
+            ${{ runner.temp }}/p1b-navigation.log.saved
             ${{ runner.temp }}/note-roundtrip-first.log
             ${{ runner.temp }}/note-roundtrip-first.log.saved
             ${{ runner.temp }}/note-roundtrip-reopen.log.saved

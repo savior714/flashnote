@@ -208,6 +208,8 @@ Save requests must carry enough revision identity to prevent an older completion
 
 If persistence fails, the frontend retains the latest in-memory draft, keeps the note dirty, surfaces the persistent non-modal save-failure state defined by the product contract, and may retry in a bounded/coalesced manner. Retries must not overwrite a newer draft with stale content.
 
+When a transition-gating flush fails, one shared save-failure boundary offers stay/retry/discard; individual navigation functions do not own their own failure dialogs. An explicit discard invalidates the abandoned draft's persistence context so already-dispatched save completions cannot mutate a later note's revision, durable sequence, error state, retry scheduling, or sidebar refresh, and the discarded draft never schedules a further automatic retry.
+
 On close or quit, if the latest draft has not been durably acknowledged, Flashnote must attempt the explicit flush and then follow the product contract's blocking retry / cancel / discard-and-exit choice rather than silently exiting.
 
 The exact debounce duration, retry delay/backoff, revision token representation, and flush timeout are implementation-tuning details to be established and tested with the first persistence vertical slice.

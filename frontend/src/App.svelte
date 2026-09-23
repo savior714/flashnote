@@ -114,6 +114,14 @@ import {
   let saveInFlight: Promise<boolean> | null = null
   let removeCloseListener: (() => void) | null = null
 
+  // Persistence-context generation: incremented whenever the current note's
+  // unsaved draft is explicitly discarded, so any already in-flight SaveNote
+  // completion is neutralized before it can touch the destination state.
+  let saveGeneration = 0
+  type SaveFailureChoice = 'stay' | 'retry' | 'discard'
+  let transitionPromptVisible = false
+  let saveDecisionResolve: ((choice: SaveFailureChoice) => void) | null = null
+
   type NoteTuple = [string, string, string, number, boolean]
   type NoteSummary = {
     id: string
@@ -421,6 +429,7 @@ import {
     const capturedDocument = documentJSON
     const capturedRevision = revision
     const capturedSequence = draftSequence
+    const capturedGeneration = saveGeneration
 
     const operation = SaveNote(
       capturedID,
@@ -429,7 +438,7 @@ import {
       capturedRevision,
     )
       .then((newRevision) => {
-        if (noteID !== capturedID || trashView) {
+        if (saveGeneration !== capturedGeneration || noteID !== capturedID || trashView) {
           return false
         }
         revision = newRevision
@@ -448,14 +457,20 @@ import {
         return true
       })
       .catch((error: unknown) => {
-        if (noteID === capturedID && !trashView) {
+        if (
+          saveGeneration === capturedGeneration &&
+          noteID === capturedID &&
+          !trashView
+        ) {
           saveError = formatError(error)
           scheduleRetry()
         }
         return false
       })
       .finally(() => {
-        saveInFlight = null
+        if (saveInFlight === operation) {
+          saveInFlight = null
+        }
       })
 
     saveInFlight = operation
@@ -482,6 +497,53 @@ import {
       })
     } catch {
       return false
+    }
+  }
+
+  function resolveSaveFailureChoice(choice: SaveFailureChoice) {
+    transitionPromptVisible = false
+    const resolve = saveDecisionResolve
+    saveDecisionResolve = null
+    resolve?.(choice)
+  }
+
+  function requestSaveFailureChoice(): Promise<SaveFailureChoice> {
+    return new Promise<SaveFailureChoice>((resolve) => {
+      saveDecisionResolve = resolve
+      transitionPromptVisible = true
+    })
+  }
+
+  function discardCurrentDraft() {
+    clearSaveTimer()
+    clearRetryTimer()
+    saveGeneration += 1
+    saveInFlight = null
+    draftSequence = durableSequence
+    saveError = ''
+  }
+
+  // Canonical save-failure transition boundary: flush the latest draft, and if
+  // persistence fails, offer the explicit stay/retry/discard choice instead of
+  // silently trapping the user in the current note. Staying (the default by
+  // doing nothing) never loses data; only an explicit discard abandons the
+  // in-memory draft, and then the originally requested transition continues.
+  async function flushOrResolveTransition(): Promise<boolean> {
+    if (await flushPendingSave()) {
+      return true
+    }
+    while (true) {
+      const choice = await requestSaveFailureChoice()
+      if (choice === 'stay') {
+        return false
+      }
+      if (choice === 'discard') {
+        discardCurrentDraft()
+        return true
+      }
+      if (await flushPendingSave()) {
+        return true
+      }
     }
   }
 
@@ -588,7 +650,7 @@ import {
     noteTransitionActive = true
     operationError = ''
     try {
-      if (!(await flushPendingSave())) {
+      if (!(await flushOrResolveTransition())) {
         return
       }
       const snapshot = currentFolderID
@@ -619,7 +681,7 @@ import {
     noteTransitionActive = true
     operationError = ''
     try {
-      if (!(await flushPendingSave())) {
+      if (!(await flushOrResolveTransition())) {
         return false
       }
       const snapshot = (await OpenNote(nextNoteID)) as NoteTuple
@@ -652,7 +714,7 @@ import {
     closeSearch()
     closeSettings()
     try {
-      if (!trashView && !(await flushPendingSave())) {
+      if (!trashView && !(await flushOrResolveTransition())) {
         return
       }
       if (!trashView) {
@@ -803,7 +865,7 @@ import {
     closeSearch()
     closeSettings()
     try {
-      if (!(await flushPendingSave())) {
+      if (!(await flushOrResolveTransition())) {
         return
       }
       currentFolderID = folderID
@@ -897,7 +959,7 @@ import {
     noteTransitionActive = true
     operationError = ''
     try {
-      if (targetNoteID === noteID && !(await flushPendingSave())) {
+      if (targetNoteID === noteID && !(await flushOrResolveTransition())) {
         return false
       }
       await MoveNote(targetNoteID, targetFolderID)
@@ -1036,7 +1098,7 @@ import {
     noteTransitionActive = true
     operationError = ''
     try {
-      if (wasCurrent && !(await flushPendingSave())) {
+      if (wasCurrent && !(await flushOrResolveTransition())) {
         return
       }
       await MoveNoteToTrash(targetNoteID)
@@ -1089,7 +1151,7 @@ import {
     noteTransitionActive = true
     operationError = ''
     try {
-      if (containsCurrent && !(await flushPendingSave())) {
+      if (containsCurrent && !(await flushOrResolveTransition())) {
         return
       }
       await MoveFolderToTrash(folderID)
@@ -1254,10 +1316,10 @@ import {
     }
   }
 
-  // App-owned blocking confirmations (destructive/close) take precedence over
-  // global navigation/application shortcuts. While any of these is unresolved,
-  // Cmd/Ctrl+N, Cmd/Ctrl+K, Cmd/Ctrl+, and Cmd/Ctrl+\ must not mutate or
-  // navigate the underlying application state.
+  // App-owned blocking confirmations (destructive/close/save-failure) take
+  // precedence over global navigation/application shortcuts. While any of
+  // these is unresolved, Cmd/Ctrl+N, Cmd/Ctrl+K, Cmd/Ctrl+, and Cmd/Ctrl+\
+  // must not mutate or navigate the underlying application state.
   function isBlockingConfirmationActive(): boolean {
     return (
       noteDeleteTargetID !== '' ||
@@ -1265,7 +1327,8 @@ import {
       permanentDeleteTargetID !== '' ||
       permanentDeleteFolderTargetID !== '' ||
       emptyTrashConfirmVisible ||
-      closePromptVisible
+      closePromptVisible ||
+      transitionPromptVisible
     )
   }
 
@@ -1903,6 +1966,22 @@ import {
     window.addEventListener('keydown', handleGlobalKeydown)
     window.addEventListener('click', handleWindowClick)
     cleanupSettingsListener = initSettingsListener(() => settings.appearance)
+    if (import.meta.env.VITE_FLASHNOTE_DATA_SAFETY_ACCEPTANCE) {
+      // Acceptance-only deterministic race probe: start a real SaveNote for
+      // the current dirty draft so the harness can click "Discard changes &
+      // continue" while a save completion is guaranteed to still be in
+      // flight. Vite statically removes this block from ordinary builds.
+      const acceptanceHooks = {
+        startSaveForRaceProbe: () => {
+          void persistLatest()
+          return saveInFlight !== null
+        },
+        isTransitionPromptVisible: () => transitionPromptVisible,
+        currentNoteID: () => noteID,
+      }
+      ;(window as unknown as Record<string, unknown>).__flashnoteDataSafetyAcceptance =
+        acceptanceHooks
+    }
     void initialise().catch((error: unknown) => {
       loading = false
       operationError = `Flashnote could not open your note: ${formatError(error)}`
@@ -2524,6 +2603,26 @@ import {
       <div class="dialog-actions">
         <button type="button" class="secondary-button" onclick={() => (emptyTrashConfirmVisible = false)}>Cancel</button>
         <button type="button" class="danger-button" onclick={() => void confirmEmptyTrash()}>Empty Trash</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if transitionPromptVisible}
+  <div class="modal-backdrop" role="presentation">
+    <div
+      class="close-dialog save-transition-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="save-transition-title"
+      data-save-transition-dialog
+    >
+      <h2 id="save-transition-title">Changes couldn’t be saved</h2>
+      <p>Flashnote couldn’t save your latest changes. Stay here to keep working on this note, retry saving, or discard the unsaved changes and continue.</p>
+      <div class="dialog-actions">
+        <button type="button" class="secondary-button" onclick={() => resolveSaveFailureChoice('stay')}>Stay here</button>
+        <button type="button" class="secondary-button" onclick={() => resolveSaveFailureChoice('retry')}>Retry saving</button>
+        <button type="button" class="danger-button" onclick={() => resolveSaveFailureChoice('discard')}>Discard changes &amp; continue</button>
       </div>
     </div>
   </div>
