@@ -5,6 +5,10 @@
 // @ts-ignore: Unused imports
 import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Create } from "@wailsio/runtime";
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as $models from "./models.js";
+
 /**
  * ExportCurrentNoteMarkdown exports the exact admitted normal note as
  * Markdown. The note identity is bound by the frontend export gate before
@@ -13,8 +17,8 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
  * pointer at backend entry. Returning false with no error means the user
  * cancelled the dialog.
  */
-export function ExportCurrentNoteMarkdown(admittedNoteID: string): $CancellablePromise<boolean> {
-    return $Call.ByID(3522548611, admittedNoteID);
+export function ExportCurrentNoteMarkdown(admittedNoteID: string, presentation: $models.ExportPresentation): $CancellablePromise<boolean> {
+    return $Call.ByID(3522548611, admittedNoteID, presentation);
 }
 
 /**
@@ -22,6 +26,6 @@ export function ExportCurrentNoteMarkdown(admittedNoteID: string): $CancellableP
  * collision-safe Flashnote Export directory containing every normal note.
  * Returning an empty path with no error means the user cancelled the dialog.
  */
-export function ExportLibraryMarkdown(): $CancellablePromise<string> {
-    return $Call.ByID(2014015777);
+export function ExportLibraryMarkdown(presentation: $models.ExportPresentation): $CancellablePromise<string> {
+    return $Call.ByID(2014015777, presentation);
 }

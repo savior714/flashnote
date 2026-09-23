@@ -1,8 +1,12 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from 'svelte'
+  import { exportPresentation, getMessages } from './i18n'
   import { exportLibraryMarkdown } from './libraryExport'
+  import { LibraryExportBlockedError } from './markdownExportGate'
   import {
     type AppearanceMode,
+    type LanguagePreference,
+    type ResolvedLanguage,
     type Settings,
     MIN_FONT_SIZE,
     MAX_FONT_SIZE,
@@ -10,15 +14,26 @@
 
   type Props = {
     settings: Settings
+    language: ResolvedLanguage
     onUpdate: (updater: (prev: Settings) => Settings) => void
     onClose: () => void
     onExportTriggered?: () => void
   }
 
-  let { settings, onUpdate, onClose, onExportTriggered }: Props = $props()
+  let { settings, language, onUpdate, onClose, onExportTriggered }: Props = $props()
+  let messages = $derived(getMessages(language))
 
   let exportStatus = $state<'' | 'exporting' | 'success' | 'error'>('')
-  let exportMessage = $state('')
+  let exportMessageKind = $state<'' | 'success' | 'blocked' | 'error'>('')
+  let exportMessage = $derived(
+    exportMessageKind === 'success'
+      ? messages.status.exportSucceeded
+      : exportMessageKind === 'blocked'
+        ? messages.status.exportBlocked
+        : exportMessageKind === 'error'
+          ? messages.status.exportFailed
+          : '',
+  )
 
   // SettingsDialog owns its own modal focus lifecycle: the element focused
   // before open (for close-time restoration), a deterministic descendant
@@ -107,6 +122,10 @@
     onUpdate((prev) => ({ ...prev, appearance: mode }))
   }
 
+  function handleLanguageChange(preference: LanguagePreference) {
+    onUpdate((prev) => ({ ...prev, language: preference }))
+  }
+
   function handleFontSizeChange(event: Event) {
     const input = (event.currentTarget || event.target) as HTMLInputElement
     const val = parseInt(input.value, 10)
@@ -121,21 +140,21 @@
       return
     }
     exportStatus = 'exporting'
-    exportMessage = ''
+    exportMessageKind = ''
     onExportTriggered?.()
     try {
-      const exportPath = await exportLibraryMarkdown()
+      const exportPath = await exportLibraryMarkdown(exportPresentation(language))
       if (exportPath) {
         exportStatus = 'success'
-        exportMessage = 'Library exported successfully.'
+        exportMessageKind = 'success'
       } else {
         // User cancelled directory picker
         exportStatus = ''
-        exportMessage = ''
+        exportMessageKind = ''
       }
     } catch (error) {
       exportStatus = 'error'
-      exportMessage = error instanceof Error ? error.message : 'Export failed.'
+      exportMessageKind = error instanceof LibraryExportBlockedError ? 'blocked' : 'error'
     } finally {
       if (exportStatus === 'exporting') {
         exportStatus = ''
@@ -172,21 +191,54 @@
     aria-labelledby="settings-title"
   >
     <div class="settings-header">
-      <h2 id="settings-title">Settings</h2>
+      <h2 id="settings-title">{messages.settingsPage.title}</h2>
       <button
         bind:this={closeButtonEl}
         type="button"
         class="quiet-button settings-close-button"
-        aria-label="Close settings"
+        aria-label={messages.settingsPage.close}
         onclick={onClose}
       >✕</button>
     </div>
 
     <div class="settings-body">
+      <section class="settings-section" aria-labelledby="language-heading">
+        <h3 id="language-heading" class="settings-section-title">{messages.settingsPage.language}</h3>
+        <div class="appearance-picker language-picker" role="radiogroup" aria-label={messages.settingsPage.language}>
+          <button
+            type="button"
+            role="radio"
+            class="appearance-option language-option"
+            class:active={settings.language === 'system'}
+            aria-checked={settings.language === 'system'}
+            data-language-option="system"
+            onclick={() => handleLanguageChange('system')}
+          >{messages.settingsPage.languageSystem}</button>
+          <button
+            type="button"
+            role="radio"
+            class="appearance-option language-option"
+            class:active={settings.language === 'ko'}
+            aria-checked={settings.language === 'ko'}
+            data-language-option="ko"
+            onclick={() => handleLanguageChange('ko')}
+          >{messages.settingsPage.languageKorean}</button>
+          <button
+            type="button"
+            role="radio"
+            class="appearance-option language-option"
+            class:active={settings.language === 'en'}
+            aria-checked={settings.language === 'en'}
+            data-language-option="en"
+            onclick={() => handleLanguageChange('en')}
+          >{messages.settingsPage.languageEnglish}</button>
+        </div>
+      </section>
+
       <!-- Section: Appearance -->
       <section class="settings-section" aria-labelledby="appearance-heading">
-        <h3 id="appearance-heading" class="settings-section-title">Appearance</h3>
-        <div class="appearance-picker" role="radiogroup" aria-label="Appearance theme">
+        <h3 id="appearance-heading" class="settings-section-title">{messages.settingsPage.appearance}</h3>
+        <div class="appearance-picker" role="radiogroup" aria-label={messages.settingsPage.appearanceTheme}>
           <button
             type="button"
             role="radio"
@@ -195,7 +247,7 @@
             aria-checked={settings.appearance === 'system'}
             onclick={() => handleAppearanceChange('system')}
           >
-            System
+            {messages.settingsPage.system}
           </button>
           <button
             type="button"
@@ -205,7 +257,7 @@
             aria-checked={settings.appearance === 'light'}
             onclick={() => handleAppearanceChange('light')}
           >
-            Light
+            {messages.settingsPage.light}
           </button>
           <button
             type="button"
@@ -215,17 +267,17 @@
             aria-checked={settings.appearance === 'dark'}
             onclick={() => handleAppearanceChange('dark')}
           >
-            Dark
+            {messages.settingsPage.dark}
           </button>
         </div>
       </section>
 
       <!-- Section: Editor -->
       <section class="settings-section" aria-labelledby="editor-heading">
-        <h3 id="editor-heading" class="settings-section-title">Editor</h3>
+        <h3 id="editor-heading" class="settings-section-title">{messages.settingsPage.editor}</h3>
         
         <div class="settings-row-item">
-          <label for="font-size-input" class="settings-label">Font size</label>
+          <label for="font-size-input" class="settings-label">{messages.settingsPage.fontSize}</label>
           <div class="font-size-control">
             <input
               id="font-size-input"
@@ -236,7 +288,7 @@
               class="font-size-slider"
               value={settings.editorFontSize}
               oninput={handleFontSizeChange}
-              aria-label="Editor font size"
+              aria-label={messages.settingsPage.editorFontSize}
             />
             <span class="font-size-display">{settings.editorFontSize}px</span>
           </div>
@@ -245,11 +297,11 @@
 
       <!-- Section: Data -->
       <section class="settings-section" aria-labelledby="data-heading">
-        <h3 id="data-heading" class="settings-section-title">Data</h3>
+        <h3 id="data-heading" class="settings-section-title">{messages.settingsPage.data}</h3>
         <div class="settings-row-item data-export-row">
           <div>
-            <div class="settings-label">Export library</div>
-            <div class="settings-hint">Save all notes as Markdown files</div>
+            <div class="settings-label">{messages.settingsPage.exportLibrary}</div>
+            <div class="settings-hint">{messages.settingsPage.exportHint}</div>
           </div>
           <button
             type="button"
@@ -257,7 +309,7 @@
             disabled={exportStatus === 'exporting'}
             onclick={handleExportAll}
           >
-            {exportStatus === 'exporting' ? 'Exporting…' : 'Export all…'}
+            {exportStatus === 'exporting' ? messages.settingsPage.exporting : messages.settingsPage.exportAll}
           </button>
         </div>
         {#if exportMessage}

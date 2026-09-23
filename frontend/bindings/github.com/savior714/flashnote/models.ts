@@ -5,6 +5,35 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
+export class ExportPresentation {
+    "markdownFiles": string;
+    "failedTitle": string;
+    "failedMessage": string;
+
+    /** Creates a new ExportPresentation instance. */
+    constructor($$source: Partial<ExportPresentation> = {}) {
+        if (!("markdownFiles" in $$source)) {
+            this["markdownFiles"] = "";
+        }
+        if (!("failedTitle" in $$source)) {
+            this["failedTitle"] = "";
+        }
+        if (!("failedMessage" in $$source)) {
+            this["failedMessage"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ExportPresentation instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ExportPresentation {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ExportPresentation($$parsedSource as Partial<ExportPresentation>);
+    }
+}
+
 export class RuntimeInfo {
     "appVersion": string;
     "databaseReady": boolean;
@@ -93,6 +122,7 @@ export class SidebarFolder {
 export class SidebarNote {
     "id": string;
     "displayTitle": string;
+    "isGeneratedFallback": boolean;
 
     /** Creates a new SidebarNote instance. */
     constructor($$source: Partial<SidebarNote> = {}) {
@@ -101,6 +131,9 @@ export class SidebarNote {
         }
         if (!("displayTitle" in $$source)) {
             this["displayTitle"] = "";
+        }
+        if (!("isGeneratedFallback" in $$source)) {
+            this["isGeneratedFallback"] = false;
         }
 
         Object.assign(this, $$source);

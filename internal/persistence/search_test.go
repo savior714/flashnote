@@ -109,6 +109,59 @@ func TestSearchIndexRebuildsAfterCanonicalNoteChanges(t *testing.T) {
 	}
 }
 
+func TestSearchResultsCarryGeneratedFallbackDiscriminator(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	defer store.Close()
+
+	generated, _, err := store.OpenInitialNote(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	explicit, err := store.CreateNote(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SaveNote(ctx, explicit.ID, "Untitled", explicit.DocumentJSON, explicit.Revision); err != nil {
+		t.Fatal(err)
+	}
+	derived, err := store.CreateNote(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	derivedDocument := `{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Untitled"}]}]}}`
+	if _, err := store.SaveNote(ctx, derived.ID, "", derivedDocument, derived.Revision); err != nil {
+		t.Fatal(err)
+	}
+
+	recent, err := store.SearchNotes(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[string]bool, len(recent))
+	for _, result := range recent {
+		byID[result.ID] = result.IsGeneratedFallback
+	}
+	if !byID[generated.ID] {
+		t.Fatalf("generated fallback flag missing from recent result: %+v", recent)
+	}
+	if byID[explicit.ID] || byID[derived.ID] {
+		t.Fatalf("authored Untitled text marked as generated fallback: %+v", recent)
+	}
+
+	matches, err := store.SearchNotes(ctx, "Untitled")
+	if err != nil {
+		t.Fatal(err)
+	}
+	matchedIDs := make(map[string]bool, len(matches))
+	for _, result := range matches {
+		matchedIDs[result.ID] = true
+	}
+	if !matchedIDs[explicit.ID] || !matchedIDs[derived.ID] || matchedIDs[generated.ID] {
+		t.Fatalf("Untitled search discrimination mismatch: %+v", matches)
+	}
+}
+
 func TestSearchNotesEmptyQueryReturnsRecentNotes(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)

@@ -32,10 +32,11 @@
   import SettingsDialog from './lib/SettingsDialog.svelte'
 import { runNewNoteShortcutAcceptance } from './lib/newNoteShortcutAcceptance'
 import { runSidebarDragDropAcceptance } from './lib/sidebarDragDropAcceptance'
-import { exportCurrentNoteMarkdown } from './lib/export-shortcut'
+import { exportCurrentNoteMarkdown, installMarkdownExportShortcut } from './lib/export-shortcut'
 import { setMarkdownExportReadiness } from './lib/markdownExportGate'
-import { encodeDocumentForSave } from './lib/documentWire'
-import { waitForSaveFlush } from './lib/save-flush-timeout'
+  import { encodeDocumentForSave } from './lib/documentWire'
+  import { exportPresentation, getMessages, presentNoteTitle, resolveLanguage } from './lib/i18n'
+  import { waitForSaveFlush } from './lib/save-flush-timeout'
 import {
   applyEditorFontSize,
   applyTheme,
@@ -53,11 +54,19 @@ import {
   let editorAcceptanceConsumed = false
 
   let settings = loadSettings()
+  if (acceptanceText) {
+    settings = { ...settings, language: 'en' }
+  }
+  let language = resolveLanguage(settings.language)
+  let messages = getMessages(language)
   let settingsOpen = false
   let cleanupSettingsListener: (() => void) | null = null
 
   applyTheme(settings.appearance)
   applyEditorFontSize(settings.editorFontSize)
+  if (typeof document !== 'undefined') {
+    document.documentElement.lang = language
+  }
 
   let noteID = ''
   let title = ''
@@ -66,8 +75,9 @@ import {
   let loading = true
   let sidebarVisible = true
   let noteTransitionActive = false
-  let saveError = ''
-  let operationError = ''
+  type OperationErrorKey = keyof ReturnType<typeof getMessages>['errors']
+  let saveError: '' | 'retrying' | 'timed_out' = ''
+  let operationError: OperationErrorKey | '' = ''
   let closePromptVisible = false
   let closeRequestActive = false
 
@@ -105,7 +115,7 @@ import {
   let searchQuery = ''
   let searchResults: SearchResult[] = []
   let searchSelectedIndex = 0
-  let searchError = ''
+  let searchError = false
   let searchRequestSequence = 0
 
   let draftSequence = 0
@@ -127,6 +137,7 @@ import {
   type NoteSummary = {
     id: string
     displayTitle: string
+    isGeneratedFallback: boolean
   }
   type FolderSummary = {
     id: string
@@ -136,6 +147,7 @@ import {
   type SearchResult = {
     id: string
     displayTitle: string
+    isGeneratedFallback: boolean
     excerpt: string
   }
 
@@ -157,15 +169,19 @@ import {
     saveError = ''
   }
 
-  function formatError(error: unknown): string {
-    return error instanceof Error ? error.message : String(error)
-  }
-
-  function noteSummaries(ids: string[], displayTitles: string[]): NoteSummary[] {
-    if (ids.length !== displayTitles.length) {
+  function noteSummaries(
+    ids: string[],
+    displayTitles: string[],
+    generatedFallbacks: boolean[],
+  ): NoteSummary[] {
+    if (ids.length !== displayTitles.length || ids.length !== generatedFallbacks.length) {
       throw new Error('Flashnote received an invalid note list')
     }
-    return ids.map((id, index) => ({ id, displayTitle: displayTitles[index] ?? 'Untitled' }))
+    return ids.map((id, index) => ({
+      id,
+      displayTitle: displayTitles[index] ?? '',
+      isGeneratedFallback: generatedFallbacks[index] ?? true,
+    }))
   }
 
   async function refreshSidebar() {
@@ -173,8 +189,12 @@ import {
     // folder count. The backend returns root notes plus every folder with its
     // notes in canonical order, Trash excluded.
     const projection = (await ListSidebar()) as {
-      rootNotes: { id: string; displayTitle: string }[]
-      folders: { id: string; name: string; notes: { id: string; displayTitle: string }[] }[]
+      rootNotes: { id: string; displayTitle: string; isGeneratedFallback: boolean }[]
+      folders: {
+        id: string
+        name: string
+        notes: { id: string; displayTitle: string; isGeneratedFallback: boolean }[]
+      }[]
     }
 
     const nextFolders = projection.folders.map((folder) => ({
@@ -183,12 +203,14 @@ import {
       notes: noteSummaries(
         folder.notes.map((note) => note.id),
         folder.notes.map((note) => note.displayTitle),
+        folder.notes.map((note) => note.isGeneratedFallback),
       ),
     }))
 
     rootNotes = noteSummaries(
       projection.rootNotes.map((note) => note.id),
       projection.rootNotes.map((note) => note.displayTitle),
+      projection.rootNotes.map((note) => note.isGeneratedFallback),
     )
     folders = nextFolders
 
@@ -220,8 +242,8 @@ import {
       ListTrashFolders(),
       TrashCounts(),
     ])
-    const [noteIDs, noteTitles] = noteTuple as [string[], string[]]
-    const [folderIDs, folderNames] = folderTuple as [string[], string[]]
+    const [noteIDs, noteTitles, noteFallbacks] = noteTuple as [string[], string[], boolean[]]
+    const [folderIDs, folderNames] = folderTuple
     const [nextNoteCount, nextFolderCount] = countTuple as [number, number]
     if (folderIDs.length !== folderNames.length) {
       throw new Error('Flashnote received an invalid Trash folder list')
@@ -229,16 +251,20 @@ import {
 
     const nextFolders = await Promise.all(
       folderIDs.map(async (id, index) => {
-        const [ids, titles] = (await ListTrashFolderNotes(id)) as [string[], string[]]
+        const [ids, titles, fallbacks] = (await ListTrashFolderNotes(id)) as [
+          string[],
+          string[],
+          boolean[],
+        ]
         return {
           id,
           name: folderNames[index] ?? '',
-          notes: noteSummaries(ids, titles),
+          notes: noteSummaries(ids, titles, fallbacks),
         }
       }),
     )
 
-    trashNotes = noteSummaries(noteIDs, noteTitles)
+    trashNotes = noteSummaries(noteIDs, noteTitles, noteFallbacks)
     trashFolders = nextFolders
     trashNoteCount = nextNoteCount
     trashFolderCount = nextFolderCount
@@ -289,27 +315,37 @@ import {
   async function runSearch(query = searchQuery) {
     const requestSequence = ++searchRequestSequence
     try {
-      const [ids, displayTitles, excerpts] = (await SearchNotes(query)) as [string[], string[], string[]]
+      const [ids, displayTitles, generatedFallbacks, excerpts] = (await SearchNotes(query)) as [
+        string[],
+        string[],
+        boolean[],
+        string[],
+      ]
       if (requestSequence !== searchRequestSequence || !searchOpen) {
         return
       }
-      if (ids.length !== displayTitles.length || ids.length !== excerpts.length) {
+      if (
+        ids.length !== displayTitles.length ||
+        ids.length !== generatedFallbacks.length ||
+        ids.length !== excerpts.length
+      ) {
         throw new Error('Flashnote received invalid search results')
       }
       searchResults = ids.map((id, index) => ({
         id,
-        displayTitle: displayTitles[index] ?? 'Untitled',
+        displayTitle: displayTitles[index] ?? '',
+        isGeneratedFallback: generatedFallbacks[index] ?? true,
         excerpt: excerpts[index] ?? '',
       }))
       searchSelectedIndex = Math.min(searchSelectedIndex, Math.max(0, searchResults.length - 1))
-      searchError = ''
+      searchError = false
     } catch (error) {
       if (requestSequence !== searchRequestSequence || !searchOpen) {
         return
       }
       searchResults = []
       searchSelectedIndex = 0
-      searchError = formatError(error)
+      searchError = true
     }
   }
 
@@ -328,9 +364,14 @@ import {
 
   function updateSettings(updater: (prev: Settings) => Settings) {
     settings = updater(settings)
+    language = resolveLanguage(settings.language)
+    messages = getMessages(language)
     saveSettings(settings)
     applyTheme(settings.appearance)
     applyEditorFontSize(settings.editorFontSize)
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = language
+    }
   }
 
   async function openSearch() {
@@ -343,7 +384,7 @@ import {
     searchQuery = ''
     searchResults = []
     searchSelectedIndex = 0
-    searchError = ''
+    searchError = false
     await tick()
     document.querySelector<HTMLInputElement>('.search-input')?.focus()
     void runSearch('')
@@ -355,7 +396,7 @@ import {
     searchQuery = ''
     searchResults = []
     searchSelectedIndex = 0
-    searchError = ''
+    searchError = false
   }
 
   function handleSearchInput(event: Event) {
@@ -443,7 +484,7 @@ import {
         saveError = ''
         clearRetryTimer()
         void refreshSidebar().catch((error: unknown) => {
-          operationError = `Could not refresh notes: ${formatError(error)}`
+          operationError = 'couldNotRefreshNotes'
         })
         if (searchOpen) {
           void runSearch(searchQuery)
@@ -459,7 +500,7 @@ import {
           noteID === capturedID &&
           !trashView
         ) {
-          saveError = formatError(error)
+          saveError = 'retrying'
           scheduleRetry()
         }
         return false
@@ -490,7 +531,7 @@ import {
 
     try {
       return await waitForSaveFlush(flushPromise, flushTimeoutMs, () => {
-        saveError = 'Save timed out'
+        saveError = 'timed_out'
       })
     } catch {
       return false
@@ -617,7 +658,7 @@ import {
       }
       await refreshSidebar()
     } catch (error) {
-      operationError = `Could not create folder: ${formatError(error)}`
+      operationError = 'couldNotCreateFolder'
     }
   }
 
@@ -657,7 +698,7 @@ import {
       applyNote(snapshot)
       await refreshSidebar()
     } catch (error) {
-      operationError = `Could not create note: ${formatError(error)}`
+      operationError = 'couldNotCreateNote'
     } finally {
       noteTransitionActive = false
     }
@@ -689,7 +730,7 @@ import {
       await tick()
       return true
     } catch (error) {
-      operationError = `Could not open note: ${formatError(error)}`
+      operationError = 'couldNotOpenNote'
       return false
     } finally {
       noteTransitionActive = false
@@ -723,7 +764,7 @@ import {
       await refreshTrash()
       await openFirstTrashItem()
     } catch (error) {
-      operationError = `Could not open Trash: ${formatError(error)}`
+      operationError = 'couldNotOpenTrash'
     } finally {
       noteTransitionActive = false
     }
@@ -787,7 +828,7 @@ import {
     try {
       await returnToNormalLibrary()
     } catch (error) {
-      operationError = `Could not leave Trash: ${formatError(error)}`
+      operationError = 'couldNotLeaveTrash'
     } finally {
       noteTransitionActive = false
     }
@@ -809,7 +850,7 @@ import {
       selectedTrashFolderID = folderID
       applyNote((await OpenTrashNote(nextNoteID)) as NoteTuple)
     } catch (error) {
-      operationError = `Could not open trashed note: ${formatError(error)}`
+      operationError = 'couldNotOpenTrashNote'
     } finally {
       noteTransitionActive = false
     }
@@ -838,7 +879,7 @@ import {
         clearOpenedNote()
       }
     } catch (error) {
-      operationError = `Could not open trashed folder: ${formatError(error)}`
+      operationError = 'couldNotOpenTrashFolder'
     } finally {
       noteTransitionActive = false
     }
@@ -876,7 +917,7 @@ import {
         applyNote((await OpenNote(folder.notes[0].id)) as NoteTuple)
       }
     } catch (error) {
-      operationError = `Could not open folder: ${formatError(error)}`
+      operationError = 'couldNotOpenFolder'
     } finally {
       noteTransitionActive = false
     }
@@ -963,7 +1004,7 @@ import {
       await refreshSidebar()
       return true
     } catch (error) {
-      operationError = `Could not move note: ${formatError(error)}`
+      operationError = 'couldNotMoveNote'
       return false
     } finally {
       noteTransitionActive = false
@@ -1118,7 +1159,7 @@ import {
         await refreshSidebar()
       }
     } catch (error) {
-      operationError = `Could not move note to Trash: ${formatError(error)}`
+      operationError = 'couldNotMoveNoteToTrash'
     } finally {
       noteTransitionActive = false
     }
@@ -1166,7 +1207,7 @@ import {
         await refreshSidebar()
       }
     } catch (error) {
-      operationError = `Could not move folder to Trash: ${formatError(error)}`
+      operationError = 'couldNotMoveFolderToTrash'
     } finally {
       noteTransitionActive = false
     }
@@ -1199,7 +1240,7 @@ import {
       }
       await Promise.all([refreshSidebar(), refreshTrash()])
     } catch (error) {
-      operationError = `Could not restore note: ${formatError(error)}`
+      operationError = 'couldNotRestoreNote'
     } finally {
       noteTransitionActive = false
     }
@@ -1234,7 +1275,7 @@ import {
       }
       await Promise.all([refreshSidebar(), refreshTrash()])
     } catch (error) {
-      operationError = `Could not restore Trash item: ${formatError(error)}`
+      operationError = 'couldNotRestoreTrashItem'
     } finally {
       noteTransitionActive = false
     }
@@ -1255,7 +1296,7 @@ import {
       await openFirstTrashItem()
       await refreshSidebar()
     } catch (error) {
-      operationError = `Could not permanently delete note: ${formatError(error)}`
+      operationError = 'couldNotPermanentlyDeleteNote'
     } finally {
       noteTransitionActive = false
     }
@@ -1277,7 +1318,7 @@ import {
       await openFirstTrashItem()
       await refreshSidebar()
     } catch (error) {
-      operationError = `Could not permanently delete folder: ${formatError(error)}`
+      operationError = 'couldNotPermanentlyDeleteFolder'
     } finally {
       noteTransitionActive = false
     }
@@ -1301,7 +1342,7 @@ import {
       await refreshTrash()
       await returnToNormalLibrary()
     } catch (error) {
-      operationError = `Could not empty Trash: ${formatError(error)}`
+      operationError = 'couldNotEmptyTrash'
     } finally {
       noteTransitionActive = false
     }
@@ -1520,11 +1561,17 @@ import {
       return explicit
     }
     const derived = derivedBodyTitle()
-    return derived || 'Untitled'
+    return presentNoteTitle(derived || 'Untitled', !derived, language)
   }
 
   function sidebarTitle(note: NoteSummary): string {
-    return note.id === noteID ? displayTitle() : note.displayTitle
+    return note.id === noteID
+      ? displayTitle()
+      : presentNoteTitle(note.displayTitle, note.isGeneratedFallback, language)
+  }
+
+  function searchResultTitle(result: SearchResult): string {
+    return presentNoteTitle(result.displayTitle, result.isGeneratedFallback, language)
   }
 
   function folderDeleteTarget(): FolderSummary | undefined {
@@ -1622,7 +1669,7 @@ import {
     if (survivor[0] !== survivorID) {
       throw new Error('acceptance Empty Trash normal survivor could not be reopened')
     }
-    const [rootIDs] = (await ListRootNotes()) as [string[], string[]]
+    const [rootIDs] = (await ListRootNotes())
     if (!rootIDs.includes(survivorID)) {
       throw new Error('acceptance Empty Trash survivor disappeared from normal root list')
     }
@@ -1656,7 +1703,7 @@ import {
     if (noteDeleteTargetID !== expectedID || !document.getElementById('trash-note-title')) {
       throw new Error('acceptance note Trash confirmation did not open')
     }
-    const [stillInFolderIDs] = (await ListFolderNotes(folderID)) as [string[], string[]]
+    const [stillInFolderIDs] = (await ListFolderNotes(folderID))
     if (!stillInFolderIDs.includes(expectedID)) {
       throw new Error('acceptance note was trashed before confirmation')
     }
@@ -1678,8 +1725,8 @@ import {
       window.dispatchEvent(guardEvent)
       return guardEvent
     }
-    const [guardRootBefore] = (await ListRootNotes()) as [string[], string[]]
-    const [guardFolderBefore] = (await ListFolderNotes(folderID)) as [string[], string[]]
+    const [guardRootBefore] = (await ListRootNotes())
+    const [guardFolderBefore] = (await ListFolderNotes(folderID))
     const assertGuardHeld = async (label: string): Promise<void> => {
       await tick()
       await new Promise((resolve) => setTimeout(resolve, 30))
@@ -1696,8 +1743,8 @@ import {
       throw new Error('acceptance blocking-guard: Cmd/Ctrl+N was not suppressed')
     }
     await assertGuardHeld('Cmd/Ctrl+N')
-    const [guardRootAfterN] = (await ListRootNotes()) as [string[], string[]]
-    const [guardFolderAfterN] = (await ListFolderNotes(folderID)) as [string[], string[]]
+    const [guardRootAfterN] = (await ListRootNotes())
+    const [guardFolderAfterN] = (await ListFolderNotes(folderID))
     if (
       guardRootAfterN.length !== guardRootBefore.length ||
       guardFolderAfterN.length !== guardFolderBefore.length
@@ -1787,11 +1834,11 @@ import {
     console.log('FLASHNOTE_BLOCKING_GUARD_RELEASE_SUCCESS')
 
     await MoveNoteToTrash(expectedID)
-    const [trashIDs] = (await ListTrashNotes()) as [string[], string[]]
+    const [trashIDs] = (await ListTrashNotes())
     if (!trashIDs.includes(expectedID)) {
       throw new Error('acceptance Trash listing missed note')
     }
-    const [hiddenIDs] = (await SearchNotes('Flashnote')) as [string[], string[], string[]]
+    const [hiddenIDs] = (await SearchNotes('Flashnote'))
     if (hiddenIDs.includes(expectedID)) {
       throw new Error('acceptance Search exposed trashed note')
     }
@@ -1801,8 +1848,8 @@ import {
     }
 
     await enterTrashView()
-    const [rootNotesBeforeTrashCmdN] = (await ListRootNotes()) as [string[], string[]]
-    const [trashNotesBeforeTrashCmdN] = (await ListTrashNotes()) as [string[], string[]]
+    const [rootNotesBeforeTrashCmdN] = (await ListRootNotes())
+    const [trashNotesBeforeTrashCmdN] = (await ListTrashNotes())
     const noteIDInTrashBefore = noteID
     const isMac = typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac')
     const trashCmdNEvent = new KeyboardEvent('keydown', {
@@ -1825,8 +1872,8 @@ import {
     if (noteID !== noteIDInTrashBefore) {
       throw new Error('acceptance S3: Cmd/Ctrl+N while in Trash unexpectedly changed noteID')
     }
-    const [rootNotesAfterTrashCmdN] = (await ListRootNotes()) as [string[], string[]]
-    const [trashNotesAfterTrashCmdN] = (await ListTrashNotes()) as [string[], string[]]
+    const [rootNotesAfterTrashCmdN] = (await ListRootNotes())
+    const [trashNotesAfterTrashCmdN] = (await ListTrashNotes())
     if (
       rootNotesAfterTrashCmdN.length !== rootNotesBeforeTrashCmdN.length ||
       trashNotesAfterTrashCmdN.length !== trashNotesBeforeTrashCmdN.length
@@ -1838,19 +1885,19 @@ import {
 
     const sibling = (await CreateNoteInFolder(folderID)) as NoteTuple
     await MoveFolderToTrash(folderID)
-    const [trashFolderIDs] = (await ListTrashFolders()) as [string[], string[]]
+    const [trashFolderIDs] = (await ListTrashFolders())
     if (!trashFolderIDs.includes(folderID)) {
       throw new Error('acceptance Trash folder listing missed folder')
     }
-    const [groupedIDs] = (await ListTrashFolderNotes(folderID)) as [string[], string[]]
+    const [groupedIDs] = (await ListTrashFolderNotes(folderID))
     if (!groupedIDs.includes(expectedID) || !groupedIDs.includes(sibling[0])) {
       throw new Error('acceptance folder recovery unit missed child notes')
     }
-    const [standaloneIDs] = (await ListTrashNotes()) as [string[], string[]]
+    const [standaloneIDs] = (await ListTrashNotes())
     if (standaloneIDs.includes(expectedID) || standaloneIDs.includes(sibling[0])) {
       throw new Error('acceptance folder recovery unit was flattened')
     }
-    const [folderHiddenIDs] = (await SearchNotes('Flashnote')) as [string[], string[], string[]]
+    const [folderHiddenIDs] = (await SearchNotes('Flashnote'))
     if (folderHiddenIDs.includes(expectedID)) {
       throw new Error('acceptance Search exposed folder-trashed note')
     }
@@ -1861,7 +1908,7 @@ import {
 
     await RestoreFolder(folderID)
     const restoredSnapshot = (await OpenNote(expectedID)) as NoteTuple
-    const [restoredIDs] = (await SearchNotes('Flashnote')) as [string[], string[], string[]]
+    const [restoredIDs] = (await SearchNotes('Flashnote'))
     if (!restoredIDs.includes(expectedID)) {
       throw new Error('acceptance Search missed restored note')
     }
@@ -1960,6 +2007,7 @@ import {
       isNoteTransitionActive: () => noteTransitionActive,
       flushCurrentDraft: () => flushPendingSave(),
     })
+    const removeMarkdownExportShortcut = installMarkdownExportShortcut(() => language)
     window.addEventListener('keydown', handleGlobalKeydown)
     window.addEventListener('click', handleWindowClick)
     cleanupSettingsListener = initSettingsListener(() => settings.appearance)
@@ -1981,7 +2029,7 @@ import {
     }
     void initialise().catch((error: unknown) => {
       loading = false
-      operationError = `Flashnote could not open your note: ${formatError(error)}`
+      operationError = 'startupFailed'
     })
 
     return () => {
@@ -1992,6 +2040,7 @@ import {
       clearNoteDrag()
       removeCloseListener?.()
       cleanupSettingsListener?.()
+      removeMarkdownExportShortcut()
       window.removeEventListener('keydown', handleGlobalKeydown)
       window.removeEventListener('click', handleWindowClick)
     }
@@ -2000,13 +2049,13 @@ import {
 
 <main class="shell" class:sidebar-hidden={!sidebarVisible}>
   {#if sidebarVisible}
-    <aside id="sidebar" class="sidebar" aria-label="Notes">
+    <aside id="sidebar" class="sidebar" aria-label={messages.common.notes}>
       <div class="brand-row">
         <div class="brand-left">
           <button
             class="quiet-button hide-sidebar-button"
             type="button"
-            aria-label="Hide sidebar"
+            aria-label={messages.sidebar.hideSidebar}
             aria-controls="sidebar"
             onclick={toggleSidebar}
           >
@@ -2021,38 +2070,38 @@ import {
         <button
           class="quiet-button"
           type="button"
-          aria-label="Create"
+          aria-label={messages.sidebar.create}
           aria-expanded={createMenuOpen}
           disabled={loading || noteTransitionActive || trashView}
           onclick={toggleCreateMenu}
         >+</button>
         {#if createMenuOpen}
           <div class="sidebar-menu create-menu">
-            <button type="button" onclick={() => void createNote()}>New note</button>
-            <button type="button" onclick={() => void beginFolderNaming()}>New folder</button>
+            <button type="button" onclick={() => void createNote()}>{messages.sidebar.newNote}</button>
+            <button type="button" onclick={() => void beginFolderNaming()}>{messages.sidebar.newFolder}</button>
           </div>
         {/if}
       </div>
     </div>
 
     {#if loading}
-      <div class="sidebar-placeholder">Opening…</div>
+      <div class="sidebar-placeholder">{messages.sidebar.opening}</div>
     {:else if trashView}
-      <nav class="note-list trash-list" aria-label="Trash notes">
+      <nav class="note-list trash-list" aria-label={messages.sidebar.trashNotes}>
         <div class="trash-nav-row">
           <button
             class="trash-back-button"
             type="button"
-            aria-label="Back to notes"
+            aria-label={messages.sidebar.backToNotes}
             data-trash-back-button
             disabled={noteTransitionActive}
             onclick={() => void leaveTrashView()}
-          ><span aria-hidden="true">←</span> Notes</button>
+          ><span aria-hidden="true">←</span> {messages.common.notes}</button>
           <div class="more-controls trash-more-controls">
             <button
               class="quiet-button more-button"
               type="button"
-              aria-label="Trash actions"
+              aria-label={messages.sidebar.trashActions}
               aria-expanded={trashMoreMenuOpen}
               aria-haspopup="menu"
               data-trash-more-button
@@ -2066,7 +2115,7 @@ import {
               </svg>
             </button>
             {#if trashMoreMenuOpen}
-              <div class="sidebar-menu more-menu" role="menu" aria-label="Trash actions">
+              <div class="sidebar-menu more-menu" role="menu" aria-label={messages.sidebar.trashActions}>
                 <button
                   type="button"
                   role="menuitem"
@@ -2074,12 +2123,12 @@ import {
                   data-trash-empty-menu-item
                   disabled={noteTransitionActive || (trashNoteCount === 0 && trashFolderCount === 0)}
                   onclick={() => { trashMoreMenuOpen = false; emptyTrashConfirmVisible = true; }}
-                >Empty Trash…</button>
+                >{messages.sidebar.emptyTrash}</button>
               </div>
             {/if}
           </div>
         </div>
-        <div class="trash-title" aria-current="page">Trash</div>
+        <div class="trash-title" aria-current="page">{messages.common.trash}</div>
         {#each trashNotes as note (note.id)}
           <button
             class="note-row"
@@ -2119,23 +2168,23 @@ import {
                   >{sidebarTitle(note)}</button>
                 {/each}
                 {#if folder.notes.length === 0}
-                  <div class="trash-folder-empty">Empty folder</div>
+                  <div class="trash-folder-empty">{messages.common.emptyFolder}</div>
                 {/if}
               </div>
             {/if}
           </div>
         {/each}
         {#if trashNoteCount === 0 && trashFolderCount === 0}
-          <div class="sidebar-placeholder">Trash is empty</div>
+          <div class="sidebar-placeholder">{messages.common.trashEmpty}</div>
         {/if}
       </nav>
     {:else}
-      <nav class="note-list" aria-label="Note list">
+      <nav class="note-list" aria-label={messages.sidebar.noteList}>
         <div
           class="root-note-drop-zone"
           class:drop-target={dragTargetFolderID === ''}
           role="group"
-          aria-label="Root notes"
+          aria-label={messages.common.rootNotes}
           ondragover={(event) => handleNoteDragOver(event, '')}
           ondrop={(event) => handleNoteDrop(event, '')}
         >
@@ -2157,8 +2206,8 @@ import {
               <button
                 class="sidebar-action-button sidebar-move-button"
                 type="button"
-                aria-label="Move note"
-                title="Move note"
+                aria-label={messages.sidebar.moveNote}
+                title={messages.sidebar.moveNote}
                 aria-haspopup="menu"
                 aria-expanded={moveMenuNoteID === note.id}
                 disabled={noteTransitionActive || !noteHasMoveDestination(note.id)}
@@ -2173,8 +2222,8 @@ import {
               <button
                 class="sidebar-action-button sidebar-trash-button"
                 type="button"
-                aria-label="Move note to Trash"
-                title="Move to Trash"
+                aria-label={messages.sidebar.moveNoteToTrash}
+                title={messages.sidebar.moveToTrash}
                 disabled={noteTransitionActive}
                 onclick={() => requestNoteTrash(note.id)}
               >
@@ -2187,9 +2236,9 @@ import {
                 </svg>
               </button>
               {#if moveMenuNoteID === note.id}
-                <div class="sidebar-menu note-move-menu" role="menu" aria-label="Move note">
+                <div class="sidebar-menu note-move-menu" role="menu" aria-label={messages.sidebar.moveNote}>
                   {#if folderForNote(note.id)}
-                    <button type="button" role="menuitem" onclick={() => void moveMenuNote('')}>Root</button>
+                    <button type="button" role="menuitem" onclick={() => void moveMenuNote('')}>{messages.common.root}</button>
                   {/if}
                   {#each folders.filter((folder) => folder.id !== folderForNote(note.id)) as folder (folder.id)}
                     <button type="button" role="menuitem" onclick={() => void moveMenuNote(folder.id)}>{folder.name}</button>
@@ -2203,8 +2252,8 @@ import {
         {#if folderNaming}
           <input
             class="new-folder-input"
-            aria-label="Folder name"
-            placeholder="Folder name"
+            aria-label={messages.common.folderName}
+            placeholder={messages.common.folderName}
             bind:value={newFolderName}
             onkeydown={handleFolderNameKeydown}
             onblur={() => void commitNewFolder()}
@@ -2217,7 +2266,7 @@ import {
             class:drop-target={dragTargetFolderID === folder.id}
             data-folder-id={folder.id}
             role="group"
-            aria-label={`${folder.name} folder`}
+            aria-label={messages.sidebar.folderLabel(folder.name)}
             ondragover={(event) => handleNoteDragOver(event, folder.id)}
             ondrop={(event) => handleNoteDrop(event, folder.id)}
           >
@@ -2239,8 +2288,8 @@ import {
               <button
                 class="sidebar-action-button sidebar-trash-button"
                 type="button"
-                aria-label="Move folder to Trash"
-                title="Move to Trash"
+                aria-label={messages.sidebar.moveFolderToTrash}
+                title={messages.sidebar.moveToTrash}
                 disabled={noteTransitionActive}
                 onclick={() => requestFolderTrash(folder.id)}
               >
@@ -2273,8 +2322,8 @@ import {
                     <button
                       class="sidebar-action-button sidebar-move-button"
                       type="button"
-                      aria-label="Move note"
-                      title="Move note"
+                      aria-label={messages.sidebar.moveNote}
+                      title={messages.sidebar.moveNote}
                       aria-haspopup="menu"
                       aria-expanded={moveMenuNoteID === note.id}
                       disabled={noteTransitionActive || !noteHasMoveDestination(note.id)}
@@ -2289,8 +2338,8 @@ import {
                     <button
                       class="sidebar-action-button sidebar-trash-button"
                       type="button"
-                      aria-label="Move note to Trash"
-                      title="Move to Trash"
+                      aria-label={messages.sidebar.moveNoteToTrash}
+                      title={messages.sidebar.moveToTrash}
                       disabled={noteTransitionActive}
                       onclick={() => requestNoteTrash(note.id)}
                     >
@@ -2303,8 +2352,8 @@ import {
                       </svg>
                     </button>
                     {#if moveMenuNoteID === note.id}
-                      <div class="sidebar-menu note-move-menu" role="menu" aria-label="Move note">
-                        <button type="button" role="menuitem" onclick={() => void moveMenuNote('')}>Root</button>
+                      <div class="sidebar-menu note-move-menu" role="menu" aria-label={messages.sidebar.moveNote}>
+                        <button type="button" role="menuitem" onclick={() => void moveMenuNote('')}>{messages.common.root}</button>
                         {#each folders.filter((candidate) => candidate.id !== folder.id) as destination (destination.id)}
                           <button type="button" role="menuitem" onclick={() => void moveMenuNote(destination.id)}>{destination.name}</button>
                         {/each}
@@ -2327,24 +2376,24 @@ import {
         aria-current={trashView ? 'page' : undefined}
         disabled={loading || noteTransitionActive}
         onclick={() => void enterTrashView()}
-      >Trash</button>
+>{messages.common.trash}</button>
       <button
         class="settings-row"
         type="button"
-        aria-label="Settings"
+        aria-label={messages.sidebar.settings}
         disabled={loading}
         onclick={openSettings}
-      >Settings</button>
+      >{messages.sidebar.settings}</button>
     </div>
   </aside>
 {/if}
 
-<section class="document" aria-label={trashView ? 'Trash viewer' : 'Editor'}>
+<section class="document" aria-label={trashView ? messages.sidebar.trashViewer : messages.sidebar.editor}>
   {#if !sidebarVisible}
     <button
       class="quiet-button show-sidebar-button"
       type="button"
-      aria-label="Show sidebar"
+      aria-label={messages.sidebar.showSidebar}
       aria-controls="sidebar"
       onclick={toggleSidebar}
     >
@@ -2356,30 +2405,30 @@ import {
   {/if}
   <div class="document-inner">
       {#if loading}
-        <div class="editor-loading">Opening note…</div>
+        <div class="editor-loading">{messages.document.opening}</div>
       {:else if trashView}
         {#if selectedTrashFolderID}
           <div class="trash-actions">
-            <span>Folder recovery unit · read-only</span>
+            <span>{messages.document.folderRecoveryReadOnly}</span>
             <div>
               <button
                 type="button"
                 class="secondary-button"
                 disabled={noteTransitionActive}
                 onclick={() => void restoreCurrentTrash()}
-              >Restore folder</button>
+              >{messages.document.restoreFolder}</button>
               <button
                 type="button"
                 class="danger-button"
                 disabled={noteTransitionActive}
                 onclick={() => (permanentDeleteFolderTargetID = selectedTrashFolderID)}
-              >Delete folder permanently…</button>
+              >{messages.document.deleteFolderPermanently}</button>
             </div>
           </div>
           {#if noteID}
             <input
               class="title"
-              aria-label="Note title"
+              aria-label={messages.document.noteTitle}
               value={title}
               readonly
             />
@@ -2389,35 +2438,36 @@ import {
                 onDocumentChange={handleDocumentChange}
                 acceptanceText=""
                 editable={false}
+                {language}
               />
             {/key}
           {:else}
             <div class="trash-empty">
-              <h2>{currentTrashFolder()?.name ?? 'Folder'}</h2>
-              <p>This deleted folder is empty.</p>
+              <h2>{currentTrashFolder()?.name ?? messages.common.folder}</h2>
+              <p>{messages.document.deletedFolderEmpty}</p>
             </div>
           {/if}
         {:else if noteID}
           <div class="trash-actions">
-            <span>Read-only in Trash</span>
+            <span>{messages.document.readOnlyInTrash}</span>
             <div>
               <button
                 type="button"
                 class="secondary-button"
                 disabled={noteTransitionActive}
                 onclick={() => void restoreCurrentTrash()}
-              >Restore</button>
+              >{messages.document.restore}</button>
               <button
                 type="button"
                 class="danger-button"
                 disabled={noteTransitionActive}
                 onclick={() => (permanentDeleteTargetID = noteID)}
-              >Delete permanently…</button>
+              >{messages.document.deletePermanently}</button>
             </div>
           </div>
           <input
             class="title"
-            aria-label="Note title"
+            aria-label={messages.document.noteTitle}
             value={title}
             readonly
           />
@@ -2427,23 +2477,24 @@ import {
               onDocumentChange={handleDocumentChange}
               acceptanceText=""
               editable={false}
+              {language}
             />
           {/key}
         {:else}
           <div class="trash-empty">
-            <h2>Trash is empty</h2>
-            <p>Deleted notes and folders stay here until you restore or permanently delete them.</p>
+            <h2>{messages.common.trashEmpty}</h2>
+            <p>{messages.document.trashEmptyBody}</p>
           </div>
         {/if}
         {#if operationError}
-          <div class="save-error" role="status">{operationError}</div>
+          <div class="save-error" role="status">{messages.errors[operationError]}</div>
         {/if}
       {:else if noteID}
         <div class="document-header">
           <input
             class="title"
-            aria-label="Note title"
-            placeholder="Untitled"
+            aria-label={messages.document.noteTitle}
+            placeholder={messages.common.untitled}
             value={title}
             disabled={noteTransitionActive}
             oninput={handleTitleInput}
@@ -2454,7 +2505,7 @@ import {
               <button
                 class="quiet-button more-button"
                 type="button"
-                aria-label="More"
+                aria-label={messages.document.more}
                 aria-expanded={moreMenuOpen}
                 aria-haspopup="menu"
                 disabled={noteTransitionActive}
@@ -2467,8 +2518,8 @@ import {
                 </svg>
               </button>
               {#if moreMenuOpen}
-                <div class="sidebar-menu more-menu" role="menu" aria-label="More actions">
-                  <button type="button" role="menuitem" onclick={() => { moreMenuOpen = false; void exportCurrentNoteMarkdown(); }}>Export as Markdown…</button>
+                <div class="sidebar-menu more-menu" role="menu" aria-label={messages.document.moreActions}>
+                  <button type="button" role="menuitem" onclick={() => { moreMenuOpen = false; void exportCurrentNoteMarkdown(language); }}>{messages.document.exportMarkdown}</button>
                 </div>
               {/if}
             </div>
@@ -2480,17 +2531,22 @@ import {
             onDocumentChange={handleDocumentChange}
             acceptanceText={editorAcceptanceConsumed ? '' : acceptanceText}
             editable={!noteTransitionActive}
+            {language}
             onAcceptanceReady={handleAcceptanceReady}
             onAcceptanceFailed={handleAcceptanceFailed}
           />
         {/key}
         {#if saveError}
-          <div class="save-error" role="status" title={saveError}>
-            Changes aren’t saved. Flashnote will keep retrying.
+          <div
+            class="save-error"
+            role="status"
+            title={saveError === 'timed_out' ? messages.status.saveTimedOut : messages.status.saveRetrying}
+          >
+            {saveError === 'timed_out' ? messages.status.saveTimedOut : messages.status.saveRetrying}
           </div>
         {/if}
         {#if operationError}
-          <div class="save-error" role="status">{operationError}</div>
+          <div class="save-error" role="status">{messages.errors[operationError]}</div>
         {/if}
       {/if}
     </div>
@@ -2499,22 +2555,22 @@ import {
 
 {#if undoTrashNoteID}
   <div class="undo-trash" role="status">
-    <span>Note moved to Trash</span>
-    <button type="button" onclick={() => void undoTrash()}>Undo</button>
+    <span>{messages.status.noteMovedToTrash}</span>
+    <button type="button" onclick={() => void undoTrash()}>{messages.status.undo}</button>
   </div>
 {/if}
 
 {#if searchOpen}
   <div class="search-backdrop">
-    <div class="search-dialog" role="dialog" aria-modal="true" aria-label="Search notes">
+    <div class="search-dialog" role="dialog" aria-modal="true" aria-label={messages.search.title}>
       <input
         class="search-input"
-        aria-label="Search notes"
-        placeholder="Search notes"
+        aria-label={messages.search.title}
+        placeholder={messages.search.placeholder}
         value={searchQuery}
         oninput={handleSearchInput}
       />
-      <div class="search-section-label">{searchQuery.trim() ? 'Results' : 'Recently modified'}</div>
+      <div class="search-section-label">{searchQuery.trim() ? messages.search.results : messages.search.recentlyModified}</div>
       <div class="search-results">
         {#each searchResults as result, index (result.id)}
           <button
@@ -2524,16 +2580,16 @@ import {
             onmouseenter={() => (searchSelectedIndex = index)}
             onclick={() => void activateSearchResult(result)}
           >
-            <span class="search-result-title">{result.displayTitle}</span>
+            <span class="search-result-title">{searchResultTitle(result)}</span>
             {#if result.excerpt && result.excerpt !== result.displayTitle}
               <span class="search-result-excerpt">{result.excerpt}</span>
             {/if}
           </button>
         {/each}
         {#if searchError}
-          <div class="search-empty" role="status">Search is unavailable right now.</div>
+          <div class="search-empty" role="status">{messages.search.unavailable}</div>
         {:else if searchResults.length === 0}
-          <div class="search-empty">No matching notes</div>
+          <div class="search-empty">{messages.search.noMatches}</div>
         {/if}
       </div>
     </div>
@@ -2543,11 +2599,11 @@ import {
 {#if noteDeleteTargetID}
   <div class="modal-backdrop" role="presentation">
     <div class="close-dialog" role="dialog" aria-modal="true" aria-labelledby="trash-note-title">
-      <h2 id="trash-note-title">Move note to Trash?</h2>
-      <p>You can restore it from Trash.</p>
+      <h2 id="trash-note-title">{messages.dialogs.noteTrashTitle}</h2>
+      <p>{messages.dialogs.noteTrashBody}</p>
       <div class="dialog-actions">
-        <button type="button" class="secondary-button" onclick={() => (noteDeleteTargetID = '')}>Cancel</button>
-        <button type="button" class="danger-button" onclick={() => void confirmNoteTrash()}>Move to Trash</button>
+        <button type="button" class="secondary-button" onclick={() => (noteDeleteTargetID = '')}>{messages.common.cancel}</button>
+        <button type="button" class="danger-button" onclick={() => void confirmNoteTrash()}>{messages.dialogs.moveToTrash}</button>
       </div>
     </div>
   </div>
@@ -2556,11 +2612,11 @@ import {
 {#if folderDeleteTargetID}
   <div class="modal-backdrop" role="presentation">
     <div class="close-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-folder-title">
-      <h2 id="delete-folder-title">Move folder to Trash?</h2>
-      <p>This folder and {folderDeleteTarget()?.notes.length ?? 0} notes will be moved to Trash.</p>
+      <h2 id="delete-folder-title">{messages.dialogs.folderTrashTitle}</h2>
+      <p>{messages.dialogs.folderTrashBody(folderDeleteTarget()?.notes.length ?? 0)}</p>
       <div class="dialog-actions">
-        <button type="button" class="secondary-button" onclick={() => (folderDeleteTargetID = '')}>Cancel</button>
-        <button type="button" class="danger-button" onclick={() => void confirmFolderTrash()}>Move to Trash</button>
+        <button type="button" class="secondary-button" onclick={() => (folderDeleteTargetID = '')}>{messages.common.cancel}</button>
+        <button type="button" class="danger-button" onclick={() => void confirmFolderTrash()}>{messages.dialogs.moveToTrash}</button>
       </div>
     </div>
   </div>
@@ -2569,11 +2625,11 @@ import {
 {#if permanentDeleteTargetID}
   <div class="modal-backdrop" role="presentation">
     <div class="close-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-note-title">
-      <h2 id="delete-note-title">Delete this note permanently?</h2>
-      <p>This cannot be undone.</p>
+      <h2 id="delete-note-title">{messages.dialogs.permanentNoteTitle}</h2>
+      <p>{messages.dialogs.cannotUndo}</p>
       <div class="dialog-actions">
-        <button type="button" class="secondary-button" onclick={() => (permanentDeleteTargetID = '')}>Cancel</button>
-        <button type="button" class="danger-button" onclick={() => void confirmPermanentDelete()}>Delete permanently</button>
+        <button type="button" class="secondary-button" onclick={() => (permanentDeleteTargetID = '')}>{messages.common.cancel}</button>
+        <button type="button" class="danger-button" onclick={() => void confirmPermanentDelete()}>{messages.dialogs.deletePermanently}</button>
       </div>
     </div>
   </div>
@@ -2582,11 +2638,11 @@ import {
 {#if permanentDeleteFolderTargetID}
   <div class="modal-backdrop" role="presentation">
     <div class="close-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-trash-folder-title">
-      <h2 id="delete-trash-folder-title">Delete this folder permanently?</h2>
-      <p>This folder and {permanentFolderTarget()?.notes.length ?? 0} notes will be permanently deleted. This cannot be undone.</p>
+      <h2 id="delete-trash-folder-title">{messages.dialogs.permanentFolderTitle}</h2>
+      <p>{messages.dialogs.permanentFolderBody(permanentFolderTarget()?.notes.length ?? 0)}</p>
       <div class="dialog-actions">
-        <button type="button" class="secondary-button" onclick={() => (permanentDeleteFolderTargetID = '')}>Cancel</button>
-        <button type="button" class="danger-button" onclick={() => void confirmPermanentFolderDelete()}>Delete permanently</button>
+        <button type="button" class="secondary-button" onclick={() => (permanentDeleteFolderTargetID = '')}>{messages.common.cancel}</button>
+        <button type="button" class="danger-button" onclick={() => void confirmPermanentFolderDelete()}>{messages.dialogs.deletePermanently}</button>
       </div>
     </div>
   </div>
@@ -2595,11 +2651,11 @@ import {
 {#if emptyTrashConfirmVisible}
   <div class="modal-backdrop" role="presentation">
     <div class="close-dialog" role="dialog" aria-modal="true" aria-labelledby="empty-trash-title">
-      <h2 id="empty-trash-title">Empty Trash?</h2>
-      <p>Permanently delete {trashNoteCount} notes and {trashFolderCount} folders. This cannot be undone.</p>
+      <h2 id="empty-trash-title">{messages.dialogs.emptyTrashTitle}</h2>
+      <p>{messages.dialogs.emptyTrashBody(trashNoteCount, trashFolderCount)}</p>
       <div class="dialog-actions">
-        <button type="button" class="secondary-button" onclick={() => (emptyTrashConfirmVisible = false)}>Cancel</button>
-        <button type="button" class="danger-button" onclick={() => void confirmEmptyTrash()}>Empty Trash</button>
+        <button type="button" class="secondary-button" onclick={() => (emptyTrashConfirmVisible = false)}>{messages.common.cancel}</button>
+        <button type="button" class="danger-button" onclick={() => void confirmEmptyTrash()}>{messages.dialogs.emptyTrashConfirm}</button>
       </div>
     </div>
   </div>
@@ -2614,12 +2670,12 @@ import {
       aria-labelledby="save-transition-title"
       data-save-transition-dialog
     >
-      <h2 id="save-transition-title">Changes couldn’t be saved</h2>
-      <p>Flashnote couldn’t save your latest changes. Stay here to keep working on this note, retry saving, or discard the unsaved changes and continue.</p>
+      <h2 id="save-transition-title">{messages.dialogs.saveTransitionTitle}</h2>
+      <p>{messages.dialogs.saveTransitionBody}</p>
       <div class="dialog-actions">
-        <button type="button" class="secondary-button" onclick={() => resolveSaveFailureChoice('stay')}>Stay here</button>
-        <button type="button" class="secondary-button" onclick={() => resolveSaveFailureChoice('retry')}>Retry saving</button>
-        <button type="button" class="danger-button" onclick={() => resolveSaveFailureChoice('discard')}>Discard changes &amp; continue</button>
+        <button type="button" class="secondary-button" onclick={() => resolveSaveFailureChoice('stay')}>{messages.dialogs.stayHere}</button>
+        <button type="button" class="secondary-button" onclick={() => resolveSaveFailureChoice('retry')}>{messages.dialogs.retrySaving}</button>
+        <button type="button" class="danger-button" onclick={() => resolveSaveFailureChoice('discard')}>{messages.dialogs.discardAndContinue}</button>
       </div>
     </div>
   </div>
@@ -2628,12 +2684,12 @@ import {
 {#if closePromptVisible}
   <div class="modal-backdrop" role="presentation">
     <div class="close-dialog" role="dialog" aria-modal="true" aria-labelledby="close-title">
-      <h2 id="close-title">Changes aren’t saved</h2>
-      <p>Flashnote couldn’t save your latest changes. Retry saving, keep the window open, or discard those unsaved changes and exit.</p>
+      <h2 id="close-title">{messages.dialogs.closeTitle}</h2>
+      <p>{messages.dialogs.closeBody}</p>
       <div class="dialog-actions">
-        <button type="button" class="secondary-button" onclick={() => (closePromptVisible = false)}>Cancel</button>
-        <button type="button" class="secondary-button" onclick={retryClose}>Retry saving</button>
-        <button type="button" class="danger-button" onclick={discardAndExit}>Discard &amp; exit</button>
+        <button type="button" class="secondary-button" onclick={() => (closePromptVisible = false)}>{messages.common.cancel}</button>
+        <button type="button" class="secondary-button" onclick={retryClose}>{messages.dialogs.retrySaving}</button>
+        <button type="button" class="danger-button" onclick={discardAndExit}>{messages.dialogs.discardAndExit}</button>
       </div>
     </div>
   </div>
@@ -2642,6 +2698,7 @@ import {
 {#if settingsOpen}
   <SettingsDialog
     {settings}
+    {language}
     onUpdate={updateSettings}
     onClose={closeSettings}
   />

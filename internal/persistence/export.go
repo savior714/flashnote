@@ -33,7 +33,7 @@ func (s *Store) ExactNoteExportTarget(ctx context.Context, admittedNoteID string
 	if err != nil {
 		return "", "", fmt.Errorf("derive export filename: %w", err)
 	}
-	return note.ID, sanitizeExportBasename(displayTitle) + ".md", nil
+	return note.ID, sanitizeExportBasename(displayTitle.Value) + ".md", nil
 }
 
 // ExportNoteMarkdown writes one normal note from canonical SQLite state to a

@@ -1,9 +1,12 @@
 export type AppearanceMode = 'system' | 'light' | 'dark'
 export type ResolvedTheme = 'light' | 'dark'
+export type LanguagePreference = 'system' | 'ko' | 'en'
+export type ResolvedLanguage = 'ko' | 'en'
 
 export interface Settings {
   appearance: AppearanceMode
   editorFontSize: number
+  language: LanguagePreference
 }
 
 export const MIN_FONT_SIZE = 14
@@ -13,6 +16,7 @@ export const DEFAULT_FONT_SIZE = 16
 export const DEFAULT_SETTINGS: Settings = {
   appearance: 'system',
   editorFontSize: DEFAULT_FONT_SIZE,
+  language: 'system',
 }
 
 export const SETTINGS_STORAGE_KEY = 'flashnote:settings:v1'
@@ -22,6 +26,10 @@ export function sanitizeAppearance(value: unknown): AppearanceMode {
     return value
   }
   return DEFAULT_SETTINGS.appearance
+}
+
+export function sanitizeLanguagePreference(value: unknown): LanguagePreference {
+  return value === 'ko' || value === 'en' || value === 'system' ? value : 'system'
 }
 
 export function sanitizeFontSize(value: unknown): number {
@@ -48,6 +56,7 @@ export function loadSettings(): Settings {
     return {
       appearance: sanitizeAppearance(parsed.appearance),
       editorFontSize: sanitizeFontSize(parsed.editorFontSize),
+      language: sanitizeLanguagePreference(parsed.language),
     }
   } catch {
     return { ...DEFAULT_SETTINGS }
@@ -62,6 +71,7 @@ export function saveSettings(settings: Settings): void {
     const sanitized: Settings = {
       appearance: sanitizeAppearance(settings.appearance),
       editorFontSize: sanitizeFontSize(settings.editorFontSize),
+      language: sanitizeLanguagePreference(settings.language),
     }
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(sanitized))
   } catch {

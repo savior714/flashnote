@@ -1,13 +1,18 @@
 import type { Editor } from '@tiptap/core'
 import { tick } from 'svelte'
+import {
+  CreateFolder,
+  ListFolders,
+  MoveFolderToTrash,
+  PermanentlyDeleteFolder,
+} from '../../bindings/github.com/savior714/flashnote/appservice'
+import { exportPresentation, getMessages } from './i18n'
 import { setLibraryExporterForTest } from './libraryExport'
 import {
   getMarkdownExportReadinessForTest,
   setMarkdownExportReadiness,
 } from './markdownExportGate'
 import {
-  applyEditorFontSize,
-  applyTheme,
   DEFAULT_SETTINGS,
   loadSettings,
   resolveTheme,
@@ -53,6 +58,7 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     if (
       defaults.appearance !== 'system' ||
       defaults.editorFontSize !== 16 ||
+      defaults.language !== 'system' ||
       'spellcheck' in defaults
     ) {
       throw new Error(`acceptance: default settings mismatch: ${JSON.stringify(defaults)}`)
@@ -64,6 +70,7 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     if (
       fallbackFromMalformed.appearance !== 'system' ||
       fallbackFromMalformed.editorFontSize !== 16 ||
+      fallbackFromMalformed.language !== 'system' ||
       'spellcheck' in fallbackFromMalformed
     ) {
       throw new Error('acceptance: malformed stored json did not fallback to defaults')
@@ -78,6 +85,7 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     if (
       sanitizedInvalidTypes.appearance !== 'system' ||
       sanitizedInvalidTypes.editorFontSize !== 16 ||
+      sanitizedInvalidTypes.language !== 'system' ||
       'spellcheck' in sanitizedInvalidTypes
     ) {
       throw new Error(`acceptance: invalid/legacy fields failed to sanitize: ${JSON.stringify(sanitizedInvalidTypes)}`)
@@ -334,18 +342,33 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     )
     if (
       !settingsBody ||
-      settingsBody.children.length !== 3 ||
-      settingsSections.length !== 3 ||
-      JSON.stringify(sectionLabels) !== JSON.stringify(['Appearance', 'Editor', 'Data'])
+      settingsBody.children.length !== 4 ||
+      settingsSections.length !== 4 ||
+      JSON.stringify(sectionLabels) !== JSON.stringify(['Language', 'Appearance', 'Editor', 'Data'])
     ) {
       throw new Error(
-        `acceptance: Settings surface must contain exactly Appearance/Editor/Data sections, got ${JSON.stringify(sectionLabels)}`,
+        `acceptance: Settings surface must contain exactly Language/Appearance/Editor/Data sections, got ${JSON.stringify(sectionLabels)}`,
       )
     }
 
-    const [appearanceSection, editorSection, dataSection] = settingsSections
-    if (!appearanceSection || !editorSection || !dataSection) {
+    const [languageSection, appearanceSection, editorSection, dataSection] = settingsSections
+    if (!languageSection || !appearanceSection || !editorSection || !dataSection) {
       throw new Error('acceptance: Settings surface section ownership is incomplete')
+    }
+
+    const languageLabels = Array.from(
+      languageSection.querySelectorAll<HTMLButtonElement>('[data-language-option]'),
+    ).map((button) => button.textContent?.trim() ?? '')
+    const englishSettingsMessages = getMessages('en')
+    if (
+      JSON.stringify(languageLabels) !==
+      JSON.stringify([
+        englishSettingsMessages.settingsPage.languageSystem,
+        englishSettingsMessages.settingsPage.languageKorean,
+        englishSettingsMessages.settingsPage.languageEnglish,
+      ])
+    ) {
+      throw new Error(`acceptance: unexpected language options: ${JSON.stringify(languageLabels)}`)
     }
 
     const appearanceLabels = Array.from(
@@ -395,7 +418,75 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     }
     console.log('FLASHNOTE_MINIMAL_SETTINGS_SURFACE_ACCEPTANCE_SUCCESS')
 
-    const themeButtons = Array.from(dialog.querySelectorAll<HTMLButtonElement>('.appearance-option'))
+    const [languageFixtureID, languageFixtureName] = (await CreateFolder(
+      'Localization Acceptance Folder',
+    )) as [string, string]
+    const documentBeforeLanguageSwitch = JSON.stringify(editor.getJSON())
+    try {
+      const koreanButton = dialog.querySelector<HTMLButtonElement>('[data-language-option="ko"]')
+      if (!koreanButton) {
+        throw new Error('acceptance: Korean language option is missing')
+      }
+      koreanButton.click()
+      await tick()
+      await delay(50)
+
+      const koreanMessages = getMessages('ko')
+      const koreanDialogTitle = dialog.querySelector<HTMLElement>('#settings-title')?.textContent?.trim()
+      const koreanSidebarSettings = document.querySelector<HTMLElement>('.settings-row')?.textContent?.trim()
+      const koreanTitlePlaceholder = document.querySelector<HTMLInputElement>('.title:not([readonly])')?.placeholder
+      const koreanEditorLabel = document.querySelector<HTMLElement>('.prose-editor')?.getAttribute('aria-label')
+      if (
+        koreanDialogTitle !== koreanMessages.settingsPage.title ||
+        koreanSidebarSettings !== koreanMessages.sidebar.settings ||
+        koreanTitlePlaceholder !== koreanMessages.common.untitled ||
+        koreanEditorLabel !== koreanMessages.sidebar.editor ||
+        document.documentElement.getAttribute('lang') !== 'ko'
+      ) {
+        throw new Error('acceptance: language change did not immediately update representative UI copy')
+      }
+      if (JSON.stringify(editor.getJSON()) !== documentBeforeLanguageSwitch) {
+        throw new Error('acceptance: runtime language change mutated note document content')
+      }
+      const [folderIDsAfterLanguageSwitch, folderNamesAfterLanguageSwitch] = await ListFolders()
+      const languageFixtureIndex = folderIDsAfterLanguageSwitch.indexOf(languageFixtureID)
+      if (
+        languageFixtureIndex < 0 ||
+        folderNamesAfterLanguageSwitch[languageFixtureIndex] !== languageFixtureName
+      ) {
+        throw new Error('acceptance: runtime language change mutated folder content')
+      }
+      if (loadSettings().language !== 'ko') {
+        throw new Error('acceptance: Korean language preference did not persist immediately')
+      }
+    } finally {
+      try {
+        await MoveFolderToTrash(languageFixtureID)
+      } finally {
+        await PermanentlyDeleteFolder(languageFixtureID)
+      }
+    }
+
+    const englishButton = dialog.querySelector<HTMLButtonElement>('[data-language-option="en"]')
+    if (!englishButton) {
+      throw new Error('acceptance: English language option is missing')
+    }
+    englishButton.click()
+    await tick()
+    await delay(50)
+    if (
+      dialog.querySelector<HTMLElement>('#settings-title')?.textContent?.trim() !== 'Settings' ||
+      document.querySelector<HTMLElement>('.settings-row')?.textContent?.trim() !== 'Settings' ||
+      document.documentElement.getAttribute('lang') !== 'en' ||
+      JSON.stringify(loadSettings().language) !== JSON.stringify('en')
+    ) {
+      throw new Error('acceptance: English language selection did not restore representative UI immediately')
+    }
+    console.log('FLASHNOTE_LANGUAGE_RUNTIME_SWITCH_ACCEPTANCE_SUCCESS')
+
+    const themeButtons = Array.from(
+      dialog.querySelectorAll<HTMLButtonElement>('.appearance-picker:not(.language-picker) .appearance-option'),
+    )
     const lightBtn = themeButtons.find((b) => b.textContent?.trim() === 'Light')
     const darkBtn = themeButtons.find((b) => b.textContent?.trim() === 'Dark')
     const systemBtn = themeButtons.find((b) => b.textContent?.trim() === 'System')
@@ -511,10 +602,12 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     }
 
     let exportCallCount = 0
+    let receivedExportPresentation: ReturnType<typeof exportPresentation> | null = null
     let resolveExport!: (path: string) => void
     setMarkdownExportReadiness(deterministicSuccessReadiness)
-    setLibraryExporterForTest(() => {
+    setLibraryExporterForTest((presentation) => {
       exportCallCount++
+      receivedExportPresentation = presentation
       return new Promise<string>((resolve) => {
         resolveExport = resolve
       })
@@ -527,6 +620,9 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
 
       if (exportCallCount !== 1) {
         throw new Error(`acceptance: expected 1 export call on click, got ${exportCallCount}`)
+      }
+      if (JSON.stringify(receivedExportPresentation) !== JSON.stringify(exportPresentation('en'))) {
+        throw new Error('acceptance: library export did not receive the active localized presentation')
       }
       if (!exportButton.disabled) {
         throw new Error('acceptance: export button was not disabled while export in-flight')
@@ -589,6 +685,7 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     const testSettings: Settings = {
       appearance: 'dark',
       editorFontSize: 18,
+      language: 'ko',
     }
     saveSettings(testSettings)
 
@@ -596,19 +693,46 @@ export async function runSettingsAcceptance(editor: Editor): Promise<void> {
     if (
       reloaded.appearance !== testSettings.appearance ||
       reloaded.editorFontSize !== testSettings.editorFontSize ||
+      reloaded.language !== testSettings.language ||
       'spellcheck' in reloaded
     ) {
       throw new Error(`acceptance: settings persistence mismatch: ${JSON.stringify(reloaded)}`)
     }
 
     const storedAfterSave = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) ?? '{}') as Record<string, unknown>
+    if (storedAfterSave.language !== testSettings.language) {
+      throw new Error('acceptance: settings persistence omitted the language preference')
+    }
     if ('spellcheck' in storedAfterSave) {
       throw new Error('acceptance: saveSettings retained the removed spellcheck field')
     }
 
-    saveSettings(DEFAULT_SETTINGS)
-    applyTheme('system')
-    applyEditorFontSize(16)
+    const systemDefaultLanguageButton = dialog.querySelector<HTMLButtonElement>(
+      '[data-language-option="system"]',
+    )
+    if (!systemDefaultLanguageButton) {
+      throw new Error('acceptance: System Default language option is missing')
+    }
+    systemBtn.click()
+    fontSlider.value = '16'
+    fontSlider.dispatchEvent(new Event('input', { bubbles: true }))
+    systemDefaultLanguageButton.click()
+    await tick()
+    await delay(40)
+    const restoredSettings = loadSettings()
+    if (JSON.stringify(restoredSettings) !== JSON.stringify(DEFAULT_SETTINGS)) {
+      throw new Error(`acceptance: Settings UI did not restore defaults: ${JSON.stringify(restoredSettings)}`)
+    }
+    const finalEnglishButton = dialog.querySelector<HTMLButtonElement>('[data-language-option="en"]')
+    if (!finalEnglishButton) {
+      throw new Error('acceptance: final English language option is missing')
+    }
+    finalEnglishButton.click()
+    await tick()
+    await delay(30)
+    if (loadSettings().language !== 'en') {
+      throw new Error('acceptance: final English acceptance locale was not restored')
+    }
 
     const closeBtn = dialog.querySelector<HTMLButtonElement>('.settings-close-button')
     if (closeBtn) {

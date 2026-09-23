@@ -149,8 +149,11 @@ func TestListSidebarConvergesCanonicalProjection(t *testing.T) {
 	if projection.RootNotes[1].DisplayTitle != "Derived root body" {
 		t.Fatalf("derived root title = %q", projection.RootNotes[1].DisplayTitle)
 	}
-	if projection.RootNotes[0].DisplayTitle != "Untitled" {
-		t.Fatalf("untitled root title = %q", projection.RootNotes[0].DisplayTitle)
+	if projection.RootNotes[0].DisplayTitle != "Untitled" || !projection.RootNotes[0].IsGeneratedFallback {
+		t.Fatalf("untitled root projection = %+v", projection.RootNotes[0])
+	}
+	if projection.RootNotes[1].IsGeneratedFallback || projection.RootNotes[2].IsGeneratedFallback {
+		t.Fatalf("non-generated root projections marked as fallback: %+v", projection.RootNotes)
 	}
 	// Empty folder present with empty notes.
 	if projection.Folders[2].Notes == nil || len(projection.Folders[2].Notes) != 0 {
@@ -271,6 +274,118 @@ func compareSummaries(t *testing.T, stage string, got, want []NoteSummary) {
 	}
 }
 
+func TestDisplayTitleFallbackDiscriminatesGeneratedAndUserText(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	defer store.Close()
+
+	generated, err := store.CreateNote(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	explicit, err := store.CreateNote(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SaveNote(ctx, explicit.ID, "Untitled", explicit.DocumentJSON, explicit.Revision); err != nil {
+		t.Fatal(err)
+	}
+	derived, err := store.CreateNote(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	derivedDocument := `{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Untitled"}]}]}}`
+	if _, err := store.SaveNote(ctx, derived.ID, "", derivedDocument, derived.Revision); err != nil {
+		t.Fatal(err)
+	}
+
+	summaries, err := store.ListNotes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[string]NoteSummary, len(summaries))
+	for _, summary := range summaries {
+		byID[summary.ID] = summary
+	}
+	if summary := byID[generated.ID]; !summary.IsGeneratedFallback || summary.DisplayTitle != "Untitled" {
+		t.Fatalf("generated fallback summary = %+v", summary)
+	}
+	if summary := byID[explicit.ID]; summary.IsGeneratedFallback || summary.DisplayTitle != "Untitled" {
+		t.Fatalf("explicit Untitled summary = %+v", summary)
+	}
+	if summary := byID[derived.ID]; summary.IsGeneratedFallback || summary.DisplayTitle != "Untitled" {
+		t.Fatalf("body-derived Untitled summary = %+v", summary)
+	}
+
+	openedExplicit, err := store.OpenNote(ctx, explicit.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if openedExplicit.Title != "Untitled" {
+		t.Fatalf("explicit title was rewritten: %q", openedExplicit.Title)
+	}
+	openedDerived, err := store.OpenNote(ctx, derived.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if openedDerived.Title != "" {
+		t.Fatalf("body-derived title became canonical data: %q", openedDerived.Title)
+	}
+}
+
+func TestDisplayTitleFallbackBackfillDiscriminatesLegacyUntitledStrings(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	defer store.Close()
+
+	generated, err := store.CreateNote(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	explicit, err := store.CreateNote(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SaveNote(ctx, explicit.ID, "Untitled", explicit.DocumentJSON, explicit.Revision); err != nil {
+		t.Fatal(err)
+	}
+	derived, err := store.CreateNote(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	derivedDocument := `{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Untitled"}]}]}}`
+	if _, err := store.SaveNote(ctx, derived.ID, "", derivedDocument, derived.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `
+		UPDATE notes
+		SET display_title = 'Untitled', display_title_is_fallback = NULL
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.backfillDisplayTitleProjections(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	summaries, err := store.ListNotes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[string]NoteSummary, len(summaries))
+	for _, summary := range summaries {
+		byID[summary.ID] = summary
+	}
+	if !byID[generated.ID].IsGeneratedFallback {
+		t.Fatalf("generated fallback was not backfilled: %+v", byID[generated.ID])
+	}
+	if byID[explicit.ID].IsGeneratedFallback {
+		t.Fatalf("explicit Untitled was classified as generated: %+v", byID[explicit.ID])
+	}
+	if byID[derived.ID].IsGeneratedFallback {
+		t.Fatalf("body-derived Untitled was classified as generated: %+v", byID[derived.ID])
+	}
+}
+
 // TestDisplayTitleBackfillConvergesLegacyRows proves databases written before
 // migration 009 (display_title ”) start up with the same titles the former
 // read-time derivation produced.
@@ -301,8 +416,8 @@ func TestDisplayTitleBackfillConvergesLegacyRows(t *testing.T) {
 	if _, err := store.db.ExecContext(ctx, `UPDATE notes SET display_title = ''`); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.backfillDisplayTitles(ctx); err != nil {
-		t.Fatalf("backfillDisplayTitles() error = %v", err)
+	if err := store.backfillDisplayTitleProjections(ctx); err != nil {
+		t.Fatalf("backfillDisplayTitleProjections() error = %v", err)
 	}
 
 	summaries, err := store.ListNotes(ctx)

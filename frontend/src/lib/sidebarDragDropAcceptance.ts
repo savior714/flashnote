@@ -338,17 +338,17 @@ function dispatchDrag(target: HTMLElement, type: 'dragstart' | 'dragover' | 'dro
 }
 
 async function folderContains(folderID: string, noteID: string): Promise<boolean> {
-  const [ids] = (await ListFolderNotes(folderID)) as [string[], string[]]
+  const [ids] = (await ListFolderNotes(folderID))
   return ids.includes(noteID)
 }
 
 async function rootContains(noteID: string): Promise<boolean> {
-  const [ids] = (await ListRootNotes()) as [string[], string[]]
+  const [ids] = (await ListRootNotes())
   return ids.includes(noteID)
 }
 
 async function trashContains(noteID: string): Promise<boolean> {
-  const [ids] = (await ListTrashNotes()) as [string[], string[]]
+  const [ids] = (await ListTrashNotes())
   return ids.includes(noteID)
 }
 
@@ -454,7 +454,7 @@ async function proveInlineActionsTrashUndo(
   await tick()
   await expandFolder(folderID)
 
-  const [allFolderIDs, allFolderNames] = (await ListFolders()) as [string[], string[]]
+  const [allFolderIDs, allFolderNames] = (await ListFolders())
   const targetFolderIndex = allFolderIDs.indexOf(emptyFolderID)
   if (targetFolderIndex < 0) {
     throw new Error('acceptance inline note move: target folder fixture is missing')
@@ -558,7 +558,7 @@ async function proveInlineActionsTrashUndo(
   await tick()
   await expandFolder(folderID)
 
-  const [folderNoteIDs] = (await ListFolderNotes(folderID)) as [string[], string[]]
+  const [folderNoteIDs] = (await ListFolderNotes(folderID))
   if (folderNoteIDs.length < 1) {
     throw new Error('acceptance folder Trash warning: fixture folder unexpectedly became empty')
   }
@@ -594,7 +594,7 @@ async function proveInlineActionsTrashUndo(
   if (document.querySelector('[role="dialog"][aria-labelledby="delete-folder-title"]')) {
     throw new Error('acceptance folder Trash warning: Cancel did not close confirmation dialog')
   }
-  const [folderNoteIDsAfterCancel] = (await ListFolderNotes(folderID)) as [string[], string[]]
+  const [folderNoteIDsAfterCancel] = (await ListFolderNotes(folderID))
   if (!sameIDs(folderNoteIDsAfterCancel, folderNoteIDs)) {
     throw new Error('acceptance folder Trash warning: Cancel changed folder membership')
   }
@@ -870,11 +870,11 @@ async function proveInlineActionsTrashUndo(
     'restored original note selection before cross-location fallback proof',
   )
 
-  const [crossLocationFolderIDs] = (await ListFolderNotes(folderID)) as [string[], string[]]
+  const [crossLocationFolderIDs] = (await ListFolderNotes(folderID))
   if (!sameIDs(crossLocationFolderIDs, [currentNoteID])) {
     throw new Error('acceptance cross-location fallback: current note is not alone in its source folder')
   }
-  const [crossLocationNormalBefore] = (await ListNotes()) as [string[], string[]]
+  const [crossLocationNormalBefore] = (await ListNotes())
   const crossLocationSurvivorIDs = crossLocationNormalBefore.filter((candidateID) => candidateID !== currentNoteID)
   if (crossLocationSurvivorIDs.length === 0) {
     throw new Error('acceptance cross-location fallback: no external normal-note survivor is available')
@@ -887,7 +887,7 @@ async function proveInlineActionsTrashUndo(
   await confirmNoteTrash(currentNoteID)
   await waitFor(
     async () => {
-      const [normalIDs] = (await ListNotes()) as [string[], string[]]
+      const [normalIDs] = (await ListNotes())
       const selected = document.querySelector<HTMLElement>('.note-row[aria-current="page"]')
       const selectedID = selected?.dataset.noteId ?? ''
       if (
@@ -920,7 +920,7 @@ async function proveInlineActionsTrashUndo(
   crossLocationUndoButton.click()
   await waitFor(
     async () => {
-      const [normalIDs] = (await ListNotes()) as [string[], string[]]
+      const [normalIDs] = (await ListNotes())
       return (
         sameIDs(normalIDs, crossLocationNormalBefore) &&
         (await folderContains(folderID, currentNoteID)) &&
@@ -953,7 +953,7 @@ async function proveLastNormalNoteTrashFallback(
   folderID: string,
   refreshSidebar: () => Promise<void>,
 ): Promise<void> {
-  const [normalBefore] = (await ListNotes()) as [string[], string[]]
+  const [normalBefore] = (await ListNotes())
   const trashCountsBefore = (await TrashCounts()) as [number, number]
   if (!normalBefore.includes(currentNoteID)) {
     throw new Error('acceptance last-note fallback: current note is not in the normal-note baseline')
@@ -974,7 +974,7 @@ async function proveLastNormalNoteTrashFallback(
     await tick()
     await expandFolder(folderID)
 
-    const [isolatedNormalIDs] = (await ListNotes()) as [string[], string[]]
+    const [isolatedNormalIDs] = (await ListNotes())
     if (!sameIDs(isolatedNormalIDs, [currentNoteID])) {
       throw new Error('acceptance last-note fallback: failed to isolate exactly one normal note')
     }
@@ -989,7 +989,7 @@ async function proveLastNormalNoteTrashFallback(
     await confirmNoteTrash(currentNoteID)
     await waitFor(
       async () => {
-        const [normalIDs] = (await ListNotes()) as [string[], string[]]
+        const [normalIDs] = (await ListNotes())
         if (normalIDs.length !== 1 || normalIDs[0] === currentNoteID) {
           return false
         }
@@ -1021,7 +1021,7 @@ async function proveLastNormalNoteTrashFallback(
     }
     undoButton.click()
     await waitFor(
-      async () => !(await trashContains(currentNoteID)) && ((await ListNotes()) as [string[], string[]])[0].includes(currentNoteID),
+      async () => !(await trashContains(currentNoteID)) && (await ListNotes())[0].includes(currentNoteID),
       'Undo restoring the former last note',
     )
 
@@ -1033,7 +1033,7 @@ async function proveLastNormalNoteTrashFallback(
   let cleanupFailure: unknown = null
   try {
     if (fallbackNoteID) {
-      const [normalIDs] = (await ListNotes()) as [string[], string[]]
+      const [normalIDs] = (await ListNotes())
       if (normalIDs.includes(fallbackNoteID) && !(await MoveNoteToTrash(fallbackNoteID))) {
         throw new Error('acceptance last-note fallback cleanup: failed to trash fallback note')
       }
@@ -1054,7 +1054,7 @@ async function proveLastNormalNoteTrashFallback(
     await refreshSidebar()
     await tick()
 
-    const [normalAfter] = (await ListNotes()) as [string[], string[]]
+    const [normalAfter] = (await ListNotes())
     const trashCountsAfter = (await TrashCounts()) as [number, number]
     if (!sameIDs(normalAfter, normalBefore)) {
       throw new Error('acceptance last-note fallback cleanup: normal-note baseline was not restored')
@@ -1168,8 +1168,8 @@ async function cleanupFixtures(options: {
   await refreshSidebar()
   await tick()
 
-  const [noteIDsAfter] = (await ListNotes()) as [string[], string[]]
-  const [folderIDsAfter] = (await ListFolders()) as [string[], string[]]
+  const [noteIDsAfter] = (await ListNotes())
+  const [folderIDsAfter] = (await ListFolders())
   const trashCountsAfter = (await TrashCounts()) as [number, number]
 
   if (!sameIDs(noteIDsAfter, baselineNoteIDs)) {
@@ -1189,8 +1189,8 @@ async function cleanupFixtures(options: {
 }
 
 export async function runSidebarDragDropAcceptance({ refreshSidebar }: AcceptanceOptions): Promise<void> {
-  const [baselineNoteIDs] = (await ListNotes()) as [string[], string[]]
-  const [baselineFolderIDs] = (await ListFolders()) as [string[], string[]]
+  const [baselineNoteIDs] = (await ListNotes())
+  const [baselineFolderIDs] = (await ListFolders())
   const baselineTrashCounts = (await TrashCounts()) as [number, number]
   const currentRow = document.querySelector<HTMLElement>('.note-row[aria-current="page"]')
   const resumeNoteID = currentRow?.dataset.noteId ?? ''
@@ -1218,7 +1218,7 @@ export async function runSidebarDragDropAcceptance({ refreshSidebar }: Acceptanc
       throw new Error('acceptance sidebar DnD: normal sidebar note row is not draggable')
     }
 
-    const sourceOrderBefore = ((await ListFolderNotes(sourceFolderID)) as [string[], string[]])[0]
+    const sourceOrderBefore = (await ListFolderNotes(sourceFolderID))[0]
     const targetBlock = folderBlock(targetFolderID)
     dispatchDrag(sourceRow, 'dragstart')
     const folderDragOver = dispatchDrag(targetBlock, 'dragover')
@@ -1235,7 +1235,7 @@ export async function runSidebarDragDropAcceptance({ refreshSidebar }: Acceptanc
       'folder-to-folder membership move',
     )
 
-    const sourceOrderAfter = ((await ListFolderNotes(sourceFolderID)) as [string[], string[]])[0]
+    const sourceOrderAfter = (await ListFolderNotes(sourceFolderID))[0]
     if (sourceOrderAfter.includes(sourceNoteID) || sourceOrderAfter.length !== sourceOrderBefore.length - 1) {
       throw new Error('acceptance sidebar DnD: source folder membership did not contract by exactly one note')
     }
@@ -1268,14 +1268,14 @@ export async function runSidebarDragDropAcceptance({ refreshSidebar }: Acceptanc
     await refreshSidebar()
     await tick()
 
-    const rootOrderBefore = ((await ListRootNotes()) as [string[], string[]])[0]
+    const rootOrderBefore = (await ListRootNotes())[0]
     const rootRow = noteRow(sourceNoteID)
     dispatchDrag(rootRow, 'dragstart')
     dispatchDrag(rootDropZone, 'dragover')
     dispatchDrag(rootDropZone, 'drop')
     dispatchDrag(rootRow, 'dragend')
     await delay(100)
-    const rootOrderAfter = ((await ListRootNotes()) as [string[], string[]])[0]
+    const rootOrderAfter = (await ListRootNotes())[0]
     if (JSON.stringify(rootOrderAfter) !== JSON.stringify(rootOrderBefore)) {
       throw new Error('acceptance sidebar DnD: same-location drop changed note ordering')
     }

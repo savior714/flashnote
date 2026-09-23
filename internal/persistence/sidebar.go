@@ -26,10 +26,9 @@ type SidebarProjection struct {
 // ListSidebar materializes the whole normal-library sidebar in a constant
 // number of database round trips (one folders query plus one notes query),
 // regardless of folder count. It reads only small durable columns
-// (id, display_title, folder_id) and never loads or parses document_json:
-// display titles are maintained at write time (see backfillDisplayTitles and
-// the create/save paths) with the same canonical derivation previously run
-// on every read.
+// (id, display_title, display_title_is_fallback, folder_id) and never loads
+// or parses document_json: display titles are maintained at write time with
+// the same canonical derivation previously run on every read.
 func (s *Store) ListSidebar(ctx context.Context) (SidebarProjection, error) {
 	folders, err := s.ListFolders(ctx)
 	if err != nil {
@@ -37,7 +36,7 @@ func (s *Store) ListSidebar(ctx context.Context) (SidebarProjection, error) {
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, display_title, folder_id
+		SELECT id, display_title, COALESCE(display_title_is_fallback, 0), folder_id
 		FROM notes
 		WHERE deleted_at IS NULL
 		ORDER BY updated_at DESC, id ASC
@@ -57,11 +56,12 @@ func (s *Store) ListSidebar(ctx context.Context) (SidebarProjection, error) {
 	}
 	for rows.Next() {
 		var id, displayTitle string
+		var isGeneratedFallback bool
 		var folderID *string
-		if err := rows.Scan(&id, &displayTitle, &folderID); err != nil {
+		if err := rows.Scan(&id, &displayTitle, &isGeneratedFallback, &folderID); err != nil {
 			return SidebarProjection{}, fmt.Errorf("scan sidebar note: %w", err)
 		}
-		summary := NoteSummary{ID: id, DisplayTitle: displayTitle}
+		summary := NoteSummary{ID: id, DisplayTitle: displayTitle, IsGeneratedFallback: isGeneratedFallback}
 		if folderID == nil {
 			projection.RootNotes = append(projection.RootNotes, summary)
 			continue
@@ -92,17 +92,15 @@ func (s *Store) ListSidebar(ctx context.Context) (SidebarProjection, error) {
 	return projection, nil
 }
 
-// backfillDisplayTitles derives display_title for rows that predate migration
-// 009 (stored as ”). The derivation is the same canonical
-// deriveDisplayTitle used on the write path, so backfilled rows are
-// indistinguishable from rows written after the migration. A derivation
-// failure fails closed: Open reports the error and preserves the database
-// rather than starting against a partially projected library.
-func (s *Store) backfillDisplayTitles(ctx context.Context) error {
+// backfillDisplayTitleProjections derives language-independent display-title
+// projections for rows that predate the durable title or fallback metadata.
+// A derivation failure fails closed: Open reports the error and preserves the
+// database rather than starting against a partially projected library.
+func (s *Store) backfillDisplayTitleProjections(ctx context.Context) error {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, title, document_json
 		FROM notes
-		WHERE TRIM(COALESCE(display_title, '')) = ''
+		WHERE TRIM(COALESCE(display_title, '')) = '' OR display_title_is_fallback IS NULL
 		ORDER BY id ASC
 	`)
 	if err != nil {
@@ -139,11 +137,15 @@ func (s *Store) backfillDisplayTitles(ctx context.Context) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 	for _, row := range pendingRows {
-		displayTitle, err := deriveDisplayTitle(row.title, row.documentJSON)
+		derivedTitle, err := deriveDisplayTitle(row.title, row.documentJSON)
 		if err != nil {
 			return fmt.Errorf("derive display title for note %s: %w", row.id, err)
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE notes SET display_title = ? WHERE id = ?`, displayTitle, row.id); err != nil {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE notes
+			SET display_title = ?, display_title_is_fallback = ?
+			WHERE id = ?
+		`, derivedTitle.Value, derivedTitle.IsGeneratedFallback, row.id); err != nil {
 			return fmt.Errorf("backfill display title for note %s: %w", row.id, err)
 		}
 	}

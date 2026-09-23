@@ -2,13 +2,17 @@
   import type { Editor } from '@tiptap/core'
   import { onDestroy, onMount, tick } from 'svelte'
   import { normalizeExternalUrl } from './linkHelper'
+  import { getMessages } from './i18n'
+  import type { ResolvedLanguage } from './settings'
 
   type Props = {
     editor: Editor | null
     editable?: boolean
+    language: ResolvedLanguage
   }
 
-  let { editor, editable = true }: Props = $props()
+  let { editor, editable = true, language }: Props = $props()
+  let messages = $derived(getMessages(language))
 
   let isBold = $state(false)
   let isItalic = $state(false)
@@ -18,7 +22,8 @@
 
   let isEditingLink = $state(false)
   let linkUrl = $state('')
-  let linkError = $state('')
+  let linkInvalid = $state(false)
+  let linkError = $derived(linkInvalid ? messages.editor.invalidUrl : '')
   let savedRange = $state<{ from: number; to: number } | null>(null)
   let inputElement = $state<HTMLInputElement | null>(null)
 
@@ -31,7 +36,7 @@
     isLink = editor.isActive('link')
 
     if (!isEditingLink) {
-      linkError = ''
+      linkInvalid = false
     }
   }
 
@@ -70,7 +75,7 @@
     savedRange = { from, to }
     const existingHref = (editor.getAttributes('link').href as string) || ''
     linkUrl = existingHref
-    linkError = ''
+    linkInvalid = false
     isEditingLink = true
 
     void tick().then(() => {
@@ -88,7 +93,7 @@
     }
     const normalized = normalizeExternalUrl(linkUrl)
     if (!normalized) {
-      linkError = 'Please enter a valid web URL (http:// or https://)'
+      linkInvalid = true
       void tick().then(repositionBubble)
       return
     }
@@ -101,7 +106,7 @@
       .run()
 
     isEditingLink = false
-    linkError = ''
+    linkInvalid = false
     savedRange = null
     updateActiveMarks()
     void tick().then(repositionBubble)
@@ -121,7 +126,7 @@
       .run()
 
     isEditingLink = false
-    linkError = ''
+    linkInvalid = false
     savedRange = null
     updateActiveMarks()
     void tick().then(repositionBubble)
@@ -129,7 +134,7 @@
 
   function handleCancelLink() {
     isEditingLink = false
-    linkError = ''
+    linkInvalid = false
     if (editor && savedRange) {
       editor.chain().focus().setTextSelection(savedRange).run()
       savedRange = null
@@ -164,7 +169,7 @@
 <div
   class="formatting-bubble"
   role="toolbar"
-  aria-label="Formatting"
+  aria-label={messages.editor.formatting}
   tabindex="-1"
   onmousedown={(e) => {
     // Prevent focus loss from the editor selection unless interacting with the link input
@@ -179,7 +184,7 @@
         type="button"
         class="bubble-btn bubble-btn-bold"
         class:is-active={isBold}
-        aria-label="Bold"
+        aria-label={messages.editor.bold}
         aria-pressed={isBold}
         onclick={handleBold}
       >
@@ -189,7 +194,7 @@
         type="button"
         class="bubble-btn bubble-btn-italic"
         class:is-active={isItalic}
-        aria-label="Italic"
+        aria-label={messages.editor.italic}
         aria-pressed={isItalic}
         onclick={handleItalic}
       >
@@ -199,7 +204,7 @@
         type="button"
         class="bubble-btn bubble-btn-strike"
         class:is-active={isStrike}
-        aria-label="Strike"
+        aria-label={messages.editor.strike}
         aria-pressed={isStrike}
         onclick={handleStrike}
       >
@@ -209,7 +214,7 @@
         type="button"
         class="bubble-btn bubble-btn-code"
         class:is-active={isCode}
-        aria-label="Inline code"
+        aria-label={messages.editor.inlineCode}
         aria-pressed={isCode}
         onclick={handleCode}
       >
@@ -220,11 +225,11 @@
         type="button"
         class="bubble-btn bubble-btn-link"
         class:is-active={isLink}
-        aria-label="Link"
+        aria-label={messages.editor.link}
         aria-pressed={isLink}
         onclick={handleStartLink}
       >
-        <span class="btn-text">Link</span>
+        <span class="btn-text">{messages.editor.link}</span>
       </button>
     </div>
   {:else}
@@ -235,35 +240,35 @@
           type="text"
           class="link-input"
           placeholder="https://example.com"
-          aria-label="Link URL"
+          aria-label={messages.editor.linkUrl}
           bind:value={linkUrl}
           onkeydown={handleInputKeyDown}
         />
         <button
           type="button"
           class="link-btn link-apply-btn"
-          aria-label="Apply link"
+          aria-label={messages.editor.applyLink}
           onclick={handleApplyLink}
         >
-          Apply
+          {messages.editor.apply}
         </button>
         {#if isLink}
           <button
             type="button"
             class="link-btn link-remove-btn"
-            aria-label="Remove link"
+            aria-label={messages.editor.removeLink}
             onclick={handleRemoveLink}
           >
-            Remove
+            {messages.editor.remove}
           </button>
         {/if}
         <button
           type="button"
           class="link-btn link-cancel-btn"
-          aria-label="Cancel link"
+          aria-label={messages.editor.cancelLink}
           onclick={handleCancelLink}
         >
-          Cancel
+          {messages.common.cancel}
         </button>
       </div>
       {#if linkError}

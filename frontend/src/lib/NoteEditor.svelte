@@ -3,7 +3,7 @@
   import BubbleMenu from '@tiptap/extension-bubble-menu'
   import { NodeSelection } from '@tiptap/pm/state'
   import StarterKit from '@tiptap/starter-kit'
-  import { onDestroy, onMount } from 'svelte'
+  import { onDestroy, onMount, untrack } from 'svelte'
   import { IngestImage } from '../../bindings/github.com/savior714/flashnote/appservice'
   import { AttachmentImage, attachmentImageContent } from './attachmentImage'
   import FormattingBubble from './FormattingBubble.svelte'
@@ -11,14 +11,15 @@
   import { RichPasteNormalization } from './richPaste'
   import SlashMenu from './SlashMenu.svelte'
   import { runSlashAcceptance } from './slashAcceptance'
+  import { getMessages } from './i18n'
   import {
     createSlashExtension,
     filterSlashCommands,
-    slashCommands,
     type SlashCommandItem,
   } from './slashCommands'
   import { runChecklistInteractionAcceptance } from './checklistAcceptance'
-  import { TaskItem, TaskList } from './taskList'
+  import type { ResolvedLanguage } from './settings'
+  import { syncTaskCheckboxLabels, TaskItem, TaskList } from './taskList'
 
   type Props = {
     documentJSON: string
@@ -27,6 +28,7 @@
     editable?: boolean
     onAcceptanceReady?: () => void
     onAcceptanceFailed?: (error: unknown) => void
+    language: ResolvedLanguage
   }
 
   let {
@@ -36,14 +38,17 @@
     editable = true,
     onAcceptanceReady,
     onAcceptanceFailed,
+    language,
   }: Props = $props()
+  let messages = $derived(getMessages(language))
   let element!: HTMLDivElement
   let bubbleElement!: HTMLDivElement
   let editor = $state<Editor | null>(null)
-  let imageError = $state('')
+  let imageError = $state(false)
 
   let slashOpen = $state(false)
-  let slashItems = $state<SlashCommandItem[]>(slashCommands)
+  let slashQuery = $state('')
+  let slashItems = $state<SlashCommandItem[]>([])
   let slashSelectedIndex = $state(0)
   let slashRange = $state<Range | null>(null)
   let slashX = $state(0)
@@ -72,6 +77,7 @@
 
   function closeSlash() {
     slashOpen = false
+    slashQuery = ''
     slashRange = null
     slashSelectedIndex = 0
   }
@@ -90,13 +96,15 @@
   const slashExtension = createSlashExtension({
     onStart: (props) => {
       slashOpen = true
-      slashItems = filterSlashCommands(props.query)
+      slashQuery = props.query ?? ''
+      slashItems = props.items
       slashSelectedIndex = 0
       slashRange = props.range
       updateSlashPosition(props.clientRect)
     },
     onUpdate: (props) => {
-      slashItems = filterSlashCommands(props.query)
+      slashQuery = props.query ?? ''
+      slashItems = props.items
       if (slashSelectedIndex >= slashItems.length) {
         slashSelectedIndex = Math.max(0, slashItems.length - 1)
       }
@@ -137,7 +145,7 @@
     onExit: () => {
       closeSlash()
     },
-  })
+  }, () => language)
 
   function persistedDoc(): JSONContent {
     const envelope = JSON.parse(documentJSON) as {
@@ -148,10 +156,6 @@
       throw new Error('Flashnote received an invalid persisted document')
     }
     return envelope.doc as JSONContent
-  }
-
-  function formatError(error: unknown): string {
-    return error instanceof Error ? error.message : String(error)
   }
 
   function isImageCandidate(file: File): boolean {
@@ -216,9 +220,10 @@
         } else {
           currentEditor.chain().focus().insertContent(imageNode).run()
         }
-        imageError = ''
+        imageError = false
       } catch (error) {
-        imageError = `Could not insert image: ${formatError(error)}`
+        console.error('FLASHNOTE_IMAGE_INSERT_FAILED', error)
+        imageError = true
       }
     }
   }
@@ -228,6 +233,23 @@
     editor?.setEditable(editable, false)
     if (!editable && slashOpen) {
       closeSlash()
+    }
+  })
+
+  $effect(() => {
+    const currentLanguage = language
+    if (editor) {
+      editor.view.dom.setAttribute('aria-label', messages.sidebar.editor)
+      syncTaskCheckboxLabels(editor.view.dom, currentLanguage)
+    }
+    const shouldUpdateSlashItems = untrack(() => slashOpen)
+    if (shouldUpdateSlashItems) {
+      untrack(() => {
+        slashItems = filterSlashCommands(slashQuery, currentLanguage)
+        if (slashSelectedIndex >= slashItems.length) {
+          slashSelectedIndex = Math.max(0, slashItems.length - 1)
+        }
+      })
     }
   })
 
@@ -248,7 +270,7 @@
           },
         }),
         TaskList,
-        TaskItem,
+        TaskItem.configure({ getLanguage: () => language }),
         AttachmentImage,
         slashExtension,
         RichPasteNormalization,
@@ -292,6 +314,7 @@
         },
         attributes: {
           class: 'prose-editor',
+          'aria-label': messages.sidebar.editor,
         },
         handleDOMEvents: {
           mousedown: (view, event) => {
@@ -400,7 +423,7 @@
 
 <div class="editor-host" bind:this={element}></div>
 <div class="bubble-menu-wrapper" bind:this={bubbleElement}>
-  <FormattingBubble {editor} {editable} />
+  <FormattingBubble {editor} {editable} {language} />
 </div>
 {#if slashOpen && editable}
   <SlashMenu
@@ -408,12 +431,13 @@
     selectedIndex={slashSelectedIndex}
     x={slashX}
     y={slashY}
+    {language}
     onSelect={executeSlash}
     onHover={(index) => (slashSelectedIndex = index)}
   />
 {/if}
 {#if imageError}
-  <div class="image-error" role="status">{imageError}</div>
+  <div class="image-error" role="status">{messages.status.imageInsertFailed}</div>
 {/if}
 
 <style>

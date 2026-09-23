@@ -5,10 +5,7 @@ import './app.css'
 import './folder.css'
 import './trash.css'
 import './sidebar-dnd.css'
-import {
-  installMarkdownExportShortcut,
-  runMarkdownExportShortcutAcceptance,
-} from './lib/export-shortcut'
+import { runMarkdownExportShortcutAcceptance } from './lib/export-shortcut'
 
 const target = document.getElementById('app')
 if (!target) {
@@ -70,5 +67,4 @@ if (
 
 installAppContextMenuPolicy()
 mount(App, { target })
-installMarkdownExportShortcut()
 installMacTitlebarDoubleClickFallback()

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { getMessages } from './i18n'
+  import type { ResolvedLanguage } from './settings'
   import type { SlashCommandItem } from './slashCommands'
 
   type Props = {
@@ -6,12 +8,14 @@
     selectedIndex: number
     x: number
     y: number
+    language: ResolvedLanguage
     onSelect: (item: SlashCommandItem) => void
     onHover: (index: number) => void
   }
 
-  let { items, selectedIndex, x, y, onSelect, onHover }: Props = $props()
+  let { items, selectedIndex, x, y, language, onSelect, onHover }: Props = $props()
   let menuElement = $state<HTMLDivElement | null>(null)
+  let messages = $derived(getMessages(language))
 
   $effect(() => {
     if (menuElement && selectedIndex >= 0) {
@@ -26,13 +30,13 @@
   bind:this={menuElement}
   class="slash-menu"
   role="listbox"
-  aria-label="Slash commands"
+  aria-label={messages.editor.slashMenu}
   style="left: {x}px; top: {y}px;"
   tabindex="-1"
   onmousedown={(e) => e.preventDefault()}
 >
   {#if items.length === 0}
-    <div class="slash-menu-empty" role="status">No matching commands</div>
+    <div class="slash-menu-empty" role="status">{messages.editor.noMatchingCommands}</div>
   {:else}
     {#each items as item, index (item.id)}
       <button

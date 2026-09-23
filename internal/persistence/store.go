@@ -50,12 +50,10 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate sqlite database: %w", err)
 	}
-	// Migration 009 adds notes.display_title as a durable write-time projection
-	// of (title, document_json). Existing rows carry the '' default until this
-	// backfill derives their titles with the same canonical derivation used on
-	// the write path. Runs before any read so the sidebar projection never
-	// observes an unbackfilled row.
-	if err := store.backfillDisplayTitles(ctx); err != nil {
+	// Display-title projections are maintained at write time. Existing rows
+	// receive the same canonical derivation before any read, including the
+	// language-independent generated-fallback discriminator.
+	if err := store.backfillDisplayTitleProjections(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("backfill sidebar display titles: %w", err)
 	}

@@ -27,13 +27,19 @@ type Note struct {
 }
 
 type NoteSummary struct {
-	ID           string
-	DisplayTitle string
+	ID                  string
+	DisplayTitle        string
+	IsGeneratedFallback bool
+}
+
+type DerivedDisplayTitle struct {
+	Value               string
+	IsGeneratedFallback bool
 }
 
 func (s *Store) ListNotes(ctx context.Context) ([]NoteSummary, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, display_title
+		SELECT id, display_title, COALESCE(display_title_is_fallback, 0)
 		FROM notes
 		WHERE deleted_at IS NULL
 		ORDER BY updated_at DESC, id ASC
@@ -46,7 +52,7 @@ func (s *Store) ListNotes(ctx context.Context) ([]NoteSummary, error) {
 	summaries := make([]NoteSummary, 0)
 	for rows.Next() {
 		var summary NoteSummary
-		if err := rows.Scan(&summary.ID, &summary.DisplayTitle); err != nil {
+		if err := rows.Scan(&summary.ID, &summary.DisplayTitle, &summary.IsGeneratedFallback); err != nil {
 			return nil, fmt.Errorf("scan note summary: %w", err)
 		}
 		summaries = append(summaries, summary)
@@ -163,7 +169,7 @@ func (s *Store) SaveNote(ctx context.Context, noteID, title, documentJSON string
 	if err != nil {
 		return 0, err
 	}
-	displayTitle, err := deriveDisplayTitle(title, normalizedDocument)
+	derivedTitle, err := deriveDisplayTitle(title, normalizedDocument)
 	if err != nil {
 		return 0, err
 	}
@@ -183,10 +189,11 @@ func (s *Store) SaveNote(ctx context.Context, noteID, title, documentJSON string
 		SET title = ?,
 			document_json = ?,
 			display_title = ?,
+			display_title_is_fallback = ?,
 			revision = revision + 1,
 			updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now')
 		WHERE id = ? AND revision = ? AND deleted_at IS NULL
-	`, title, normalizedDocument, displayTitle, noteID, expectedRevision)
+	`, title, normalizedDocument, derivedTitle.Value, derivedTitle.IsGeneratedFallback, noteID, expectedRevision)
 	if err != nil {
 		return 0, fmt.Errorf("update note: %w", err)
 	}
@@ -234,16 +241,14 @@ func createNoteTx(ctx context.Context, tx *sql.Tx) (Note, error) {
 		DocumentJSON: document.EmptyJSON(),
 		Revision:     1,
 	}
-	// display_title is the write-time projection of (title, document_json) with
-	// the canonical deriveDisplayTitle; an empty note derives "Untitled".
-	displayTitle, err := deriveDisplayTitle(note.Title, note.DocumentJSON)
+	derivedTitle, err := deriveDisplayTitle(note.Title, note.DocumentJSON)
 	if err != nil {
 		return Note{}, fmt.Errorf("derive display title for new note: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO notes(id, title, document_json, display_title, revision, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'), strftime('%Y-%m-%d %H:%M:%f', 'now'))
-	`, note.ID, note.Title, note.DocumentJSON, displayTitle, note.Revision); err != nil {
+		INSERT INTO notes(id, title, document_json, display_title, display_title_is_fallback, revision, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'), strftime('%Y-%m-%d %H:%M:%f', 'now'))
+	`, note.ID, note.Title, note.DocumentJSON, derivedTitle.Value, derivedTitle.IsGeneratedFallback, note.Revision); err != nil {
 		return Note{}, fmt.Errorf("insert note: %w", err)
 	}
 	// Callers hold s.searchMu; the note row and its index entry commit together.
@@ -288,20 +293,20 @@ func setLastNoteIDTx(ctx context.Context, tx *sql.Tx, noteID string) error {
 	return nil
 }
 
-func deriveDisplayTitle(title, documentJSON string) (string, error) {
+func deriveDisplayTitle(title, documentJSON string) (DerivedDisplayTitle, error) {
 	if explicit := strings.TrimSpace(title); explicit != "" {
-		return explicit, nil
+		return DerivedDisplayTitle{Value: explicit}, nil
 	}
 
 	normalized, err := document.ValidateAndNormalizeJSON(documentJSON)
 	if err != nil {
-		return "", err
+		return DerivedDisplayTitle{}, err
 	}
 	var envelope struct {
 		Doc map[string]any `json:"doc"`
 	}
 	if err := json.Unmarshal([]byte(normalized), &envelope); err != nil {
-		return "", fmt.Errorf("decode normalized document: %w", err)
+		return DerivedDisplayTitle{}, fmt.Errorf("decode normalized document: %w", err)
 	}
 
 	content, _ := envelope.Doc["content"].([]any)
@@ -309,10 +314,10 @@ func deriveDisplayTitle(title, documentJSON string) (string, error) {
 		var text strings.Builder
 		appendNodeText(&text, child)
 		if value := strings.Join(strings.Fields(text.String()), " "); value != "" {
-			return value, nil
+			return DerivedDisplayTitle{Value: value}, nil
 		}
 	}
-	return "Untitled", nil
+	return DerivedDisplayTitle{Value: "Untitled", IsGeneratedFallback: true}, nil
 }
 
 func appendNodeText(builder *strings.Builder, value any) {

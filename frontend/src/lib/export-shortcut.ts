@@ -1,4 +1,6 @@
 import { ExportCurrentNoteMarkdown } from '../../bindings/github.com/savior714/flashnote/exportservice'
+import { exportPresentation } from './i18n'
+import type { ResolvedLanguage } from './settings'
 import {
   isSingleNoteExportAdmitted,
   isSingleNoteExportInFlight,
@@ -7,9 +9,10 @@ import {
   setMarkdownExportReadiness,
 } from './markdownExportGate'
 
-type MarkdownExporter = (admittedNoteId: string) => Promise<boolean>
+type MarkdownExporter = (admittedNoteId: string, presentation: ReturnType<typeof exportPresentation>) => Promise<boolean>
 
 let markdownExporter: MarkdownExporter = ExportCurrentNoteMarkdown
+let getMarkdownExportLanguage: () => ResolvedLanguage = () => 'en'
 
 export function setSingleNoteExporterForTest(exporter: MarkdownExporter | null): void {
   markdownExporter = exporter ?? ExportCurrentNoteMarkdown
@@ -37,25 +40,33 @@ function handleMarkdownExportShortcut(event: KeyboardEvent) {
   // plus the backend export: the backend exporter runs exactly once, bound
   // to the admitted note identity, and only after the required
   // current-draft flush succeeds with that same identity still current.
-  void requestSingleNoteExport((admittedNoteId) => markdownExporter(admittedNoteId)).catch((error: unknown) => {
+  void requestSingleNoteExport((admittedNoteId) =>
+    markdownExporter(admittedNoteId, exportPresentation(getMarkdownExportLanguage())),
+  ).catch((error: unknown) => {
     console.error('Flashnote Markdown export failed', error)
   })
 }
 
-export function installMarkdownExportShortcut() {
+export function installMarkdownExportShortcut(getLanguage: () => ResolvedLanguage): () => void {
+  getMarkdownExportLanguage = getLanguage
   window.addEventListener('keydown', handleMarkdownExportShortcut)
+  return () => {
+    window.removeEventListener('keydown', handleMarkdownExportShortcut)
+  }
 }
 
 export function isExportInFlight(): boolean {
   return isSingleNoteExportInFlight()
 }
 
-export async function exportCurrentNoteMarkdown(): Promise<void> {
+export async function exportCurrentNoteMarkdown(language: ResolvedLanguage): Promise<void> {
   if (isSingleNoteExportInFlight() || !isSingleNoteExportAdmitted()) {
     return
   }
   try {
-    await requestSingleNoteExport((admittedNoteId) => markdownExporter(admittedNoteId))
+    await requestSingleNoteExport((admittedNoteId) =>
+      markdownExporter(admittedNoteId, exportPresentation(language)),
+    )
   } catch (error: unknown) {
     console.error('Flashnote Markdown export failed', error)
   }
@@ -89,6 +100,8 @@ function acceptanceTick(): Promise<void> {
 
 export async function runMarkdownExportShortcutAcceptance(): Promise<void> {
   const originalExporter = markdownExporter
+  const originalLanguageGetter = getMarkdownExportLanguage
+  getMarkdownExportLanguage = () => 'en'
   const isMac = navigator.platform.toLowerCase().includes('mac')
   const primaryModifier = isMac ? { metaKey: true } : { ctrlKey: true }
   resetMarkdownExportGateForTest()
@@ -198,6 +211,7 @@ export async function runMarkdownExportShortcutAcceptance(): Promise<void> {
   } finally {
     window.removeEventListener('keydown', handleMarkdownExportShortcut)
     markdownExporter = originalExporter
+    getMarkdownExportLanguage = originalLanguageGetter
     resetMarkdownExportGateForTest()
   }
 }

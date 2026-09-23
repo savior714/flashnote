@@ -202,6 +202,7 @@ Title and body remain logically distinct.
 - an empty explicit title is allowed
 - do not persist the literal string `Untitled` merely to fill an empty title
 - when title is empty, derive a display title from the first meaningful body text
+- a generated empty-note fallback may be localized for presentation, but it must remain distinguishable from a user-authored title with the same text
 - the derived display title is presentation/search data, not a second canonical stored title
 
 ### 5.4 Note actions
@@ -465,6 +466,16 @@ The settings surface should stay intentionally small:
 ### Appearance
 
 - System / Light / Dark
+
+### Language
+
+Language choices are exactly:
+
+- System Default
+- 한국어
+- English
+
+`System Default` resolves `ko` and `ko-*` system locales to Korean, `en` and `en-*` to English, and unsupported or unavailable system locales to English. An explicit Korean or English choice persists across restarts and updates Flashnote-owned UI immediately. Changing language must not translate or otherwise mutate note titles, note bodies, folder names, imported content, attachments, or export serialization.
 
 ### Editor
 

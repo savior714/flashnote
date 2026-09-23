@@ -1,4 +1,6 @@
 import { mergeAttributes, Node, wrappingInputRule } from '@tiptap/core'
+import { getMessages } from './i18n'
+import type { ResolvedLanguage } from './settings'
 
 const taskInputRegex = /^\s*(\[([( |x])?\])\s$/
 
@@ -16,9 +18,31 @@ export const TaskList = Node.create({
   },
 })
 
+export function taskCheckboxLabel(text: string, language: ResolvedLanguage): string {
+  const messages = getMessages(language)
+  return messages.editor.taskCheckbox(text || messages.editor.emptyTask)
+}
+
+export function syncTaskCheckboxLabels(root: ParentNode, language: ResolvedLanguage): void {
+  root.querySelectorAll<HTMLElement>('li[data-type="taskItem"][data-task-text]').forEach((item) => {
+    const label = taskCheckboxLabel(item.dataset.taskText ?? '', language)
+    item.querySelector<HTMLInputElement>('input[type="checkbox"]')?.setAttribute('aria-label', label)
+    const hiddenLabel = item.querySelector<HTMLSpanElement>('label > span')
+    if (hiddenLabel) {
+      hiddenLabel.textContent = label
+    }
+  })
+}
+
 export const TaskItem = Node.create({
   name: 'taskItem',
   content: 'paragraph+',
+
+  addOptions() {
+    return {
+      getLanguage: () => 'en' as ResolvedLanguage,
+    }
+  },
   defining: true,
 
   addAttributes() {
@@ -72,6 +96,7 @@ export const TaskItem = Node.create({
   },
 
   addNodeView() {
+    const getLanguage = this.options.getLanguage
     return ({ node, HTMLAttributes, getPos, editor }) => {
       const listItem = document.createElement('li')
       const checkboxWrapper = document.createElement('label')
@@ -80,9 +105,11 @@ export const TaskItem = Node.create({
       const content = document.createElement('div')
 
       const syncCheckbox = (currentNode: typeof node) => {
-        const label = `Task item checkbox for ${currentNode.textContent || 'empty task item'}`
+        const taskText = currentNode.textContent
+        listItem.dataset.taskText = taskText
         listItem.dataset.checked = String(currentNode.attrs.checked)
         checkbox.checked = currentNode.attrs.checked
+        const label = taskCheckboxLabel(taskText, getLanguage())
         checkbox.setAttribute('aria-label', label)
         checkboxLabel.textContent = label
       }

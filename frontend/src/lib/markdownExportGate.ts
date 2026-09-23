@@ -43,6 +43,8 @@ export type MarkdownExportReadiness = {
 
 export type SingleNoteExportOutcome = 'exported' | 'blocked' | 'busy'
 
+export class LibraryExportBlockedError extends Error {}
+
 let readiness: MarkdownExportReadiness | null = null
 let singleNoteExportInFlight = false
 
@@ -179,7 +181,7 @@ export async function requestSingleNoteExport(
 export async function requestLibraryExport(exporter: () => Promise<string>): Promise<string> {
   const ready = await ensureLibraryExportReady()
   if (!ready) {
-    throw new Error('Flashnote library export blocked: current draft could not be durably saved.')
+    throw new LibraryExportBlockedError()
   }
   return exporter()
 }

@@ -89,23 +89,23 @@ func (s *AppService) GetRuntimeInfo() (RuntimeInfo, error) {
 	return runtimeInfo, nil
 }
 
-func (s *AppService) ListNotes() ([]string, []string, error) {
+func (s *AppService) ListNotes() ([]string, []string, []bool, error) {
 	summaries, err := s.store.ListNotes(context.Background())
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	ids, displayTitles := noteSummaryArrays(summaries)
+	ids, displayTitles, generatedFallbacks := noteSummaryArrays(summaries)
 	log.Printf("FLASHNOTE_NOTE_LIST count=%d", len(ids))
-	return ids, displayTitles, nil
+	return ids, displayTitles, generatedFallbacks, nil
 }
 
-func (s *AppService) ListRootNotes() ([]string, []string, error) {
+func (s *AppService) ListRootNotes() ([]string, []string, []bool, error) {
 	summaries, err := s.store.ListRootNotes(context.Background())
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	ids, displayTitles := noteSummaryArrays(summaries)
-	return ids, displayTitles, nil
+	ids, displayTitles, generatedFallbacks := noteSummaryArrays(summaries)
+	return ids, displayTitles, generatedFallbacks, nil
 }
 
 func (s *AppService) ListFolders() ([]string, []string, error) {
@@ -122,19 +122,20 @@ func (s *AppService) ListFolders() ([]string, []string, error) {
 	return ids, names, nil
 }
 
-func (s *AppService) ListFolderNotes(folderID string) ([]string, []string, error) {
+func (s *AppService) ListFolderNotes(folderID string) ([]string, []string, []bool, error) {
 	summaries, err := s.store.ListFolderNotes(context.Background(), folderID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	ids, displayTitles := noteSummaryArrays(summaries)
-	return ids, displayTitles, nil
+	ids, displayTitles, generatedFallbacks := noteSummaryArrays(summaries)
+	return ids, displayTitles, generatedFallbacks, nil
 }
 
 // SidebarNote is one title-only sidebar row.
 type SidebarNote struct {
-	ID           string `json:"id"`
-	DisplayTitle string `json:"displayTitle"`
+	ID                  string `json:"id"`
+	DisplayTitle        string `json:"displayTitle"`
+	IsGeneratedFallback bool   `json:"isGeneratedFallback"`
 }
 
 // SidebarFolder groups one active folder with its note summaries in canonical
@@ -167,25 +168,33 @@ func (s *AppService) ListSidebar() (SidebarProjection, error) {
 		Folders:   make([]SidebarFolder, 0, len(projection.Folders)),
 	}
 	for _, summary := range projection.RootNotes {
-		out.RootNotes = append(out.RootNotes, SidebarNote{ID: summary.ID, DisplayTitle: summary.DisplayTitle})
+		out.RootNotes = append(out.RootNotes, SidebarNote{
+			ID:                  summary.ID,
+			DisplayTitle:        summary.DisplayTitle,
+			IsGeneratedFallback: summary.IsGeneratedFallback,
+		})
 	}
 	for _, folder := range projection.Folders {
 		notes := make([]SidebarNote, 0, len(folder.Notes))
 		for _, summary := range folder.Notes {
-			notes = append(notes, SidebarNote{ID: summary.ID, DisplayTitle: summary.DisplayTitle})
+			notes = append(notes, SidebarNote{
+				ID:                  summary.ID,
+				DisplayTitle:        summary.DisplayTitle,
+				IsGeneratedFallback: summary.IsGeneratedFallback,
+			})
 		}
 		out.Folders = append(out.Folders, SidebarFolder{ID: folder.Folder.ID, Name: folder.Folder.Name, Notes: notes})
 	}
 	return out, nil
 }
 
-func (s *AppService) ListTrashNotes() ([]string, []string, error) {
+func (s *AppService) ListTrashNotes() ([]string, []string, []bool, error) {
 	summaries, err := s.store.ListTrashNotes(context.Background())
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	ids, displayTitles := noteSummaryArrays(summaries)
-	return ids, displayTitles, nil
+	ids, displayTitles, generatedFallbacks := noteSummaryArrays(summaries)
+	return ids, displayTitles, generatedFallbacks, nil
 }
 
 func (s *AppService) ListTrashFolders() ([]string, []string, error) {
@@ -202,13 +211,13 @@ func (s *AppService) ListTrashFolders() ([]string, []string, error) {
 	return ids, names, nil
 }
 
-func (s *AppService) ListTrashFolderNotes(folderID string) ([]string, []string, error) {
+func (s *AppService) ListTrashFolderNotes(folderID string) ([]string, []string, []bool, error) {
 	summaries, err := s.store.ListTrashFolderNotes(context.Background(), folderID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	ids, displayTitles := noteSummaryArrays(summaries)
-	return ids, displayTitles, nil
+	ids, displayTitles, generatedFallbacks := noteSummaryArrays(summaries)
+	return ids, displayTitles, generatedFallbacks, nil
 }
 
 func (s *AppService) MoveNote(noteID string, folderID string) (bool, error) {
@@ -290,21 +299,23 @@ func (s *AppService) EmptyTrash() (int, int, error) {
 	return notes, folders, nil
 }
 
-func (s *AppService) SearchNotes(query string) ([]string, []string, []string, error) {
+func (s *AppService) SearchNotes(query string) ([]string, []string, []bool, []string, error) {
 	results, err := s.store.SearchNotes(context.Background(), query)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	ids := make([]string, 0, len(results))
 	displayTitles := make([]string, 0, len(results))
+	generatedFallbacks := make([]bool, 0, len(results))
 	excerpts := make([]string, 0, len(results))
 	for _, result := range results {
 		ids = append(ids, result.ID)
 		displayTitles = append(displayTitles, result.DisplayTitle)
+		generatedFallbacks = append(generatedFallbacks, result.IsGeneratedFallback)
 		excerpts = append(excerpts, result.Excerpt)
 	}
 	log.Printf("FLASHNOTE_NOTE_SEARCH query_len=%d count=%d", len(query), len(ids))
-	return ids, displayTitles, excerpts, nil
+	return ids, displayTitles, generatedFallbacks, excerpts, nil
 }
 
 func (s *AppService) OpenInitialNote() (string, string, string, int64, bool, error) {
@@ -369,12 +380,14 @@ func (s *AppService) reconcileAttachments(reason string) {
 	}
 }
 
-func noteSummaryArrays(summaries []persistence.NoteSummary) ([]string, []string) {
+func noteSummaryArrays(summaries []persistence.NoteSummary) ([]string, []string, []bool) {
 	ids := make([]string, 0, len(summaries))
 	displayTitles := make([]string, 0, len(summaries))
+	generatedFallbacks := make([]bool, 0, len(summaries))
 	for _, summary := range summaries {
 		ids = append(ids, summary.ID)
 		displayTitles = append(displayTitles, summary.DisplayTitle)
+		generatedFallbacks = append(generatedFallbacks, summary.IsGeneratedFallback)
 	}
-	return ids, displayTitles
+	return ids, displayTitles, generatedFallbacks
 }

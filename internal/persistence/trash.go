@@ -56,7 +56,7 @@ func (s *Store) MoveNoteToTrash(ctx context.Context, noteID string) error {
 
 func (s *Store) ListTrashNotes(ctx context.Context) ([]NoteSummary, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, display_title
+		SELECT id, display_title, COALESCE(display_title_is_fallback, 0)
 		FROM notes
 		WHERE deleted_at IS NOT NULL AND deleted_with_folder_id IS NULL
 		ORDER BY deleted_at DESC,id ASC
@@ -68,7 +68,7 @@ func (s *Store) ListTrashNotes(ctx context.Context) ([]NoteSummary, error) {
 	summaries := make([]NoteSummary, 0)
 	for rows.Next() {
 		var summary NoteSummary
-		if err := rows.Scan(&summary.ID, &summary.DisplayTitle); err != nil {
+		if err := rows.Scan(&summary.ID, &summary.DisplayTitle, &summary.IsGeneratedFallback); err != nil {
 			return nil, fmt.Errorf("scan trash note: %w", err)
 		}
 		summaries = append(summaries, summary)

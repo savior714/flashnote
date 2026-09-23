@@ -34,6 +34,14 @@ Use **Svelte 5 + TypeScript** for the WebView frontend.
 - Wails v3 provides a first-class Svelte starter.
 - A heavier frontend state framework is not implied by this decision and should not be added without a demonstrated need.
 
+### Localization ownership
+
+Flashnote uses one typed frontend message catalog for Korean and English. The persisted language preference is `system`, `ko`, or `en` in the existing settings record; missing or invalid values resolve to `system`. `App.svelte` owns the resolved locale, passes it reactively to presentation components, and updates `document.documentElement.lang` when the setting changes. System resolution uses the WebView navigator language with BCP 47 prefix handling and English fallback.
+
+The catalog is resolved by direct lookup and does not participate in typing, autosave, or per-keystroke document work. Native export dialog copy is passed from the same catalog so translated UI does not acquire a second locale owner.
+
+The durable note summary projection carries a language-independent generated-empty-title discriminator. It is derived from canonical title/body inputs and used only at presentation time; canonical note titles, documents, folder names, and export serialization are never rewritten by locale changes.
+
 ## 3. Rich-text editor
 
 ### Decision

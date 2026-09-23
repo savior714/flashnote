@@ -347,7 +347,7 @@ export async function runNewNoteShortcutAcceptance(
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // S3A. CREATE MENU → NEW NOTE CLICK PROOF
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    const [menuBaselineRootIDs] = (await ListRootNotes()) as [string[], string[]]
+    const [menuBaselineRootIDs] = (await ListRootNotes())
     if (!menuBaselineRootIDs.includes(originalNoteID) || getCurrentFolderID() !== '') {
       throw new Error('acceptance sidebar create: expected the acceptance note at root before New note click proof')
     }
@@ -389,7 +389,7 @@ export async function runNewNoteShortcutAcceptance(
       throw new Error('acceptance sidebar create: New note click did not focus the title immediately')
     }
 
-    const [menuRootIDs, menuRootTitles] = (await ListRootNotes()) as [string[], string[]]
+    const [menuRootIDs, menuRootTitles] = (await ListRootNotes())
     const addedRootIDs = menuRootIDs.filter((id) => !menuBaselineRootIDs.includes(id))
     const menuCreatedIndex = menuRootIDs.indexOf(menuCreatedNoteID)
     if (
@@ -402,9 +402,9 @@ export async function runNewNoteShortcutAcceptance(
       throw new Error('acceptance sidebar create: New note click did not add exactly one Untitled root note')
     }
 
-    const [menuFolderIDs] = (await ListFolders()) as [string[], string[]]
+    const [menuFolderIDs] = (await ListFolders())
     for (const folderID of menuFolderIDs) {
-      const [folderNoteIDs] = (await ListFolderNotes(folderID)) as [string[], string[]]
+      const [folderNoteIDs] = (await ListFolderNotes(folderID))
       if (folderNoteIDs.includes(menuCreatedNoteID)) {
         throw new Error(`acceptance sidebar create: New note click leaked into folder ${folderID}`)
       }
@@ -441,12 +441,12 @@ export async function runNewNoteShortcutAcceptance(
     await MoveNoteToTrash(menuCreatedNoteID)
     await PermanentlyDeleteNote(menuCreatedNoteID)
     await refreshSidebar()
-    const [menuCleanupRootIDs] = (await ListRootNotes()) as [string[], string[]]
+    const [menuCleanupRootIDs] = (await ListRootNotes())
     if (JSON.stringify(menuCleanupRootIDs) !== JSON.stringify(menuBaselineRootIDs)) {
       throw new Error('acceptance sidebar create: New note click fixture cleanup did not restore the root baseline')
     }
     for (const folderID of menuFolderIDs) {
-      const [folderNoteIDs] = (await ListFolderNotes(folderID)) as [string[], string[]]
+      const [folderNoteIDs] = (await ListFolderNotes(folderID))
       if (folderNoteIDs.includes(menuCreatedNoteID)) {
         throw new Error(`acceptance sidebar create: cleaned New note fixture remained in folder ${folderID}`)
       }
@@ -551,7 +551,7 @@ export async function runNewNoteShortcutAcceptance(
     }
     console.log('FLASHNOTE_TITLE_ENTER_ACCEPTANCE_SUCCESS')
 
-    const [rootIDs, rootTitles] = (await ListRootNotes()) as [string[], string[]]
+    const [rootIDs, rootTitles] = (await ListRootNotes())
     const rootIndex = rootIDs.indexOf(newRootNoteID)
     if (rootIndex < 0 || rootTitles[rootIndex] !== 'Untitled') {
       throw new Error('acceptance title: empty root note did not retain Untitled as presentation-only display title')
@@ -559,9 +559,9 @@ export async function runNewNoteShortcutAcceptance(
     if (getCurrentFolderID() !== '') {
       throw new Error('acceptance S3: new root note unexpectedly has folder membership')
     }
-    const [allFolderIDs] = (await ListFolders()) as [string[], string[]]
+    const [allFolderIDs] = (await ListFolders())
     for (const fID of allFolderIDs) {
-      const [fNoteIDs] = (await ListFolderNotes(fID)) as [string[], string[]]
+      const [fNoteIDs] = (await ListFolderNotes(fID))
       if (fNoteIDs.includes(newRootNoteID)) {
         throw new Error(`acceptance S3: new root note was found in folder ${fID}`)
       }
@@ -707,11 +707,11 @@ export async function runNewNoteShortcutAcceptance(
       throw new Error('acceptance S3: Cmd/Ctrl+N inside folder was not handled')
     }
     const newFolderNoteID = await waitForNoteTransition(getNoteID, isNoteTransitionActive, originalNoteID)
-    const [folderNoteIDs] = (await ListFolderNotes(tempFolderID)) as [string[], string[]]
+    const [folderNoteIDs] = (await ListFolderNotes(tempFolderID))
     if (!folderNoteIDs.includes(newFolderNoteID)) {
       throw new Error('acceptance S3: new note not found in temp folder note list')
     }
-    const [rootAfterFolderCreate] = (await ListRootNotes()) as [string[], string[]]
+    const [rootAfterFolderCreate] = (await ListRootNotes())
     if (rootAfterFolderCreate.includes(newFolderNoteID)) {
       throw new Error('acceptance S3: new folder note unexpectedly found in root note list')
     }

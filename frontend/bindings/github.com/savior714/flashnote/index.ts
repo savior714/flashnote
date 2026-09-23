@@ -9,6 +9,7 @@ export {
 };
 
 export {
+    ExportPresentation,
     RuntimeInfo,
     SidebarFolder,
     SidebarNote,

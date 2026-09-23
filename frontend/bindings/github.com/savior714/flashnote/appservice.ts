@@ -35,10 +35,11 @@ export function IngestImage(content: string, originalName: string): $Cancellable
     return $Call.ByID(3268997603, content, originalName);
 }
 
-export function ListFolderNotes(folderID: string): $CancellablePromise<[string[], string[]]> {
+export function ListFolderNotes(folderID: string): $CancellablePromise<[string[], string[], boolean[]]> {
     return $Call.ByID(3400012691, folderID).then(($result: any) => {
         $result[0] = $$createType1($result[0]);
         $result[1] = $$createType1($result[1]);
+        $result[2] = $$createType2($result[2]);
         return $result;
     });
 }
@@ -51,18 +52,20 @@ export function ListFolders(): $CancellablePromise<[string[], string[]]> {
     });
 }
 
-export function ListNotes(): $CancellablePromise<[string[], string[]]> {
+export function ListNotes(): $CancellablePromise<[string[], string[], boolean[]]> {
     return $Call.ByID(3334466307).then(($result: any) => {
         $result[0] = $$createType1($result[0]);
         $result[1] = $$createType1($result[1]);
+        $result[2] = $$createType2($result[2]);
         return $result;
     });
 }
 
-export function ListRootNotes(): $CancellablePromise<[string[], string[]]> {
+export function ListRootNotes(): $CancellablePromise<[string[], string[], boolean[]]> {
     return $Call.ByID(1260630135).then(($result: any) => {
         $result[0] = $$createType1($result[0]);
         $result[1] = $$createType1($result[1]);
+        $result[2] = $$createType2($result[2]);
         return $result;
     });
 }
@@ -75,14 +78,15 @@ export function ListRootNotes(): $CancellablePromise<[string[], string[]]> {
  */
 export function ListSidebar(): $CancellablePromise<$models.SidebarProjection> {
     return $Call.ByID(3472350010).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
-export function ListTrashFolderNotes(folderID: string): $CancellablePromise<[string[], string[]]> {
+export function ListTrashFolderNotes(folderID: string): $CancellablePromise<[string[], string[], boolean[]]> {
     return $Call.ByID(466940197, folderID).then(($result: any) => {
         $result[0] = $$createType1($result[0]);
         $result[1] = $$createType1($result[1]);
+        $result[2] = $$createType2($result[2]);
         return $result;
     });
 }
@@ -95,10 +99,11 @@ export function ListTrashFolders(): $CancellablePromise<[string[], string[]]> {
     });
 }
 
-export function ListTrashNotes(): $CancellablePromise<[string[], string[]]> {
+export function ListTrashNotes(): $CancellablePromise<[string[], string[], boolean[]]> {
     return $Call.ByID(3893406897).then(($result: any) => {
         $result[0] = $$createType1($result[0]);
         $result[1] = $$createType1($result[1]);
+        $result[2] = $$createType2($result[2]);
         return $result;
     });
 }
@@ -147,11 +152,12 @@ export function SaveNote(noteID: string, title: string, documentJSON: string, ex
     return $Call.ByID(1592610343, noteID, title, documentJSON, expectedRevision);
 }
 
-export function SearchNotes(query: string): $CancellablePromise<[string[], string[], string[]]> {
+export function SearchNotes(query: string): $CancellablePromise<[string[], string[], boolean[], string[]]> {
     return $Call.ByID(4172956135, query).then(($result: any) => {
         $result[0] = $$createType1($result[0]);
         $result[1] = $$createType1($result[1]);
-        $result[2] = $$createType1($result[2]);
+        $result[2] = $$createType2($result[2]);
+        $result[3] = $$createType1($result[3]);
         return $result;
     });
 }
@@ -163,4 +169,5 @@ export function TrashCounts(): $CancellablePromise<[number, number]> {
 // Private type creation functions
 const $$createType0 = $models.RuntimeInfo.createFrom;
 const $$createType1 = $Create.Array($Create.Any);
-const $$createType2 = $models.SidebarProjection.createFrom;
+const $$createType2 = $Create.Array($Create.Any);
+const $$createType3 = $models.SidebarProjection.createFrom;

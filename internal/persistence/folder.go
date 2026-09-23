@@ -100,14 +100,14 @@ func (s *Store) CreateNoteInFolder(ctx context.Context, folderID string) (Note, 
 		return Note{}, err
 	}
 	note := Note{ID: id, Title: "", DocumentJSON: document.EmptyJSON(), Revision: 1}
-	displayTitle, err := deriveDisplayTitle(note.Title, note.DocumentJSON)
+	derivedTitle, err := deriveDisplayTitle(note.Title, note.DocumentJSON)
 	if err != nil {
 		return Note{}, fmt.Errorf("derive display title for new folder note: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO notes(id, title, document_json, display_title, revision, created_at, updated_at, folder_id)
-		VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'), strftime('%Y-%m-%d %H:%M:%f', 'now'), ?)
-	`, note.ID, note.Title, note.DocumentJSON, displayTitle, note.Revision, folderID); err != nil {
+		INSERT INTO notes(id, title, document_json, display_title, display_title_is_fallback, revision, created_at, updated_at, folder_id)
+		VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'), strftime('%Y-%m-%d %H:%M:%f', 'now'), ?)
+	`, note.ID, note.Title, note.DocumentJSON, derivedTitle.Value, derivedTitle.IsGeneratedFallback, note.Revision, folderID); err != nil {
 		return Note{}, fmt.Errorf("insert folder note: %w", err)
 	}
 	// The note row and its index entry commit together in this transaction.
@@ -164,14 +164,14 @@ func (s *Store) listNotesByFolder(ctx context.Context, folderID string, root boo
 	var err error
 	if root {
 		rows, err = s.db.QueryContext(ctx, `
-			SELECT id, display_title
+			SELECT id, display_title, COALESCE(display_title_is_fallback, 0)
 			FROM notes
 			WHERE folder_id IS NULL AND deleted_at IS NULL
 			ORDER BY updated_at DESC, id ASC
 		`)
 	} else {
 		rows, err = s.db.QueryContext(ctx, `
-			SELECT id, display_title
+			SELECT id, display_title, COALESCE(display_title_is_fallback, 0)
 			FROM notes
 			WHERE folder_id = ? AND deleted_at IS NULL
 			ORDER BY updated_at DESC, id ASC
@@ -185,7 +185,7 @@ func (s *Store) listNotesByFolder(ctx context.Context, folderID string, root boo
 	summaries := make([]NoteSummary, 0)
 	for rows.Next() {
 		var summary NoteSummary
-		if err := rows.Scan(&summary.ID, &summary.DisplayTitle); err != nil {
+		if err := rows.Scan(&summary.ID, &summary.DisplayTitle, &summary.IsGeneratedFallback); err != nil {
 			return nil, fmt.Errorf("scan folder note summary: %w", err)
 		}
 		summaries = append(summaries, summary)

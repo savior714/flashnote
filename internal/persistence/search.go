@@ -20,9 +20,10 @@ const (
 )
 
 type SearchResult struct {
-	ID           string
-	DisplayTitle string
-	Excerpt      string
+	ID                  string
+	DisplayTitle        string
+	IsGeneratedFallback bool
+	Excerpt             string
 }
 
 type searchFields struct {
@@ -144,14 +145,15 @@ func (s *Store) SearchNotes(ctx context.Context, query string) ([]SearchResult, 
 		if err := rows.Scan(&id, &title, &documentJSON, &excerpt); err != nil {
 			return nil, fmt.Errorf("scan search result: %w", err)
 		}
-		displayTitle, err := deriveDisplayTitle(title, documentJSON)
+		derivedTitle, err := deriveDisplayTitle(title, documentJSON)
 		if err != nil {
 			return nil, fmt.Errorf("derive search result title for note %s: %w", id, err)
 		}
 		results = append(results, SearchResult{
-			ID:           id,
-			DisplayTitle: displayTitle,
-			Excerpt:      strings.TrimSpace(excerpt),
+			ID:                  id,
+			DisplayTitle:        derivedTitle.Value,
+			IsGeneratedFallback: derivedTitle.IsGeneratedFallback,
+			Excerpt:             strings.TrimSpace(excerpt),
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -179,11 +181,15 @@ func (s *Store) recentNotes(ctx context.Context) ([]SearchResult, error) {
 		if err := rows.Scan(&id, &title, &documentJSON); err != nil {
 			return nil, fmt.Errorf("scan recent note: %w", err)
 		}
-		displayTitle, err := deriveDisplayTitle(title, documentJSON)
+		derivedTitle, err := deriveDisplayTitle(title, documentJSON)
 		if err != nil {
 			return nil, fmt.Errorf("derive recent note title for %s: %w", id, err)
 		}
-		results = append(results, SearchResult{ID: id, DisplayTitle: displayTitle})
+		results = append(results, SearchResult{
+			ID:                  id,
+			DisplayTitle:        derivedTitle.Value,
+			IsGeneratedFallback: derivedTitle.IsGeneratedFallback,
+		})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate recent notes: %w", err)
