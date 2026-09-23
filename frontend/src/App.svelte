@@ -473,7 +473,7 @@ import {
     const capturedSequence = draftSequence
     const capturedGeneration = saveGeneration
 
-    const operation = Promise.resolve(encodeDocumentForSave(capturedDocument))
+    const operation = Promise.resolve(encodeDocumentForSave(capturedDocument, capturedTitle))
       .then((wireDocument) => SaveNote(capturedID, capturedTitle, wireDocument, capturedRevision))
       .then((newRevision) => {
         if (saveGeneration !== capturedGeneration || noteID !== capturedID || trashView) {

@@ -6,10 +6,23 @@
 // could grow the JSON envelope near that ceiling are gzip-compressed and
 // base64-tagged on the frontend; AppService.SaveNote decodes the tag before
 // validation. Smaller documents keep the plain format.
+//
+// Compression only helps while base64(gzip(doc)) stays inside the cap: for
+// poorly compressible documents near the ceiling, base64's 4/3 expansion can
+// make the compressed envelope LARGER than the plain one. Admission therefore
+// measures the exact envelope size of each candidate wire format against the
+// 64MB transport cap: prefer the compressed form when it fits, fall back to
+// plain when compression would blow past the cap, and fail fast client-side
+// when neither format fits rather than feeding a doomed body to the retry loop.
 
 const WIRE_PREFIX = 'fn1:'
 const PLAIN_LENGTH_GUARD = 8 * 1024 * 1024
 const PLAIN_BYTE_LIMIT = 32 * 1024 * 1024
+const SAVE_TRANSPORT_CAP_BYTES = 64 * 1024 * 1024
+// The runtime envelope frame (object/method ids, nested args object, note
+// UUID, revision) is ~300 bytes; 4KiB keeps the bound conservative against
+// binding-shape drift without hiding multi-megabyte violations.
+const ENVELOPE_FRAME_SLACK = 4096
 
 export function documentWirePrefix(): string {
   return WIRE_PREFIX
@@ -22,12 +35,36 @@ export function shouldCompressDocument(documentJSON: string): boolean {
   return new TextEncoder().encode(documentJSON).length > PLAIN_BYTE_LIMIT
 }
 
-export async function encodeDocumentForSave(documentJSON: string): Promise<string> {
+function jsonEncodedBytes(value: string): number {
+  return new TextEncoder().encode(JSON.stringify(value)).length
+}
+
+// Upper bound on the UTF-8 bytes of the SaveNote runtime envelope that would
+// carry `wire` with `title`: each argument's exact JSON encoding (including
+// string escaping) plus a fixed frame slack. Conservative — never undercounts.
+export function saveEnvelopeBytes(wire: string, title = ''): number {
+  return jsonEncodedBytes(wire) + jsonEncodedBytes(title) + ENVELOPE_FRAME_SLACK
+}
+
+export async function encodeDocumentForSave(documentJSON: string, title = ''): Promise<string> {
   if (!shouldCompressDocument(documentJSON)) {
     return documentJSON
   }
   const compressed = await gzipBytes(new TextEncoder().encode(documentJSON))
-  return WIRE_PREFIX + bytesToBase64(compressed)
+  const compressedWire = WIRE_PREFIX + bytesToBase64(compressed)
+  const compressedEnvelope = saveEnvelopeBytes(compressedWire, title)
+  if (compressedEnvelope <= SAVE_TRANSPORT_CAP_BYTES) {
+    return compressedWire
+  }
+  const plainEnvelope = saveEnvelopeBytes(documentJSON, title)
+  if (plainEnvelope <= SAVE_TRANSPORT_CAP_BYTES) {
+    // base64 expansion pushed the compressed envelope over the cap while the
+    // plain document still fits — compression hurt, so send plain.
+    return documentJSON
+  }
+  throw new Error(
+    `note document too large to save: plain envelope ${plainEnvelope} bytes and compressed envelope ${compressedEnvelope} bytes both exceed the ${SAVE_TRANSPORT_CAP_BYTES} byte transport cap`,
+  )
 }
 
 export async function decodeDocumentWire(wire: string): Promise<string> {
