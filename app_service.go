@@ -139,8 +139,8 @@ type SidebarNote struct {
 // SidebarFolder groups one active folder with its note summaries in canonical
 // sidebar order. Empty folders carry an empty non-nil Notes slice.
 type SidebarFolder struct {
-	ID    string       `json:"id"`
-	Name  string       `json:"name"`
+	ID    string        `json:"id"`
+	Name  string        `json:"name"`
 	Notes []SidebarNote `json:"notes"`
 }
 

@@ -272,7 +272,7 @@ func compareSummaries(t *testing.T, stage string, got, want []NoteSummary) {
 }
 
 // TestDisplayTitleBackfillConvergesLegacyRows proves databases written before
-// migration 009 (display_title '') start up with the same titles the former
+// migration 009 (display_title ”) start up with the same titles the former
 // read-time derivation produced.
 func TestDisplayTitleBackfillConvergesLegacyRows(t *testing.T) {
 	ctx := context.Background()

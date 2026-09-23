@@ -93,7 +93,7 @@ func (s *Store) ListSidebar(ctx context.Context) (SidebarProjection, error) {
 }
 
 // backfillDisplayTitles derives display_title for rows that predate migration
-// 009 (stored as ''). The derivation is the same canonical
+// 009 (stored as ”). The derivation is the same canonical
 // deriveDisplayTitle used on the write path, so backfilled rows are
 // indistinguishable from rows written after the migration. A derivation
 // failure fails closed: Open reports the error and preserves the database
