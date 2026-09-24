@@ -1,4 +1,6 @@
 import { Extension } from '@tiptap/core'
+import { Fragment, Slice, type Node as ProseMirrorNode } from '@tiptap/pm/model'
+import { Plugin } from '@tiptap/pm/state'
 import { normalizeExternalUrl } from './linkHelper'
 
 const DISALLOWED_TAGS = new Set([
@@ -357,9 +359,32 @@ export function normalizeRichPasteHTML(html: string): string {
   return body.innerHTML
 }
 
+function stripNonTextMarks(fragment: Fragment): Fragment {
+  const nodes: ProseMirrorNode[] = []
+  fragment.forEach((node) => {
+    if (node.isText) {
+      nodes.push(node)
+      return
+    }
+    const content = node.content.size ? stripNonTextMarks(node.content) : node.content
+    nodes.push(node.copy(content).mark([]))
+  })
+  return Fragment.fromArray(nodes)
+}
+
 export const RichPasteNormalization = Extension.create({
   name: 'richPasteNormalization',
   transformPastedHTML(html) {
     return normalizeRichPasteHTML(html)
+  },
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        props: {
+          transformPasted: (slice: Slice) =>
+            new Slice(stripNonTextMarks(slice.content), slice.openStart, slice.openEnd),
+        },
+      }),
+    ]
   },
 })

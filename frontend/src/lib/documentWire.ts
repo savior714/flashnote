@@ -46,7 +46,11 @@ export function isDeterministicDocumentSaveError(error: unknown): error is Error
   if (error instanceof DocumentTransportOversizeError) {
     return true
   }
-  return error instanceof Error && error.message.includes('assembled body too large')
+  return (
+    error instanceof Error &&
+    (error.message.includes('assembled body too large') ||
+      error.message.includes('invalid Flashnote document'))
+  )
 }
 
 export function shouldCompressDocument(documentJSON: string): boolean {

@@ -187,6 +187,31 @@ export async function runRichPasteAcceptance(editor: Editor): Promise<void> {
     throw new Error(`acceptance D: expected href "https://example.com", got ${JSON.stringify(normLinkMark)}`)
   }
 
+  editor.commands.setContent({
+    type: 'doc',
+    content: [{ type: 'paragraph' }],
+  })
+  editor.commands.focus('start')
+  await tick()
+  await delay(20)
+
+  dispatchPasteEvent(editor, {
+    html: '<p><strong>foo<br>bar</strong></p>',
+    text: 'foo\nbar',
+  })
+  await tick()
+  await delay(40)
+
+  doc = editor.getJSON()
+  const markedHardBreak = findNodeByType(doc.content, 'hardBreak')
+  if (markedHardBreak?.marks?.length) {
+    throw new Error('acceptance: hard break unexpectedly retained marks')
+  }
+  const boldTextNodes = findTextNodesWithMark(doc.content, 'bold')
+  if (!boldTextNodes.some((node) => node.text === 'foo') || !boldTextNodes.some((node) => node.text === 'bar')) {
+    throw new Error('acceptance: bold text around a hard break was not preserved')
+  }
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // E. Unsafe link degradation
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

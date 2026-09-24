@@ -152,8 +152,9 @@ test('poor-ratio documents fall back to plain when compression exceeds the cap',
   assert.equal(await decodeDocumentWire(wire), doc)
 })
 
-test('transport cap rejection is classified as deterministic', () => {
+test('deterministic document save errors are classified as blocked', () => {
   assert.equal(isDeterministicDocumentSaveError(new Error('assembled body too large')), true)
+  assert.equal(isDeterministicDocumentSaveError(new Error('invalid Flashnote document: marks are only allowed on text nodes')), true)
   assert.equal(isDeterministicDocumentSaveError(new Error('temporary database busy')), false)
 })
 
