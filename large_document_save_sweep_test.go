@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -9,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/savior714/flashnote/internal/document"
 	"github.com/savior714/flashnote/internal/persistence"
 )
 
@@ -140,4 +144,125 @@ func TestLargeDocumentSaveSweep(t *testing.T) {
 		t.Logf("fixture=%s bytes=%d nodes=%d store_ms=%d service_ms=%d rev=%d OK",
 			fx.label, bytesUTF8, nodes, storeLatency.Milliseconds(), serviceLatency.Milliseconds(), rev)
 	}
+}
+
+func TestLargeEscapeHeavyWireSaveSurvivesReopen(t *testing.T) {
+	const mib = 1024 * 1024
+	const capBytes = 64 * mib
+
+	text := strings.Repeat("\\", 16*mib-56)
+	rawDocument, err := json.Marshal(struct {
+		SchemaVersion int `json:"schemaVersion"`
+		Doc           any `json:"doc"`
+	}{
+		SchemaVersion: 1,
+		Doc: map[string]any{
+			"type": "doc",
+			"content": []any{
+				map[string]any{
+					"type":    "paragraph",
+					"content": []any{map[string]any{"type": "text", "text": text}},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal escape-heavy document: %v", err)
+	}
+	documentJSON, err := document.ValidateAndNormalizeJSON(string(rawDocument))
+	if err != nil {
+		t.Fatalf("validate escape-heavy document: %v", err)
+	}
+	if len(documentJSON) > 32*mib {
+		t.Fatalf("fixture inner bytes = %d, want <= %d", len(documentJSON), 32*mib)
+	}
+
+	plainBody, err := json.Marshal(struct {
+		Object int `json:"object"`
+		Method int `json:"method"`
+		Args   struct {
+			CallID   string `json:"call-id"`
+			MethodID int    `json:"methodID"`
+			Args     []any  `json:"args"`
+		} `json:"args"`
+	}{
+		Object: 0,
+		Method: 0,
+		Args: struct {
+			CallID   string `json:"call-id"`
+			MethodID int    `json:"methodID"`
+			Args     []any  `json:"args"`
+		}{
+			CallID:   strings.Repeat("c", 21),
+			MethodID: 1592610343,
+			Args:     []any{"12345678-1234-1234-1234-123456789012", "escape-heavy", documentJSON, 1},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal plain runtime envelope: %v", err)
+	}
+	if len(plainBody) <= capBytes {
+		t.Fatalf("plain runtime envelope = %d bytes, want > %d", len(plainBody), capBytes)
+	}
+
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	if _, err := writer.Write([]byte(documentJSON)); err != nil {
+		t.Fatalf("gzip escape-heavy document: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close escape-heavy gzip writer: %v", err)
+	}
+	wire := documentWirePrefix + base64.StdEncoding.EncodeToString(compressed.Bytes())
+
+	ctx := context.Background()
+	databasePath := filepath.Join(t.TempDir(), "flashnote.db")
+	store, err := persistence.Open(ctx, databasePath)
+	if err != nil {
+		t.Fatalf("open persistence: %v", err)
+	}
+	note, err := store.CreateNote(ctx)
+	if err != nil {
+		_ = store.Close()
+		t.Fatalf("create note: %v", err)
+	}
+	service := NewAppService(store)
+	started := time.Now()
+	revision, err := service.SaveNote(note.ID, "escape-heavy", wire, note.Revision)
+	latency := time.Since(started)
+	if err != nil {
+		_ = store.Close()
+		t.Fatalf("save escape-heavy wire: %v", err)
+	}
+	if revision != note.Revision+1 {
+		_ = store.Close()
+		t.Fatalf("saved revision = %d, want %d", revision, note.Revision+1)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close persistence after save: %v", err)
+	}
+
+	reopened, err := persistence.Open(ctx, databasePath)
+	if err != nil {
+		t.Fatalf("reopen persistence: %v", err)
+	}
+	defer reopened.Close()
+	restored, err := reopened.OpenNote(ctx, note.ID)
+	if err != nil {
+		t.Fatalf("reopen saved note: %v", err)
+	}
+	if restored.Revision != revision {
+		t.Fatalf("restored revision = %d, want %d", restored.Revision, revision)
+	}
+	if restored.DocumentJSON != documentJSON {
+		t.Fatalf("restored document bytes = %d, want %d", len(restored.DocumentJSON), len(documentJSON))
+	}
+	results, err := reopened.SearchNotes(ctx, "escape-heavy")
+	if err != nil {
+		t.Fatalf("search restored note: %v", err)
+	}
+	if len(results) != 1 || results[0].ID != note.ID {
+		t.Fatalf("search result count = %d, want saved note", len(results))
+	}
+	t.Logf("inner_bytes=%d plain_envelope_bytes=%d wire_bytes=%d revision=%d latency_ms=%d durable=1", len(documentJSON), len(plainBody), len(wire), restored.Revision, latency.Milliseconds())
 }

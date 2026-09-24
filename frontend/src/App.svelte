@@ -34,7 +34,7 @@ import { runNewNoteShortcutAcceptance } from './lib/newNoteShortcutAcceptance'
 import { runSidebarDragDropAcceptance } from './lib/sidebarDragDropAcceptance'
 import { exportCurrentNoteMarkdown, installMarkdownExportShortcut } from './lib/export-shortcut'
 import { setMarkdownExportReadiness } from './lib/markdownExportGate'
-  import { encodeDocumentForSave } from './lib/documentWire'
+  import { encodeDocumentForSave, isDeterministicDocumentSaveError } from './lib/documentWire'
   import { exportPresentation, getMessages, presentNoteTitle, resolveLanguage } from './lib/i18n'
   import { waitForSaveFlush } from './lib/save-flush-timeout'
 import {
@@ -76,7 +76,7 @@ import {
   let sidebarVisible = true
   let noteTransitionActive = false
   type OperationErrorKey = keyof ReturnType<typeof getMessages>['errors']
-  let saveError: '' | 'retrying' | 'timed_out' = ''
+  let saveError: '' | 'retrying' | 'timed_out' | 'blocked' = ''
   let operationError: OperationErrorKey | '' = ''
   let closePromptVisible = false
   let closeRequestActive = false
@@ -500,8 +500,13 @@ import {
           noteID === capturedID &&
           !trashView
         ) {
-          saveError = 'retrying'
-          scheduleRetry()
+          if (isDeterministicDocumentSaveError(error)) {
+            saveError = 'blocked'
+            clearRetryTimer()
+          } else {
+            saveError = 'retrying'
+            scheduleRetry()
+          }
         }
         return false
       })
@@ -2540,9 +2545,9 @@ import {
           <div
             class="save-error"
             role="status"
-            title={saveError === 'timed_out' ? messages.status.saveTimedOut : messages.status.saveRetrying}
+            title={saveError === 'timed_out' ? messages.status.saveTimedOut : saveError === 'blocked' ? messages.status.saveBlocked : messages.status.saveRetrying}
           >
-            {saveError === 'timed_out' ? messages.status.saveTimedOut : messages.status.saveRetrying}
+            {saveError === 'timed_out' ? messages.status.saveTimedOut : saveError === 'blocked' ? messages.status.saveBlocked : messages.status.saveRetrying}
           </div>
         {/if}
         {#if operationError}
