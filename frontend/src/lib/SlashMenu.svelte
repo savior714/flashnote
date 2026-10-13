@@ -62,6 +62,8 @@
     max-width: 240px;
     max-height: 280px;
     overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
     background: var(--surface-elevated);
     border: 1px solid var(--border-dialog);
     border-radius: 8px;
