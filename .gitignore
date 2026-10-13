@@ -19,6 +19,11 @@ coverage/
 /flashnote.exe
 .task/
 
+# Python bytecode produced by the repository's own Git tooling. Left untracked it
+# fails the publication kernel's clean-workspace gate on every publication.
+__pycache__/
+*.pyc
+
 # Wails icon staging derived from assets/appicon.png
 # (see prepare:icon in Taskfile.release.yml).
 build/appicon.png
