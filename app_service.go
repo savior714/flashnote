@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/savior714/flashnote/internal/appdata"
 	"github.com/savior714/flashnote/internal/persistence"
 )
 
@@ -87,6 +88,27 @@ func (s *AppService) GetRuntimeInfo() (RuntimeInfo, error) {
 		runtimeInfo.SchemaVersion,
 	)
 	return runtimeInfo, nil
+}
+
+// GetDataDir reports the resolved application data directory this process is
+// writing to. It exists so acceptance automation can prove it is isolated from
+// the developer's real data directory before it mutates any note.
+func (s *AppService) GetDataDir() (string, error) {
+	root, err := appdata.RootDir()
+	if err != nil {
+		return "", err
+	}
+	log.Printf("FLASHNOTE_DATA_DIR path=%s", root)
+	return root, nil
+}
+
+// LogAcceptanceIsolationRefusal records an acceptance isolation refusal in the
+// application log. The frontend console is not carried into the application log,
+// so a refused acceptance run would otherwise be indistinguishable from a silent
+// failure. It writes no note data; it exists so the refusal stays greppable.
+func (s *AppService) LogAcceptanceIsolationRefusal(reason string) error {
+	log.Printf("FLASHNOTE_ACCEPTANCE_ISOLATION_REFUSED %s", reason)
+	return nil
 }
 
 func (s *AppService) ListNotes() ([]string, []string, []bool, error) {

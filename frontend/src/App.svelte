@@ -36,6 +36,7 @@ import { runScrollStructureAcceptance } from './lib/scrollStructureAcceptance'
 import { exportCurrentNoteMarkdown, installMarkdownExportShortcut } from './lib/export-shortcut'
 import { setMarkdownExportReadiness } from './lib/markdownExportGate'
   import { encodeDocumentForSave, isDeterministicDocumentSaveError } from './lib/documentWire'
+  import { assertAcceptanceIsolation } from './lib/acceptanceIsolationGate'
   import { exportPresentation, getMessages, presentNoteTitle, resolveLanguage } from './lib/i18n'
   import { waitForSaveFlush } from './lib/save-flush-timeout'
 import {
@@ -1929,6 +1930,10 @@ import {
     setTimeout(() => {
       void (async () => {
         try {
+          // Isolation is re-proved at the pipeline boundary: every suite below
+          // mutates note data, so a non-isolated acceptance run must fail closed
+          // here rather than reach its first write.
+          await assertAcceptanceIsolation()
           await runNewNoteShortcutAcceptance({
             getNoteID: () => noteID,
             getTitle: () => title,
@@ -2027,16 +2032,27 @@ import {
       // the current dirty draft so the harness can click "Discard changes &
       // continue" while a save completion is guaranteed to still be in
       // flight. Vite statically removes this block from ordinary builds.
-      const acceptanceHooks = {
-        startSaveForRaceProbe: () => {
-          void persistLatest()
-          return saveInFlight !== null
-        },
-        isTransitionPromptVisible: () => transitionPromptVisible,
-        currentNoteID: () => noteID,
-      }
-      ;(window as unknown as Record<string, unknown>).__flashnoteDataSafetyAcceptance =
-        acceptanceHooks
+      //
+      // The hooks are installed only after isolation is proven: this mode is
+      // driven by a harness through the real UI, so a non-isolated run must
+      // publish no hooks and fail the harness's wait instead of saving into the
+      // developer's real notes.
+      void assertAcceptanceIsolation()
+        .then(() => {
+          const acceptanceHooks = {
+            startSaveForRaceProbe: () => {
+              void persistLatest()
+              return saveInFlight !== null
+            },
+            isTransitionPromptVisible: () => transitionPromptVisible,
+            currentNoteID: () => noteID,
+          }
+          ;(window as unknown as Record<string, unknown>).__flashnoteDataSafetyAcceptance =
+            acceptanceHooks
+        })
+        .catch((error: unknown) => {
+          console.error('FLASHNOTE_ACCEPTANCE_FAILURE', error)
+        })
     }
     void initialise().catch((error: unknown) => {
       loading = false

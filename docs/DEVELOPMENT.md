@@ -77,6 +77,8 @@ All native/UI/acceptance/destructive/state-mutating automation must remain isola
 
 Never run such automation against the normal Flashnote data directory or real `flashnote.db`. A real-use process may use normal user data; automated mutating processes may not.
 
+Isolation is enforced at two layers, not by convention alone. `scripts/run-acceptance.sh` is the canonical acceptance runner: it creates a fresh temporary `HOME`, builds and runs the acceptance app inside that one process so build-time and run-time isolation cannot disagree, requires the pipeline's durable verdict note in the isolated database, and proves the real data directory is byte-identical afterwards. The application itself refuses to run any acceptance step unless the isolated `HOME` baked into the acceptance build (`VITE_FLASHNOTE_ACCEPTANCE_HOME`) contains the data directory it actually resolved (`GetDataDir`), and it logs the resolved directory (`FLASHNOTE_DATA_DIR`) so a mis-isolated run is visible in the application log instead of only in its side effects.
+
 ## 5. Handoff continuity: preserve semantics, not mechanics
 
 A previous executor's branch, worktree, candidate ref, temporary path, CLI, session topology, launcher variables, tool choice, and similar mechanics are historical execution traces, not automatically inherited requirements.

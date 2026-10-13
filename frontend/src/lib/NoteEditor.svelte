@@ -11,6 +11,7 @@
   import { RichPasteNormalization } from './richPaste'
   import SlashMenu from './SlashMenu.svelte'
   import { runSlashAcceptance } from './slashAcceptance'
+  import { assertAcceptanceIsolation } from './acceptanceIsolationGate'
   import { getMessages } from './i18n'
   import {
     createSlashExtension,
@@ -389,8 +390,13 @@
 
     if (acceptanceText) {
       queueMicrotask(() => {
-        if (!editor) return
-        void runSlashAcceptance(editor, acceptanceText, onDocumentChange)
+        const startedEditor = editor
+        if (!startedEditor) return
+        // Isolation is proven before the first editor acceptance mutation: a
+        // non-isolated acceptance run must fail closed rather than write to the
+        // developer's real notes.
+        void assertAcceptanceIsolation()
+          .then(() => runSlashAcceptance(startedEditor, acceptanceText, onDocumentChange))
           .then(async () => {
             const currentEditor = editor
             if (!currentEditor) {

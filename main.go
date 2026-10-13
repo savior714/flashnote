@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"log"
+	"path/filepath"
 	"sync/atomic"
 
 	"github.com/savior714/flashnote/internal/appdata"
@@ -28,6 +29,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// The resolved data directory is the boundary every automated acceptance run
+	// must stay out of. Log it once at startup so a mis-isolated run is visible
+	// in the application log instead of only in its side effects.
+	log.Printf("FLASHNOTE_DATA_DIR path=%s", filepath.Dir(databasePath))
 
 	store, err := persistence.Open(ctx, databasePath)
 	if err != nil {

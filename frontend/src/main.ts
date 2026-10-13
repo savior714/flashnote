@@ -6,6 +6,7 @@ import './folder.css'
 import './trash.css'
 import './sidebar-dnd.css'
 import { runMarkdownExportShortcutAcceptance } from './lib/export-shortcut'
+import { assertAcceptanceIsolation } from './lib/acceptanceIsolationGate'
 
 const target = document.getElementById('app')
 if (!target) {
@@ -60,9 +61,11 @@ if (
   import.meta.env.VITE_FLASHNOTE_ACCEPTANCE_TEXT &&
   !import.meta.env.VITE_FLASHNOTE_DATA_SAFETY_ACCEPTANCE
 ) {
-  void runMarkdownExportShortcutAcceptance().catch((error: unknown) => {
-    console.error('FLASHNOTE_ACCEPTANCE_FAILURE', error)
-  })
+  void assertAcceptanceIsolation()
+    .then(() => runMarkdownExportShortcutAcceptance())
+    .catch((error: unknown) => {
+      console.error('FLASHNOTE_ACCEPTANCE_FAILURE', error)
+    })
 }
 
 installAppContextMenuPolicy()

@@ -25,6 +25,15 @@ export function EmptyTrash(): $CancellablePromise<[number, number]> {
     return $Call.ByID(2664781739);
 }
 
+/**
+ * GetDataDir reports the resolved application data directory this process is
+ * writing to. It exists so acceptance automation can prove it is isolated from
+ * the developer's real data directory before it mutates any note.
+ */
+export function GetDataDir(): $CancellablePromise<string> {
+    return $Call.ByID(655531069);
+}
+
 export function GetRuntimeInfo(): $CancellablePromise<$models.RuntimeInfo> {
     return $Call.ByID(3362057646).then(($result: any) => {
         return $$createType0($result);
@@ -106,6 +115,16 @@ export function ListTrashNotes(): $CancellablePromise<[string[], string[], boole
         $result[2] = $$createType2($result[2]);
         return $result;
     });
+}
+
+/**
+ * LogAcceptanceIsolationRefusal records an acceptance isolation refusal in the
+ * application log. The frontend console is not carried into the application log,
+ * so a refused acceptance run would otherwise be indistinguishable from a silent
+ * failure. It writes no note data; it exists so the refusal stays greppable.
+ */
+export function LogAcceptanceIsolationRefusal(reason: string): $CancellablePromise<void> {
+    return $Call.ByID(2110901579, reason);
 }
 
 export function MoveFolderToTrash(folderID: string): $CancellablePromise<number> {

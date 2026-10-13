@@ -272,6 +272,7 @@ jobs:
           rm -rf .task frontend/dist flashnote
           VITE_FLASHNOTE_ACCEPTANCE_TEXT="P1B recovery bootstrap" \
             VITE_FLASHNOTE_DATA_SAFETY_ACCEPTANCE=recovery \
+            VITE_FLASHNOTE_ACCEPTANCE_HOME="$RECOVERY_HOME" \
             wails3 build
           test -x ./flashnote
 
@@ -330,6 +331,7 @@ jobs:
           rm -rf .task frontend/dist flashnote
           VITE_FLASHNOTE_ACCEPTANCE_TEXT="P1B discard bootstrap" \
             VITE_FLASHNOTE_DATA_SAFETY_ACCEPTANCE=discard \
+            VITE_FLASHNOTE_ACCEPTANCE_HOME="$DISCARD_HOME" \
             wails3 build
           test -x ./flashnote
 
@@ -413,6 +415,7 @@ jobs:
           rm -rf .task frontend/dist flashnote
           VITE_FLASHNOTE_ACCEPTANCE_TEXT="P1B navigation bootstrap" \
             VITE_FLASHNOTE_DATA_SAFETY_ACCEPTANCE=navigation \
+            VITE_FLASHNOTE_ACCEPTANCE_HOME="$NAV_HOME" \
             wails3 build
           test -x ./flashnote
 
@@ -485,7 +488,9 @@ jobs:
           LOG="$RUNNER_TEMP/note-roundtrip-first.log"
 
           rm -rf .task frontend/dist flashnote
-          VITE_FLASHNOTE_ACCEPTANCE_TEXT="$ACCEPTANCE_TEXT" wails3 build
+          VITE_FLASHNOTE_ACCEPTANCE_TEXT="$ACCEPTANCE_TEXT" \
+            VITE_FLASHNOTE_ACCEPTANCE_HOME="$HOME" \
+            wails3 build
           test -x ./flashnote
 
           ./flashnote >"$LOG" 2>&1 &
