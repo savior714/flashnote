@@ -32,6 +32,7 @@
   import SettingsDialog from './lib/SettingsDialog.svelte'
 import { runNewNoteShortcutAcceptance } from './lib/newNoteShortcutAcceptance'
 import { runSidebarDragDropAcceptance } from './lib/sidebarDragDropAcceptance'
+import { runScrollStructureAcceptance } from './lib/scrollStructureAcceptance'
 import { exportCurrentNoteMarkdown, installMarkdownExportShortcut } from './lib/export-shortcut'
 import { setMarkdownExportReadiness } from './lib/markdownExportGate'
   import { encodeDocumentForSave, isDeterministicDocumentSaveError } from './lib/documentWire'
@@ -1942,6 +1943,11 @@ import {
           await runAcceptanceEmptyTrashReturn()
           await runSidebarDragDropAcceptance({ refreshSidebar })
           await runAcceptanceTrashLifecycle()
+          await runScrollStructureAcceptance({
+            refreshSidebar,
+            applyNote,
+            getNoteID: () => noteID,
+          })
           console.log('FLASHNOTE_ACCEPTANCE_FULL_PIPELINE_SUCCESS')
           await Window.Close()
         } catch (error) {

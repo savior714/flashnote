@@ -42,6 +42,12 @@ The catalog is resolved by direct lookup and does not participate in typing, aut
 
 The durable note summary projection carries a language-independent generated-empty-title discriminator. It is derived from canonical title/body inputs and used only at presentation time; canonical note titles, documents, folder names, and export serialization are never rewritten by locale changes.
 
+### Application shell scroll ownership
+
+The shell is the application's only scroll surface, and each region has exactly one scroll owner. The document pane (`section.document`) owns document scrolling; the sidebar's note list (`nav.note-list`) owns sidebar scrolling; the viewport itself never scrolls. The shell is one viewport-height grid row (`minmax(0, 100%)`) with `overflow: hidden` on the shell, the sidebar, and the page root, so neither a long document nor a long note list can push the layout taller than the viewport and hand scrolling back to the page. This is what keeps a single vertical scrollbar visible per region instead of a duplicate at the page level.
+
+`overflow: hidden` is not treated as the proof: a programmatically scrolled or mis-sized ancestor still shows scroll range. The contract is proven by real scrolling — the page must not move, the pane and the note list must each independently reach their full scroll range, and the editor's nearest scrollable ancestor must be the document pane, which is what makes caret following, wheel, and keyboard scrolling resolve to one container. Native scrollbar presentation is left to the platform, so macOS "Show scroll bars: Always" and automatic-overlay settings both show one scrollbar per region; no custom scrollbar component or `::-webkit-scrollbar` styling is introduced.
+
 ## 3. Rich-text editor
 
 ### Decision
