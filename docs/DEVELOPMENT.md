@@ -229,6 +229,18 @@ Use the question **â€œDoes this materially interfere with using Flashnote now?â€
 
 A newly observed data-loss or durability contradiction supersedes prior optimistic acceptance status for that exact failure family. Do not treat earlier GREEN package/runtime evidence as proof that a new real-use autosave failure is closed.
 
+### Observing a change: the running build is a build, not the checkout
+
+`main.go` embeds `frontend/dist` into the Go binary at compile time, so a frontend change is not observable until the binary is rebuilt. The rebuilding launcher covers `./Flashnote.command` and `task run`, but relaunching `bin/flashnote.dev.app` from the Dock or Finder runs whatever binary the bundle already holds and silently skips the rebuild. Under that path a user can inspect the previous build and report a defect as unfixed.
+
+Three things close that gap and are part of this contract:
+
+- The Go toolchain stamps each binary with the source revision it was built from (`vcs.revision`). `RuntimeInfo.AppRevision` reads that stamp out of the running binary and the Settings dialog shows it, so a running app always names the source it was built from. A binary built without VCS stamping reports `unknown` rather than claiming a revision it does not have.
+- `task app:freshness` reads the same stamp out of `bin/flashnote.dev.app`'s own binary and compares it against the checkout's `HEAD`, exiting non-zero on `STALE` or `UNKNOWN`. `task app:refresh` rebuilds assets, binary, and bundle without launching a second instance beside the user's running app.
+- Because the stamp is read out of the binary itself, a swapped binary can never be described as current by a leftover file; there is no separate stamp to drift from the binary.
+
+A published UI change is therefore complete only when `task app:freshness` reports `CURRENT` for the bundle the user will relaunch, or the user is told to relaunch through `./Flashnote.command`. Verifying a frontend or presentation change against a `STALE`/`UNKNOWN` bundle is not a proof of anything and must not be reported as one.
+
 Release-package and DMG workflows may remain in the repository as historical/manual evidence owners, but they must not run automatically on ordinary `main` pushes while distribution is inactive. Dependency/toolchain upgrades are not frontiers by themselves; open them only when required by an observed defect, security issue, or compatibility problem.
 
 ## 12. Execution authority and legacy coordination surface

@@ -77,6 +77,9 @@ import {
   let loading = true
   let sidebarVisible = true
   let noteTransitionActive = false
+  // The source revision this binary reports, so the settings surface can name
+  // the build the user is actually running instead of assuming it is current.
+  let appRevision = ''
   type OperationErrorKey = keyof ReturnType<typeof getMessages>['errors']
   let saveError: '' | 'retrying' | 'timed_out' | 'blocked' = ''
   let operationError: OperationErrorKey | '' = ''
@@ -1995,6 +1998,7 @@ import {
     if (!info.databaseReady || info.schemaVersion < 6) {
       throw new Error('Flashnote runtime bridge returned invalid diagnostics')
     }
+    appRevision = info.appRevision
 
     const snapshot = (await OpenInitialNote()) as NoteTuple
     trashView = false
@@ -2726,6 +2730,7 @@ import {
   <SettingsDialog
     {settings}
     {language}
+    {appRevision}
     onUpdate={updateSettings}
     onClose={closeSettings}
   />

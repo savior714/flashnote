@@ -181,7 +181,12 @@ tasks:
     cmds:
       - 'echo "Skipping codesign (not available on {{OS}}). Sign the .app on macOS before distribution."'
 
-  run:
+  # Assembles the development .app bundle from the freshly built binary. Split
+  # from `run` so `app:refresh` can leave the bundle current without launching a
+  # second instance beside the user's running app. The binary carries its own
+  # source revision, so the bundle needs no separate stamp to keep in sync.
+  bundle:
+    summary: Assembles and ad-hoc signs bin/<app>.dev.app without launching it
     cmds:
       - mkdir -p "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS"
       - mkdir -p "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Resources"
@@ -193,6 +198,11 @@ tasks:
       - cp "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS"
       - cp "build/darwin/Info.dev.plist" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Info.plist"
       - codesign --force --deep --sign - "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app"
+
+  run:
+    deps:
+      - task: bundle
+    cmds:
       - '"{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS/{{.APP_NAME}}"'
 
   sign:

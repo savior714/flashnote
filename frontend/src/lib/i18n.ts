@@ -69,6 +69,8 @@ const englishMessages = {
   settingsPage: {
     appearance: 'Appearance',
     appearanceTheme: 'Appearance theme',
+    build: 'Build',
+    buildUnknown: 'unknown revision',
     close: 'Close settings',
     dark: 'Dark',
     data: 'Data',
@@ -242,6 +244,8 @@ const koreanMessages = {
   settingsPage: {
     appearance: '화면 모드',
     appearanceTheme: '화면 모드',
+    build: '빌드',
+    buildUnknown: '알 수 없는 리비전',
     close: '설정 닫기',
     dark: '다크',
     data: '데이터',

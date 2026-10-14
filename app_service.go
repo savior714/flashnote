@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"runtime/debug"
 	"time"
 
 	"github.com/savior714/flashnote/internal/appdata"
@@ -11,12 +12,35 @@ import (
 
 const appVersion = "0.1.0-dev"
 
+// buildRevision reports the source revision this binary was built from, read
+// from the build information the Go toolchain embeds in the binary itself. It
+// is read from the binary rather than from the working tree so it stays true
+// to whatever source the process was actually built from. A binary built
+// without VCS stamping (or outside a checkout) reports "unknown" instead of
+// borrowing the checkout's current revision.
+func buildRevision() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "unknown"
+	}
+	for _, setting := range info.Settings {
+		if setting.Key == "vcs.revision" {
+			if len(setting.Value) >= 7 {
+				return setting.Value[:7]
+			}
+			return setting.Value
+		}
+	}
+	return "unknown"
+}
+
 type AppService struct {
 	store *persistence.Store
 }
 
 type RuntimeInfo struct {
 	AppVersion    string `json:"appVersion"`
+	AppRevision   string `json:"appRevision"`
 	DatabaseReady bool   `json:"databaseReady"`
 	SQLiteVersion string `json:"sqliteVersion"`
 	JournalMode   string `json:"journalMode"`
@@ -72,6 +96,7 @@ func (s *AppService) GetRuntimeInfo() (RuntimeInfo, error) {
 	}
 	runtimeInfo := RuntimeInfo{
 		AppVersion:    appVersion,
+		AppRevision:   buildRevision(),
 		DatabaseReady: true,
 		SQLiteVersion: info.SQLiteVersion,
 		JournalMode:   info.JournalMode,
@@ -80,7 +105,9 @@ func (s *AppService) GetRuntimeInfo() (RuntimeInfo, error) {
 		SchemaVersion: info.SchemaVersion,
 	}
 	log.Printf(
-		"FLASHNOTE_RUNTIME_READY sqlite=%s journal=%s synchronous=%d foreign_keys=%t schema=%d",
+		"FLASHNOTE_RUNTIME_READY app=%s revision=%s sqlite=%s journal=%s synchronous=%d foreign_keys=%t schema=%d",
+		runtimeInfo.AppVersion,
+		runtimeInfo.AppRevision,
 		runtimeInfo.SQLiteVersion,
 		runtimeInfo.JournalMode,
 		runtimeInfo.Synchronous,

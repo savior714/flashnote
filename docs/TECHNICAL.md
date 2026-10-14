@@ -236,6 +236,8 @@ The current canonical macOS usage path is **direct personal use from the source 
 
 `./Flashnote.command` is the normal real-note launcher. It builds the current frontend and starts one stable Go/Wails process without watch/HMR/rebuild relaunch behavior. Acceptance-only Vite flags are cleared before that build so a stale shell environment cannot accidentally turn the personal-use process into a mutation harness.
 
+`frontend/dist` is embedded into the Go binary by `go:embed`, so the binary — not the source tree — is what a running application presents. The Go toolchain stamps the binary with the source revision it was built from (`vcs.revision`); `RuntimeInfo.AppRevision` reads that stamp out of the running binary and the Settings dialog shows it. An unstamped build reports `unknown` rather than a revision it did not capture. Relaunching the dev bundle directly (Dock or Finder) bypasses the rebuilding launcher, so the binary's own stamp is the only reliable statement of which build a user is observing.
+
 `wails3 dev` is a development/debugging tool only. It is not a real-note runtime because source edits may replace the frontend or relaunch the application outside Flashnote's normal transition/close flush path while the frontend still owns an unsaved draft.
 
 ### Data-safety boundary

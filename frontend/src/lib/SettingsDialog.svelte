@@ -15,13 +15,20 @@
   type Props = {
     settings: Settings
     language: ResolvedLanguage
+    appRevision?: string
     onUpdate: (updater: (prev: Settings) => Settings) => void
     onClose: () => void
     onExportTriggered?: () => void
   }
 
-  let { settings, language, onUpdate, onClose, onExportTriggered }: Props = $props()
+  let { settings, language, appRevision = '', onUpdate, onClose, onExportTriggered }: Props = $props()
   let messages = $derived(getMessages(language))
+
+  // The binary embeds frontend/dist at compile time, so the revision this
+  // process reports is the only honest answer to "am I looking at the current
+  // source?". An empty or absent value is stated as unknown rather than
+  // guessed, so an unstamped build can never pass as current.
+  let buildLabel = $derived(appRevision || messages.settingsPage.buildUnknown)
 
   let exportStatus = $state<'' | 'exporting' | 'success' | 'error'>('')
   let exportMessageKind = $state<'' | 'success' | 'blocked' | 'error'>('')
@@ -323,6 +330,10 @@
           </div>
         {/if}
       </section>
+
+      <p class="settings-build" data-build-revision={appRevision || ''}>
+        {messages.settingsPage.build}: {buildLabel}
+      </p>
     </div>
   </div>
 </div>
@@ -375,6 +386,15 @@
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--text-muted);
+  }
+
+  /* Read-only build provenance: deliberately quieter than the section titles so
+     it informs without competing with the settings it sits under. */
+  .settings-build {
+    margin: 18px 0 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
   }
 
   .appearance-picker {

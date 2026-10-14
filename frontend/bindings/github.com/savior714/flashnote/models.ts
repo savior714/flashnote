@@ -36,6 +36,7 @@ export class ExportPresentation {
 
 export class RuntimeInfo {
     "appVersion": string;
+    "appRevision": string;
     "databaseReady": boolean;
     "sqliteVersion": string;
     "journalMode": string;
@@ -47,6 +48,9 @@ export class RuntimeInfo {
     constructor($$source: Partial<RuntimeInfo> = {}) {
         if (!("appVersion" in $$source)) {
             this["appVersion"] = "";
+        }
+        if (!("appRevision" in $$source)) {
+            this["appRevision"] = "";
         }
         if (!("databaseReady" in $$source)) {
             this["databaseReady"] = false;

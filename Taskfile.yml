@@ -131,7 +131,59 @@ tasks:
       CGO_LDFLAGS: "-mmacosx-version-min=12.0"
     cmds:
       - mkdir -p {{.BIN_DIR}}
+      # The binary embeds frontend/dist at compile time, so a rebuilt binary is
+      # the only thing that can carry a frontend change. The Go toolchain stamps
+      # this binary with the source revision it was built from (vcs.revision),
+      # which is what `app:freshness` and RuntimeInfo.AppRevision read back —
+      # read out of the binary itself, so no separate stamp can drift from it.
       - go build -o "{{.BIN_DIR}}/{{.APP_NAME}}" . 2>&1 | grep -v "was built for newer"
+
+  # Reports whether the build the user actually launches carries the current
+  # source. Relaunching bin/flashnote.dev.app from the Dock or Finder skips the
+  # rebuilding launcher, so the bundle can silently keep an older binary; this
+  # makes that state visible instead of letting a stale binary pass as current.
+  # The revision is read from the bundle's own binary, so a swapped binary can
+  # never be described as current by a leftover stamp.
+  app:freshness:
+    summary: Compares the dev bundle's built source revision with the current checkout
+    cmds:
+      - |
+        set -eu
+        bundle_binary="{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS/{{.APP_NAME}}"
+        if [ ! -x "$bundle_binary" ]; then
+          echo "FRESHNESS=UNKNOWN"
+          echo "no dev bundle binary at $bundle_binary; build it with task app:refresh" >&2
+          exit 1
+        fi
+        built="$(go version -m "$bundle_binary" 2>/dev/null | sed -n 's/.*build\tvcs.revision=//p' | head -1)"
+        if [ -z "$built" ]; then
+          echo "FRESHNESS=UNKNOWN"
+          echo "bundle binary carries no vcs.revision stamp; it was built outside a checkout" >&2
+          exit 1
+        fi
+        built_short="$(printf '%s' "$built" | cut -c1-7)"
+        current="$(git rev-parse HEAD)"
+        current_short="$(git rev-parse --short HEAD)"
+        if [ "$built" = "$current" ]; then
+          echo "FRESHNESS=CURRENT"
+          echo "bundle was built from $built_short, and HEAD is $current_short"
+          exit 0
+        fi
+        echo "FRESHNESS=STALE"
+        echo "bundle was built from $built_short, but HEAD is $current_short ($current)" >&2
+        exit 1
+
+  # Rebuilds the build the user launches without starting a second instance:
+  # frontend assets, the binary that embeds them, and the .dev.app bundle. A
+  # frontend change is only observable after this runs; without it, relaunching
+  # the existing bundle shows the previous build.
+  app:refresh:
+    summary: Rebuilds the dev-app bundle (and its embedded frontend) without launching it
+    platforms: [darwin]
+    deps: [frontend:build, run:icons]
+    cmds:
+      - task: run:binary
+      - task: darwin:bundle
 
   run:icons:
     internal: true
