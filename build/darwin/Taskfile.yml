@@ -134,6 +134,14 @@ tasks:
     cmds:
       - task: create:dmg
 
+  package:universal:dmg:
+    summary: Packages a universal macOS app into a styled `.dmg`
+    platforms: [darwin]
+    deps:
+      - task: package:universal
+    cmds:
+      - task: create:dmg
+
   create:dmg:
     summary: Creates a configurable `.dmg` from the `.app` bundle
     platforms: [darwin]

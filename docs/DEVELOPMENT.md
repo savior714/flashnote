@@ -210,7 +210,7 @@ Use `BLOCKING`, `SHOULD FIX`, and `NICE TO HAVE` when severity improves actionab
 
 ## 11. Post-MVP personal-use operating mode
 
-Flashnote is currently a **personal program used directly from the source checkout**. DMG/PKG distribution, Developer ID signing, notarization, Gatekeeper hardening, public release publication, and updater work are **DEFERRED / INACTIVE**. Do not generate, recommend, or automatically validate a DMG for the normal personal-use loop. Reopen distribution work only after an explicit decision to distribute Flashnote outside the current personal-use path.
+Flashnote remains a **personal program**, and its normal dogfooding path is direct use from the source checkout. One explicit, narrow exception is active: build a universal, ad-hoc-signed DMG for installation on another Mac owned by the same user. This private sideload does not reopen public release distribution. PKG installers, Developer ID signing, notarization, public release publication, and updater work remain **DEFERRED / INACTIVE**. Do not generate or validate a DMG as part of the ordinary development loop; use the private DMG task only for the explicitly requested secondary-Mac install.
 
 The canonical real-use launcher is `./Flashnote.command`. It must start one stable source-built application process, not `wails3 dev`. Watch/HMR/rebuild relaunches are development lifecycle events: they may replace the frontend or process without traversing Flashnote's normal note-transition or window-close save flush. They therefore must not be the lifecycle boundary for real notes.
 
@@ -241,7 +241,7 @@ Three things close that gap and are part of this contract:
 
 A published UI change is therefore complete only when `task app:freshness` reports `CURRENT` for the bundle the user will relaunch, or the user is told to relaunch through `./Flashnote.command`. Verifying a frontend or presentation change against a `STALE`/`UNKNOWN` bundle is not a proof of anything and must not be reported as one.
 
-Release-package and DMG workflows may remain in the repository as historical/manual evidence owners, but they must not run automatically on ordinary `main` pushes while distribution is inactive. Dependency/toolchain upgrades are not frontiers by themselves; open them only when required by an observed defect, security issue, or compatibility problem.
+The private universal-DMG task is manual and must not run automatically on ordinary `main` pushes. Release-package and DMG acceptance workflows remain manual-only evidence owners; public distribution is still inactive. The request to use one library across multiple personal Macs reopens sync for design, but does not authorize syncing the live SQLite/WAL data directory through a generic cloud-drive client. Dependency/toolchain upgrades are not frontiers by themselves; open them only when required by an observed defect, security issue, or compatibility problem.
 
 ## 12. Execution authority and legacy coordination surface
 

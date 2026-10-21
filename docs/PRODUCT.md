@@ -510,7 +510,7 @@ The MVP is fully local-only:
 - no device model
 - no synchronization worker
 
-Future optional sync is not ruled out. The only deliberate low-cost preparation is stable object identity plus sane schema/data-version evolution. If sync becomes a real product requirement, design it then as a separate product and architecture problem rather than pre-building it now.
+Future optional sync is not ruled out. A concrete personal use case for accessing one library across two Macs has now reopened sync as a design frontier. Until a separate sync design is chosen and implemented, the current app remains local-only. The only deliberate low-cost preparation is stable object identity plus sane schema/data-version evolution; do not treat syncing the live application data directory through a generic cloud-drive client as a supported sync design.
 
 ## 16. Current open decisions
 
