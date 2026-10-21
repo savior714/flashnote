@@ -31,3 +31,15 @@ tasks:
     deps: [prepare:icon]
     cmds:
       - task: darwin:package:dmg
+
+  package:macos:universal:
+    summary: Packages a universal macOS app bundle for private cross-Mac use
+    deps: [prepare:icon]
+    cmds:
+      - task: darwin:package:universal
+
+  package:macos:universal:dmg:
+    summary: Packages a universal macOS DMG for private cross-Mac use
+    deps: [prepare:icon]
+    cmds:
+      - task: darwin:package:universal:dmg

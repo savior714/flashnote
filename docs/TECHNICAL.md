@@ -228,38 +228,46 @@ On close or quit, if the latest draft has not been durably acknowledged, Flashno
 
 The exact debounce duration, retry delay/backoff, revision token representation, and flush timeout are implementation-tuning details to be established and tested with the first persistence vertical slice.
 
-## 11. Personal-use execution and deferred distribution
+## 11. Personal use, private cross-Mac installation, and sync boundary
 
 ### Decision
 
-The current canonical macOS usage path is **direct personal use from the source checkout**, not DMG/installer distribution.
-
-`./Flashnote.command` is the normal real-note launcher. It builds the current frontend and starts one stable Go/Wails process without watch/HMR/rebuild relaunch behavior. Acceptance-only Vite flags are cleared before that build so a stale shell environment cannot accidentally turn the personal-use process into a mutation harness.
+The normal macOS dogfooding path remains **direct personal use from the source checkout**. `./Flashnote.command` is the real-note launcher: it builds the current frontend and starts one stable Go/Wails process without watch/HMR/rebuild relaunch behavior. Acceptance-only Vite flags are cleared before that build so a stale shell environment cannot accidentally turn the personal-use process into a mutation harness.
 
 `frontend/dist` is embedded into the Go binary by `go:embed`, so the binary — not the source tree — is what a running application presents. The Go toolchain stamps the binary with the source revision it was built from (`vcs.revision`); `RuntimeInfo.AppRevision` reads that stamp out of the running binary and the Settings dialog shows it. An unstamped build reports `unknown` rather than a revision it did not capture. Relaunching the dev bundle directly (Dock or Finder) bypasses the rebuilding launcher, so the binary's own stamp is the only reliable statement of which build a user is observing.
 
 `wails3 dev` is a development/debugging tool only. It is not a real-note runtime because source edits may replace the frontend or relaunch the application outside Flashnote's normal transition/close flush path while the frontend still owns an unsaved draft.
 
-### Data-safety boundary
+### Private cross-Mac installation
+
+For the explicit personal-use case of installing Flashnote on another Mac owned by the same user, build a universal DMG with:
+
+```bash
+wails3 task --taskfile ./Taskfile.release.yml package:macos:universal:dmg
+```
+
+The DMG contains a universal app for Apple silicon and Intel Macs, with macOS 12 as the minimum. The receiving Mac does not need the Go/Node/Wails development toolchain. The bundle is ad-hoc signed only: it is **not** Developer ID-signed or notarized, so macOS may require a one-time manual Gatekeeper approval. This is a private sideload path, not a public-release guarantee.
+
+### Data-safety and sync boundary
 
 Native/UI/acceptance/destructive automation must never use the normal Flashnote data directory. On macOS, the default isolation mechanism is a fresh temporary `HOME`, so the test database lives at `<temporary HOME>/Library/Application Support/Flashnote/flashnote.db`.
 
 A real-use process may use the normal user data directory. An automated mutating process may not.
 
+Each Mac currently has an independent local library under `~/Library/Application Support/Flashnote`; installing the app does not transfer notes. A request to use the same library across personal Macs has reopened sync as a design frontier, but Flashnote does not yet implement sync. Do not treat a generic cloud-drive sync of the live data directory as a safe substitute: SQLite's database/WAL state and image attachments must move consistently, and concurrent writes require explicit conflict handling. Any supported handoff or sync must be application-mediated and preserve the SQLite Online Backup boundary.
+
 ### Distribution boundary
 
-DMG, PKG, Developer ID signing, notarization, Gatekeeper validation, public release publication, updater work, and cross-machine distribution are **DEFERRED / INACTIVE**. Earlier package/DMG proof remains historical evidence only; it is not the active usage path and must not drive normal development priorities.
+The private universal DMG described above is the only active distribution scope. Public release publication, PKG installers, Developer ID signing, notarization, updater work, and general external distribution remain **DEFERRED / INACTIVE**. Existing package/DMG acceptance workflows remain manual-only and must not run on ordinary `main` pushes while public distribution is inactive.
 
-The release-package and DMG workflows may remain available for explicit manual use if external distribution is reopened later, but they must not run on ordinary `main` pushes while the project remains personal-use only.
-
-If an explicit future decision reopens external distribution, re-admit the packaging/signing/notarization design against then-current Wails and Apple requirements rather than treating this historical strategy as already active.
+If public distribution is explicitly reopened later, re-admit the signing/notarization design against then-current Wails and Apple requirements rather than treating this private ad-hoc package as release-ready.
 
 ### Rationale
 
 - Flashnote's frontend deliberately owns the latest unsaved editor draft until Go acknowledges a durable save.
 - Normal note navigation and window close have explicit flush guards, but a development watcher can reload/relaunch outside those controlled lifecycle paths.
-- The user is dogfooding Flashnote while multiple development sessions may change the repository concurrently, so watch-mode relaunch is a demonstrated risk boundary rather than a hypothetical deployment concern.
-- A stable source-run process preserves the lightweight personal-use workflow without introducing DMG/signing/notarization ceremony that provides no value for the current single-user case.
+- A stable source-run process remains the simplest dogfooding workflow; a self-built universal DMG removes source/toolchain setup from a personally owned secondary Mac without implying a public release.
+- Sync is a separate persistence/distribution concern: packaging the executable cannot make the local library follow the user safely.
 
 ## 12. Open technical decisions
 
