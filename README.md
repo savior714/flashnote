@@ -41,11 +41,13 @@ Flashnote는 아이디어, 회의 메모, 공부 기록처럼 **짧은 글**을 
 - macOS 12 이상
 - 인터넷 연결 (첫 준비 때 필요합니다)
 - Go 1.27 이상, Node.js 24 이상
+- Corepack (저장소에 맞는 pnpm 버전을 실행해 주는 도구)
 - Xcode Command Line Tools (빌드에 필요한 기본 도구)
 
 ### 1. Xcode Command Line Tools
 
-터미널을 열고 아래를 실행합니다. 이미 설치되어 있다면 "already installed" 같은 안내가 나옵니다.
+터미널을 열고 아래를 실행합니다. 설치 창이 뜨면 안내에 따라 진행해 주세요.
+이미 설치되어 있다면 "already installed" 같은 안내가 나옵니다.
 
 ```bash
 xcode-select --install
@@ -53,24 +55,25 @@ xcode-select --install
 
 ### 2. Homebrew
 
-이미 쓰고 있다면 건너뛰어도 됩니다. 없다면 아래 한 줄로 설치합니다.
+이미 쓰고 있다면 건너뛰어도 됩니다. 없다면 아래 한 줄로 설치합니다(Homebrew 공식 설치 명령입니다).
+설치 중 Mac 로그인 암호를 물을 수 있는데, Homebrew가 도구를 설치하는 데 필요한 과정입니다.
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
-### 3. Go, Node.js, pnpm 준비
+### 3. Go, Node.js, Corepack 준비
 
 ```bash
-brew install go node
-corepack enable
+brew install go node corepack
 ```
 
 설치가 끝나면 확인해 봅니다.
 
 ```bash
-go version      # go1.27 이상이면 OK
-node --version  # v24 이상이면 OK
+go version         # go1.27 이상이면 OK
+node --version     # v24 이상이면 OK
+corepack --version # 버전이 나오면 OK
 ```
 
 > `wails3`는 Flashnote가 첫 실행 때 저장소에 맞는 버전으로 자동 설치합니다. 따로 준비하지 않으셔도 됩니다.
@@ -175,7 +178,7 @@ go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.11
 | 증상 | 해결 |
 | --- | --- |
 | `go: command not found` | `brew install go` 후 터미널을 새로 열어 보세요. |
-| `corepack: command not found` | `npm install -g corepack`을 실행하세요. |
+| `corepack: command not found` | `brew install corepack`(또는 `npm install -g corepack`)을 실행하세요. |
 | `xcode-select: error` 또는 `clang` 관련 오류 | `xcode-select --install`로 Command Line Tools를 설치하세요. |
 | `Flashnote source run requires ...` | 위 준비물 중 빠진 도구가 있다는 뜻입니다. 메시지에 나온 도구를 설치하세요. |
 | `Permission denied: ./Flashnote.command` | `chmod +x Flashnote.command`를 한 번 실행하세요. |
