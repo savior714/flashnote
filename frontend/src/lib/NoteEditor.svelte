@@ -7,10 +7,12 @@
   import { IngestImage } from '../../bindings/github.com/savior714/flashnote/appservice'
   import { AttachmentImage, attachmentImageContent } from './attachmentImage'
   import FormattingBubble from './FormattingBubble.svelte'
+  import { Database } from './databaseNode'
   import {
     CURRENT_DOCUMENT_SCHEMA_VERSION,
     isReadableDocumentEnvelope,
   } from './documentWire'
+  import { setDatabaseLanguage } from './databaseLanguage'
   import { isValidExternalWebUrl, openExternalUrl } from './linkHelper'
   import { RichPasteNormalization } from './richPaste'
   import SlashMenu from './SlashMenu.svelte'
@@ -24,6 +26,7 @@
   } from './slashCommands'
   import { runChecklistInteractionAcceptance } from './checklistAcceptance'
   import type { ResolvedLanguage } from './settings'
+  import { conversionBlockedMessage, convertTableToDatabase } from './tableToDatabase'
   import { tableExtensions } from './tableExtension'
   import { syncTaskCheckboxLabels, TaskItem, TaskList } from './taskList'
 
@@ -54,6 +57,11 @@
 
   let slashOpen = $state(false)
   let slashQuery = $state('')
+  // Whether the cursor is inside a plain table, which is the only condition
+  // under which conversion to a database is offered.
+  let inPlainTable = $state(false)
+  let convertingTable = $state(false)
+  let conversionMessage = $state('')
   let slashItems = $state<SlashCommandItem[]>([])
   let slashSelectedIndex = $state(0)
   let slashRange = $state<Range | null>(null)
@@ -159,6 +167,26 @@
       throw new Error('Flashnote received an invalid persisted document')
     }
     return envelope.doc as JSONContent
+  }
+
+  // The database node view is mounted by Tiptap, so the resolved language
+  // reaches it through this small store instead of a second locale owner.
+  $effect(() => {
+    setDatabaseLanguage(language)
+  })
+
+  function convertTable() {
+    const currentEditor = editor
+    if (!currentEditor) return
+    convertingTable = true
+    conversionMessage = ''
+    const result = convertTableToDatabase(currentEditor)
+    if (!result.ok) {
+      conversionMessage = conversionBlockedMessage(result.reason)
+    } else {
+      conversionMessage = ''
+    }
+    convertingTable = false
   }
 
   function isImageCandidate(file: File): boolean {
@@ -273,6 +301,7 @@
           },
         }),
         ...tableExtensions,
+        Database,
         TaskList,
         TaskItem.configure({ getLanguage: () => language }),
         AttachmentImage,
@@ -295,6 +324,12 @@
       ],
       content: persistedDoc(),
       editable,
+      onSelectionUpdate: ({ editor: selectionEditor }) => {
+        inPlainTable = selectionEditor.isActive('table')
+        if (inPlainTable) {
+          conversionMessage = ''
+        }
+      },
       onUpdate: ({ editor: updatedEditor }) => {
         onDocumentChange(
           JSON.stringify({
@@ -430,6 +465,16 @@
   })
 </script>
 
+{#if inPlainTable && editable}
+  <div class="table-conversion" role="group" aria-label="table conversion">
+    <button type="button" class="quiet" disabled={convertingTable} onclick={convertTable}>
+      {messages.database.convertToDatabase}
+    </button>
+    {#if conversionMessage}
+      <span class="conversion-message" role="alert">{conversionMessage}</span>
+    {/if}
+  </div>
+{/if}
 <div class="editor-host" bind:this={element}></div>
 <div class="bubble-menu-wrapper" bind:this={bubbleElement}>
   <FormattingBubble {editor} {editable} {language} />
@@ -454,6 +499,18 @@
     visibility: hidden;
     opacity: 0;
     position: absolute;
+  }
+
+  .table-conversion {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .conversion-message {
+    color: var(--danger-text);
+    font-size: 0.82rem;
   }
 
   .image-error {
