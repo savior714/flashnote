@@ -242,7 +242,7 @@ export async function runRichPasteAcceptance(editor: Editor): Promise<void> {
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // F. Table degradation
+  // F. A representable pasted table becomes a real table
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   editor.commands.setContent({
     type: 'doc',
@@ -253,24 +253,84 @@ export async function runRichPasteAcceptance(editor: Editor): Promise<void> {
   await delay(20)
 
   dispatchPasteEvent(editor, {
-    html: '<table><thead><tr><th>Name</th><th>Score</th></tr></thead><tbody><tr><td>Alice</td><td>10</td></tr><tr><td>Bob</td><td></td></tr></tbody></table>',
+    html: '<table><colgroup><col width="120"><col width="80"></colgroup><thead><tr><th colspan="1">Name</th><th>Score</th></tr></thead><tbody><tr><td>Alice</td><td>10</td></tr><tr><td>Bob</td><td></td></tr></tbody></table>',
     text: 'Name | Score\nAlice | 10\nBob | ',
   })
   await tick()
   await delay(40)
 
   doc = editor.getJSON()
-  const tableNode = findNodeByType(doc.content, 'table') || findNodeByType(doc.content, 'tableRow') || findNodeByType(doc.content, 'tableCell')
-  if (tableNode) {
-    throw new Error(`acceptance F: table nodes must not exist in editor document, found ${JSON.stringify(tableNode)}`)
+  const tableNode = findNodeByType(doc.content, 'table')
+  if (!tableNode) {
+    throw new Error('acceptance F: a representable pasted table must become a table node')
   }
-  const paragraphs = doc.content?.filter((n) => n.type === 'paragraph') ?? []
-  const row1Text = getNodeText(paragraphs[0])
-  const row2Text = getNodeText(paragraphs[1])
-  const row3Text = getNodeText(paragraphs[2])
+  const tableRows = (tableNode.content ?? []).filter((row) => row.type === 'tableRow')
+  if (tableRows.length !== 3) {
+    throw new Error(`acceptance F: pasted table row count = ${tableRows.length}, want 3`)
+  }
+  for (const row of tableRows) {
+    const cells = row.content ?? []
+    if (cells.length !== 2) {
+      throw new Error(`acceptance F: pasted table column count = ${cells.length}, want 2`)
+    }
+  }
+  const headerCells = tableRows[0].content ?? []
+  const bodyCells = tableRows[1].content ?? []
+  if (headerCells[0]?.type !== 'tableHeader' || headerCells[1]?.type !== 'tableHeader') {
+    throw new Error('acceptance F: the first row must stay a header row')
+  }
+  if (bodyCells[0]?.type !== 'tableCell' || bodyCells[1]?.type !== 'tableCell') {
+    throw new Error('acceptance F: body rows must stay body cells')
+  }
+  if (getNodeText(headerCells[0]) !== 'Name' || getNodeText(headerCells[1]) !== 'Score') {
+    throw new Error(`acceptance F: header cell text mismatch: ${getNodeText(headerCells[0])} / ${getNodeText(headerCells[1])}`)
+  }
+  if (getNodeText(bodyCells[0]) !== 'Alice' || getNodeText(bodyCells[1]) !== '10') {
+    throw new Error(`acceptance F: body cell text mismatch: ${getNodeText(bodyCells[0])} / ${getNodeText(bodyCells[1])}`)
+  }
+  // The Go schema accepts only colspan, rowspan, and colwidth on a cell, so a
+  // leaked alignment attribute would reject the whole save.
+  for (const row of tableRows) {
+    for (const cell of row.content ?? []) {
+      const attrs = cell.attrs ?? {}
+      for (const key of Object.keys(attrs)) {
+        if (key !== 'colspan' && key !== 'rowspan' && key !== 'colwidth') {
+          throw new Error(`acceptance F: cell persisted unsupported attribute ${key}`)
+        }
+      }
+    }
+  }
+  const serializedTable = JSON.stringify(doc)
+  if (serializedTable.includes('"align"')) {
+    throw new Error('acceptance F: the pasted table persisted an alignment attribute')
+  }
 
-  if (row1Text !== 'Name | Score' || row2Text !== 'Alice | 10' || row3Text !== 'Bob |') {
-    throw new Error(`acceptance F: table rows mismatch: row1=${row1Text}, row2=${row2Text}, row3=${row3Text}`)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // F2. A table that cannot be represented is flattened without losing text
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  editor.commands.setContent({
+    type: 'doc',
+    content: [{ type: 'paragraph' }],
+  })
+  editor.commands.focus('start')
+  await tick()
+  await delay(20)
+
+  dispatchPasteEvent(editor, {
+    html: '<table><tr><td>Outer one</td><td><table><tr><td>Nested</td></tr></table></td></tr></table>',
+    text: 'Outer one | Nested',
+  })
+  await tick()
+  await delay(40)
+
+  doc = editor.getJSON()
+  const nestedTableLeak = findNodeByType(doc.content, 'table')
+  if (nestedTableLeak) {
+    throw new Error('acceptance F2: a nested table must not survive as a table node')
+  }
+  const flattenedText = (doc.content ?? []).map((node) => getNodeText(node)).join(' ')
+  if (!flattenedText.includes('Outer one') || !flattenedText.includes('Nested')) {
+    throw new Error(`acceptance F2: flattened table lost cell text: ${flattenedText}`)
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

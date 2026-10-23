@@ -378,6 +378,74 @@ input {
   background: var(--surface-active);
 }
 
+/* A plain in-note table is an ordinary document block: it follows typing flow,
+   never widens the document, and scrolls its own overflow instead of the page. */
+.editor-host .prose-editor .tableWrapper {
+  margin: 0 0 0.85em;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.editor-host .prose-editor table {
+  margin: 0;
+  border-collapse: collapse;
+  width: 100%;
+  table-layout: fixed;
+  font-size: 0.94em;
+  line-height: 1.6;
+}
+
+.editor-host .prose-editor table td,
+.editor-host .prose-editor table th {
+  position: relative;
+  padding: 0.5em 0.7em;
+  border: 1px solid var(--border-subtle);
+  vertical-align: top;
+}
+
+.editor-host .prose-editor table th {
+  background: var(--surface-app);
+  color: var(--text-primary);
+  font-weight: 600;
+  text-align: left;
+}
+
+.editor-host .prose-editor table td > *,
+.editor-host .prose-editor table th > * {
+  margin: 0 0 0.4em;
+}
+
+.editor-host .prose-editor table td > *:last-child,
+.editor-host .prose-editor table th > *:last-child {
+  margin-bottom: 0;
+}
+
+.editor-host .prose-editor table p {
+  margin: 0;
+}
+
+/* The selected column is marked with a visible resize affordance so column
+   width adjustment is discoverable without a persistent toolbar. */
+.editor-host .prose-editor .column-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  bottom: 0;
+  width: 4px;
+  z-index: 10;
+  background: var(--border-input-focus);
+  pointer-events: none;
+}
+
+.editor-host .prose-editor .selectedCell {
+  background: var(--surface-active);
+}
+
+.editor-host .prose-editor table.resize-cursor {
+  cursor: col-resize;
+}
+
 .editor-host .prose-editor ul[data-type="taskList"] {
   margin: 0 0 0.85em;
   padding: 0;

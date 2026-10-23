@@ -3,6 +3,7 @@ import { Extension } from '@tiptap/core'
 import Suggestion, { type SuggestionKeyDownProps, type SuggestionProps } from '@tiptap/suggestion'
 import { getMessages } from './i18n'
 import type { ResolvedLanguage } from './settings'
+import { DEFAULT_TABLE_COLUMNS, DEFAULT_TABLE_ROWS, DEFAULT_TABLE_WITH_HEADER_ROW } from './tableExtension'
 
 export interface SlashCommandItem {
   id: string
@@ -125,6 +126,26 @@ const definitions: SlashCommandDefinition[] = [
     },
     execute: (editor, range) => {
       editor.chain().focus().deleteRange(range).setHorizontalRule().run()
+    },
+  },
+  {
+    id: 'table',
+    label: (messages) => messages.slash.table,
+    keywords: {
+      en: ['table', 'grid', 'rows', 'columns', 'sheet'],
+      ko: ['표', '테이블', '격자', '행', '열'],
+    },
+    execute: (editor, range) => {
+      editor
+        .chain()
+        .focus()
+        .deleteRange(range)
+        .insertTable({
+          rows: DEFAULT_TABLE_ROWS,
+          cols: DEFAULT_TABLE_COLUMNS,
+          withHeaderRow: DEFAULT_TABLE_WITH_HEADER_ROW,
+        })
+        .run()
     },
   },
 ]

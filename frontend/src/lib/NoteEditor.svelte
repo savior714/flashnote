@@ -7,6 +7,10 @@
   import { IngestImage } from '../../bindings/github.com/savior714/flashnote/appservice'
   import { AttachmentImage, attachmentImageContent } from './attachmentImage'
   import FormattingBubble from './FormattingBubble.svelte'
+  import {
+    CURRENT_DOCUMENT_SCHEMA_VERSION,
+    isReadableDocumentEnvelope,
+  } from './documentWire'
   import { isValidExternalWebUrl, openExternalUrl } from './linkHelper'
   import { RichPasteNormalization } from './richPaste'
   import SlashMenu from './SlashMenu.svelte'
@@ -20,6 +24,7 @@
   } from './slashCommands'
   import { runChecklistInteractionAcceptance } from './checklistAcceptance'
   import type { ResolvedLanguage } from './settings'
+  import { tableExtensions } from './tableExtension'
   import { syncTaskCheckboxLabels, TaskItem, TaskList } from './taskList'
 
   type Props = {
@@ -149,11 +154,8 @@
   }, () => language)
 
   function persistedDoc(): JSONContent {
-    const envelope = JSON.parse(documentJSON) as {
-      schemaVersion?: unknown
-      doc?: unknown
-    }
-    if (envelope.schemaVersion !== 1 || typeof envelope.doc !== 'object' || envelope.doc === null) {
+    const envelope = JSON.parse(documentJSON)
+    if (!isReadableDocumentEnvelope(envelope)) {
       throw new Error('Flashnote received an invalid persisted document')
     }
     return envelope.doc as JSONContent
@@ -270,6 +272,7 @@
             isAllowedUri: (url) => isValidExternalWebUrl(url),
           },
         }),
+        ...tableExtensions,
         TaskList,
         TaskItem.configure({ getLanguage: () => language }),
         AttachmentImage,
@@ -295,7 +298,7 @@
       onUpdate: ({ editor: updatedEditor }) => {
         onDocumentChange(
           JSON.stringify({
-            schemaVersion: 1,
+            schemaVersion: CURRENT_DOCUMENT_SCHEMA_VERSION,
             doc: updatedEditor.getJSON(),
           }),
         )

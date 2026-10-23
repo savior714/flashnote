@@ -22,6 +22,33 @@ const PLAIN_BYTE_LIMIT = 32 * 1024 * 1024
 const SAVE_TRANSPORT_CAP_BYTES = 64 * 1024 * 1024
 const ENVELOPE_FRAME_SLACK = 4096
 
+// The document schema version Flashnote writes, and the versions it reads. v2
+// extends the vocabulary with in-note tables and the in-note task database while
+// admitting the whole v1 vocabulary, so a document from either version loads.
+// Anything else is refused rather than guessed at, matching the Go validation
+// boundary in internal/document.
+export const CURRENT_DOCUMENT_SCHEMA_VERSION = 2
+export const READABLE_DOCUMENT_SCHEMA_VERSIONS = [1, 2] as const
+
+export type DocumentEnvelope = {
+  schemaVersion: number
+  doc: object
+}
+
+/** Reports whether a persisted document envelope is one Flashnote can read. */
+export function isReadableDocumentEnvelope(value: unknown): value is DocumentEnvelope {
+  if (typeof value !== 'object' || value === null) return false
+  const envelope = value as { schemaVersion?: unknown; doc?: unknown }
+  return (
+    typeof envelope.schemaVersion === 'number' &&
+    READABLE_DOCUMENT_SCHEMA_VERSIONS.includes(
+      envelope.schemaVersion as (typeof READABLE_DOCUMENT_SCHEMA_VERSIONS)[number],
+    ) &&
+    typeof envelope.doc === 'object' &&
+    envelope.doc !== null
+  )
+}
+
 export function documentWirePrefix(): string {
   return WIRE_PREFIX
 }

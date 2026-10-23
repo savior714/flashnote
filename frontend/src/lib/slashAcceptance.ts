@@ -7,6 +7,7 @@ import {
   setExternalLinkOpenerForTest,
 } from './linkHelper'
 import { dispatchPasteEvent, runRichPasteAcceptance } from './richPasteAcceptance'
+import { CURRENT_DOCUMENT_SCHEMA_VERSION } from './documentWire'
 import { runImageResizeAcceptance } from './imageResizeAcceptance'
 import { runCodeBlockAcceptance } from './codeBlockAcceptance'
 import { runSettingsAcceptance } from './settingsAcceptance'
@@ -96,8 +97,8 @@ export async function runSlashAcceptance(
       throw new Error('acceptance: slash menu failed to open on "/" trigger')
     }
     const items = menu.querySelectorAll('.slash-menu-item')
-    if (items.length !== 10) {
-      throw new Error(`acceptance: expected 10 slash items on trigger, got ${items.length}`)
+    if (items.length !== 11) {
+      throw new Error(`acceptance: expected 11 slash items on trigger, got ${items.length}`)
     }
     const expectedSlashLabels = [
       'Text',
@@ -110,6 +111,7 @@ export async function runSlashAcceptance(
       'Quote',
       'Code block',
       'Divider',
+      'Table',
     ].sort()
     const slashLabels = Array.from(items)
       .map((item) => item.textContent?.trim() ?? '')
@@ -656,7 +658,7 @@ export async function runSlashAcceptance(
 
     onDocumentChange(
       JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: CURRENT_DOCUMENT_SCHEMA_VERSION,
         doc: editor.getJSON(),
       }),
     )

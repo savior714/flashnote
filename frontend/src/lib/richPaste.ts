@@ -84,6 +84,19 @@ function unwrapElement(element: Element) {
 
 function degradeTable(table: HTMLTableElement, doc: Document): Node[] {
   const paragraphs: Node[] = []
+
+  // A caption is table metadata rather than a cell; its text must not disappear
+  // just because the table itself is being flattened.
+  const caption = table.querySelector('caption')
+  if (caption) {
+    const captionText = (caption.textContent ?? '').replace(/\s+/g, ' ').trim()
+    if (captionText) {
+      const p = doc.createElement('p')
+      p.textContent = captionText
+      paragraphs.push(p)
+    }
+  }
+
   const rows = Array.from(table.querySelectorAll('tr'))
 
   for (const row of rows) {
@@ -123,13 +136,84 @@ function degradeTable(table: HTMLTableElement, doc: Document): Node[] {
 }
 
 /**
+ * A pasted table becomes a real table node only when its whole structure maps
+ * onto Flashnote's canonical table vocabulary. A nested table is the case that
+ * cannot map, because a Flashnote cell cannot hold another table; such a table
+ * is flattened to text instead of being half-kept.
+ */
+function isRepresentableTable(table: HTMLTableElement): boolean {
+  return table.querySelectorAll('table').length === 0
+}
+
+/**
+ * Reshapes a representable HTML table into the shape the Flashnote table nodes
+ * parse: plain `tr` children under `table`, a `colgroup` that carries column
+ * widths, and cells that keep only colspan/rowspan.
+ */
+function normalizeTable(table: HTMLTableElement) {
+  const caption = table.querySelector('caption')
+  if (caption) {
+    caption.remove()
+  }
+
+  for (const tag of ['thead', 'tbody', 'tfoot']) {
+    for (const section of Array.from(table.querySelectorAll(tag))) {
+      const parent = section.parentNode
+      if (!parent) continue
+      while (section.firstChild) {
+        parent.insertBefore(section.firstChild, section)
+      }
+      parent.removeChild(section)
+    }
+  }
+
+  const colgroup = table.querySelector('colgroup')
+  if (colgroup) {
+    for (const attr of Array.from(colgroup.attributes)) {
+      if (attr.name !== 'span') {
+        colgroup.removeAttribute(attr.name)
+      }
+    }
+    for (const col of Array.from(colgroup.querySelectorAll('col'))) {
+      for (const attr of Array.from(col.attributes)) {
+        if (attr.name !== 'width') {
+          col.removeAttribute(attr.name)
+        }
+      }
+      // A col's width is only usable as a positive pixel number.
+      const width = parseInt(col.getAttribute('width') ?? '', 10)
+      if (Number.isInteger(width) && width > 0) {
+        col.setAttribute('width', String(width))
+      } else {
+        col.removeAttribute('width')
+      }
+    }
+  }
+
+  for (const cell of Array.from(table.querySelectorAll('th, td'))) {
+    for (const attr of Array.from(cell.attributes)) {
+      if (attr.name !== 'colspan' && attr.name !== 'rowspan') {
+        cell.removeAttribute(attr.name)
+      }
+    }
+    for (const key of ['colspan', 'rowspan']) {
+      const value = parseInt(cell.getAttribute(key) ?? '', 10)
+      if (!Number.isInteger(value) || value < 1) {
+        cell.removeAttribute(key)
+      }
+    }
+  }
+}
+
+/**
  * Normalizes rich pasted HTML string into Flashnote's supported document vocabulary:
  * - Headings (h1, h2, h3)
  * - Paragraphs, blockquotes, lists (ul, ol, li), code blocks (pre/code), dividers (hr), line breaks (br)
  * - Inline formatting (strong, em, s, code, valid external links)
  * - Converts inline styles (font-weight, font-style, text-decoration) into semantic tags
  * - Strips unsupported styling (color, font-family, font-size, underline)
- * - Degrades tables into " | "-delimited paragraphs
+ * - Keeps a pasted table as a real table when its structure is representable,
+ *   and flattens it to " | "-delimited paragraphs when it is not
  * - Degrades unsupported headings (h4..h6) and containers (div, section) into paragraphs
  * - Discards unsafe/widget tags and HTML-only remote images
  */
@@ -164,17 +248,21 @@ export function normalizeRichPasteHTML(html: string): string {
     }
   }
 
-  // 3. Degrade tables (innermost first)
-  const tables = Array.from(body.querySelectorAll('table'))
+  // 3. Keep representable tables as tables; flatten the rest to text
+  // (innermost first, so a nested table is judged inside its own context)
+  const tables = Array.from(body.querySelectorAll('table')).reverse()
   for (const table of tables) {
-    const degradedNodes = degradeTable(table, doc)
     const parent = table.parentNode
-    if (parent) {
+    if (!parent) continue
+    if (!isRepresentableTable(table)) {
+      const degradedNodes = degradeTable(table, doc)
       for (const node of degradedNodes) {
         parent.insertBefore(node, table)
       }
       parent.removeChild(table)
+      continue
     }
+    normalizeTable(table)
   }
 
   // 4. Semanticize inline CSS styles on all elements
@@ -334,7 +422,9 @@ export function normalizeRichPasteHTML(html: string): string {
     }
   }
 
-  // 8. Strip all remaining attributes from elements
+  // 8. Strip all remaining attributes from elements, keeping only the ones the
+  // canonical vocabulary actually stores: link href, ordered-list start, code
+  // language, and a table's merge spans and column widths.
   const remainingElements = Array.from(body.querySelectorAll('*'))
   for (const el of remainingElements) {
     const tag = el.tagName.toLowerCase()
@@ -351,6 +441,18 @@ export function normalizeRichPasteHTML(html: string): string {
       }
       if (tag === 'code' && attr.name === 'class' && attr.value.startsWith('language-')) {
         continue
+      }
+      if (tag === 'col' && attr.name === 'width') {
+        const val = parseInt(attr.value, 10)
+        if (!isNaN(val) && val > 0) {
+          continue
+        }
+      }
+      if ((tag === 'td' || tag === 'th') && (attr.name === 'colspan' || attr.name === 'rowspan')) {
+        const val = parseInt(attr.value, 10)
+        if (!isNaN(val) && val > 0) {
+          continue
+        }
       }
       el.removeAttribute(attr.name)
     }

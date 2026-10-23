@@ -12,6 +12,7 @@ import {
   PermanentlyDeleteNote,
 } from '../../bindings/github.com/savior714/flashnote/appservice'
 import { runDataSafetyAcceptance } from './dataSafetyAcceptance'
+import { isReadableDocumentEnvelope } from './documentWire'
 
 type NoteTuple = [string, string, string, number, boolean]
 
@@ -46,8 +47,8 @@ function nodeText(value: unknown): string {
 }
 
 function checklistStates(documentJSON: string, acceptanceText: string): boolean[] {
-  const envelope = JSON.parse(documentJSON) as { schemaVersion?: unknown; doc?: unknown }
-  if (envelope.schemaVersion !== 1 || !envelope.doc || typeof envelope.doc !== 'object') {
+  const envelope = JSON.parse(documentJSON)
+  if (!isReadableDocumentEnvelope(envelope)) {
     throw new Error('acceptance checklist durability: invalid canonical document envelope')
   }
 
@@ -418,8 +419,8 @@ export async function runNewNoteShortcutAcceptance(
     ) {
       throw new Error('acceptance sidebar create: New note click did not produce the canonical empty revision-1 note')
     }
-    const menuDocumentEnvelope = JSON.parse(menuCreatedSnapshot[2]) as { schemaVersion?: unknown; doc?: unknown }
-    if (menuDocumentEnvelope.schemaVersion !== 1 || !menuDocumentEnvelope.doc || typeof menuDocumentEnvelope.doc !== 'object') {
+    const menuDocumentEnvelope = JSON.parse(menuCreatedSnapshot[2])
+    if (!isReadableDocumentEnvelope(menuDocumentEnvelope)) {
       throw new Error('acceptance sidebar create: New note click produced an invalid canonical document envelope')
     }
 
@@ -567,8 +568,8 @@ export async function runNewNoteShortcutAcceptance(
       }
     }
 
-    const newDocEnvelope = JSON.parse(getDocumentJSON()) as { schemaVersion?: unknown; doc?: unknown }
-    if (newDocEnvelope.schemaVersion !== 1 || typeof newDocEnvelope.doc !== 'object') {
+    const newDocEnvelope = JSON.parse(getDocumentJSON())
+    if (!isReadableDocumentEnvelope(newDocEnvelope)) {
       throw new Error('acceptance S3: new note canonical document envelope is invalid')
     }
 

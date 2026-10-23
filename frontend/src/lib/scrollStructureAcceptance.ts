@@ -1,4 +1,5 @@
 import { tick } from 'svelte'
+import { CURRENT_DOCUMENT_SCHEMA_VERSION } from './documentWire'
 import {
   CreateNote,
   ListNotes,
@@ -79,7 +80,7 @@ function assertViewportDoesNotScroll(where: string): void {
 
 function longDocumentEnvelope(): string {
   return JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: CURRENT_DOCUMENT_SCHEMA_VERSION,
     doc: {
       type: 'doc',
       content: Array.from({ length: DOCUMENT_OVERFLOW_PARAGRAPH_COUNT }, (_, index) => ({

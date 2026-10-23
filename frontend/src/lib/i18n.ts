@@ -119,6 +119,7 @@ const englishMessages = {
     quote: 'Quote',
     codeBlock: 'Code block',
     divider: 'Divider',
+    table: 'Table',
   },
   dialogs: {
     noteTrashTitle: 'Move note to Trash?',
@@ -294,6 +295,7 @@ const koreanMessages = {
     quote: '인용문',
     codeBlock: '코드 블록',
     divider: '구분선',
+    table: '표',
   },
   dialogs: {
     noteTrashTitle: '노트를 휴지통으로 옮길까요?',
