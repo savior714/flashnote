@@ -14,7 +14,7 @@ function getNodeText(node?: JSONContent): string {
   return ''
 }
 
-function findNodeByType(nodes: JSONContent[] | undefined, type: string): JSONContent | undefined {
+export function findNodeByType(nodes: JSONContent[] | undefined, type: string): JSONContent | undefined {
   if (!nodes) return undefined
   for (const node of nodes) {
     if (node.type === type) return node

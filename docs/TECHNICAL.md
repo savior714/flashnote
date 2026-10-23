@@ -320,7 +320,31 @@ If public distribution is explicitly reopened later, re-admit the signing/notari
 - A stable source-run process remains the simplest dogfooding workflow; a self-built universal DMG removes source/toolchain setup from a personally owned secondary Mac without implying a public release.
 - Sync is a separate persistence/distribution concern: packaging the executable cannot make the local library follow the user safely.
 
-## 12. Open technical decisions
+## 12. Implementation status: tables and the in-note task database
+
+This section records what is actually implemented, which is a different claim from what §4 authorizes. It is kept current so the two cannot be confused.
+
+**Implemented and covered by automated proof**
+
+- `schemaVersion` v2 reading and validation, including the `table` family and the `database` node, the Go-side normalization that rewrites database attributes from typed structs, and the rejection cases for duplicate identifiers, wrong value types, dangling references, circular rules, and a stale derived date.
+- v1 compatibility: v1 documents stay readable and structurally valid, promotion to v2 is a version bump over an unchanged body, and an unknown future version fails visibly.
+- Canonical search-text extraction in `internal/document`, now the single owner behind both the derived display title and the search index, so a database-only note derives a real title.
+- Markdown export for plain tables (GFM, or HTML when merged or header-less), database record tables, and record memos.
+- The editor's table editing: rows, columns, header cells, merge and unmerge, column resizing, keyboard movement, paste, and undo/redo through the Tiptap table extension, with the alignment attribute dropped from the cell node spec so it never becomes durable state.
+- Table-to-database conversion as one transaction, refusal on merged cells, and the payload-building rules.
+- Database editing for every property type, sorting and filtering as presentation only, batch edit on selected records as one unit, the record detail panel with its Markdown memo, linked date rules with calendar arithmetic, manual detach and reattach, conditional highlights, and the week and month calendar views.
+
+**Proven, but only against the automatable layers**
+
+- Calendar-date arithmetic is cross-checked between `internal/document.AddCalendarDays` and the frontend `databaseDates` over the same date and offset tables, including month-end, year-end, leap-year, the 2100 century rule, and the two daylight-saving windows.
+- The Go validation boundary is proven to accept exactly the payload the frontend emits, by loading that payload in a Go test.
+- Two defects were found by the frontend tests and fixed: a rule chain that only settled when its rules happened to be stored in order, and an empty value that sorted last in one direction but first in the other.
+
+**Not verified in a live application session**
+
+The macOS acceptance pipeline cannot complete in the current environment. It reaches the slash-menu filtering step and then stops with no further activity, both on this branch and on the untouched `origin/main` ancestor, so the stall is environmental rather than a regression. That means the editor-level behavior — actually inserting a table, converting it, typing in a cell, dragging a resize handle, the record panel, and the calendar views — has not been exercised by a real session, and no performance comparison against the baseline profile exists. Those remain open until an interactive session can be used.
+
+## 13. Open technical decisions
 
 The following are intentionally not yet fixed:
 

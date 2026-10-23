@@ -6,7 +6,8 @@ import {
   openExternalUrl,
   setExternalLinkOpenerForTest,
 } from './linkHelper'
-import { dispatchPasteEvent, runRichPasteAcceptance } from './richPasteAcceptance'
+import { dispatchPasteEvent, findNodeByType, runRichPasteAcceptance } from './richPasteAcceptance'
+import { convertTableToDatabase } from './tableToDatabase'
 import { CURRENT_DOCUMENT_SCHEMA_VERSION } from './documentWire'
 import { runImageResizeAcceptance } from './imageResizeAcceptance'
 import { runCodeBlockAcceptance } from './codeBlockAcceptance'
@@ -32,6 +33,20 @@ function dispatchKey(editor: Editor, key: string, options: { metaKey?: boolean; 
   })
   dom.dispatchEvent(event)
   return event
+}
+
+/** The document position of the first node of a type, or null if absent. */
+function firstNodePosition(editor: Editor, type: string): number | null {
+  let found: number | null = null
+  editor.state.doc.descendants((node, pos) => {
+    if (found !== null) return false
+    if (node.type.name === type) {
+      found = pos
+      return false
+    }
+    return true
+  })
+  return found
 }
 
 export async function runSlashAcceptance(
@@ -655,6 +670,81 @@ export async function runSlashAcceptance(
     })
     await tick()
     await delay(30)
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // E5. Plain table and table-to-database conversion
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    editor.commands.setContent({
+      type: 'doc',
+      content: [{ type: 'paragraph' }],
+    })
+    editor.commands.focus('start')
+    editor.chain().deleteRange({ from: 0, to: 2 }).insertTable({
+      rows: 2,
+      cols: 2,
+      withHeaderRow: true,
+    }).run()
+    await tick()
+    await delay(40)
+
+    const insertedTable = findNodeByType(editor.getJSON().content, 'table')
+    if (!insertedTable) {
+      throw new Error('acceptance E5: inserting a table from the slash menu produced no table')
+    }
+    const insertedRows = insertedTable.content ?? []
+    if (insertedRows.length !== 2) {
+      throw new Error(`acceptance E5: inserted table row count = ${insertedRows.length}, want 2`)
+    }
+
+    // Type into the first header cell, then confirm the text survives conversion.
+    const headerCellPos = firstNodePosition(editor, 'tableHeader')
+    if (headerCellPos === null) {
+      throw new Error('acceptance E5: the inserted table has no header cell')
+    }
+    editor.chain().insertContentAt(headerCellPos + 1, 'Task').run()
+    await tick()
+    await delay(30)
+
+    const beforeConversion = editor.getJSON()
+    if (!JSON.stringify(beforeConversion).includes('Task')) {
+      throw new Error('acceptance E5: typed text did not reach the table cell')
+    }
+
+    // Converting is one transaction, so one undo returns the plain table.
+    const conversion = convertTableToDatabase(editor)
+    if (!conversion.ok) {
+      throw new Error(`acceptance E5: table conversion was refused: ${conversion.reason}`)
+    }
+    const afterConversion = editor.getJSON()
+    const databaseNode = findNodeByType(afterConversion.content, 'database')
+    if (!databaseNode) {
+      throw new Error('acceptance E5: conversion produced no database node')
+    }
+    const convertedProperties = (databaseNode.attrs as { payload: { properties: Array<{ type: string }> } }).payload.properties
+    if (convertedProperties.length < 1) {
+      throw new Error('acceptance E5: converted database has no properties')
+    }
+    if (!convertedProperties.some((property) => property.type === 'title')) {
+      throw new Error('acceptance E5: converted database is missing its single title property')
+    }
+
+    editor.commands.undo()
+    await tick()
+    await delay(40)
+    if (!findNodeByType(editor.getJSON().content, 'table')) {
+      throw new Error('acceptance E5: undo did not restore the original table')
+    }
+    if (findNodeByType(editor.getJSON().content, 'database')) {
+      throw new Error('acceptance E5: undo left a database node behind')
+    }
+
+    editor.commands.setContent({
+      type: 'doc',
+      content: [{ type: 'paragraph' }],
+    })
+    await tick()
+    await delay(20)
 
     onDocumentChange(
       JSON.stringify({
