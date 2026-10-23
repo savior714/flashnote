@@ -91,6 +91,23 @@ export function addMonths(value: CalendarDate, months: number): CalendarDate {
   return format(year, month, day)
 }
 
+/**
+ * The calendar cells of one month, starting on the Monday of the week that holds
+ * the month's first day and always a whole number of weeks. The grid holds at
+ * least five rows and never more than six, so its height stays stable between
+ * months instead of jumping as the month length changes.
+ */
+export function monthGridCells(monthStart: CalendarDate): CalendarDate[] {
+  const cells: CalendarDate[] = []
+  for (let day = startOfWeek(monthStart); day < addMonths(monthStart, 1); day = addCalendarDays(day, 1)) {
+    cells.push(day)
+  }
+  while (cells.length < 35 || cells.length % 7 !== 0) {
+    cells.push(addCalendarDays(cells[cells.length - 1], 1))
+  }
+  return cells.slice(0, 42)
+}
+
 /** Today's calendar date in the local timezone, as a canonical date value. */
 export function todayCalendarDate(now: Date = new Date()): CalendarDate {
   return format(now.getFullYear(), now.getMonth() + 1, now.getDate())

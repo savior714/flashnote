@@ -9,7 +9,6 @@ import { calendarDaysBetween, todayCalendarDate, type CalendarDate } from './dat
 import {
   DUE_SOON_WINDOW_DAYS,
   isRecordComplete,
-  propertyById,
   type DatabasePayload,
   type DatabaseRecord,
   type DatabaseProperty,
@@ -70,11 +69,6 @@ export function isDueSoon(
   return dueState(payload, record, today) === 'due-soon'
 }
 
-/** The target property of the rule driving `propertyId`, if any. */
-export function ruleTargetOf(payload: DatabasePayload, propertyId: string) {
-  return payload.dateRules.find((rule) => rule.targetPropertyId === propertyId)
-}
-
 /** Whether this record's date on `propertyId` was set by hand. */
 export function isManual(
   payload: DatabasePayload,
@@ -84,20 +78,4 @@ export function isManual(
   return payload.manualDates.some(
     (entry) => entry.recordId === recordId && entry.propertyId === propertyId,
   )
-}
-
-/** Whether a rule can still be created for this base and target pair. */
-export function canCreateRule(
-  payload: DatabasePayload,
-  basePropertyId: string,
-  targetPropertyId: string,
-  offsetDays: number,
-): boolean {
-  return (
-    payload.dateRules.every(
-      (rule) => rule.targetPropertyId !== targetPropertyId,
-    ) &&
-    propertyById(payload, basePropertyId)?.type === 'date' &&
-    propertyById(payload, targetPropertyId)?.type === 'date'
-  ) && offsetDays === Math.round(offsetDays)
 }

@@ -24,6 +24,8 @@
     setDateValue,
   } from './databaseRules'
   import RecordPanel from './RecordPanel.svelte'
+  import WeekView from './WeekView.svelte'
+  import MonthView from './MonthView.svelte'
 
   type Props = {
     payload: DatabasePayload
@@ -57,6 +59,7 @@
   let selected = $state<Set<string>>(new Set())
   let openedRecordId = $state<string | null>(null)
   let filtersOpen = $state(false)
+  let rulesOpen = $state(false)
 
   let openedRecord = $derived.by(() => {
     const openId = openedRecordId
@@ -354,6 +357,26 @@
     })
   }
 
+  /**
+   * Creates a task from a calendar date, giving it that date as its deadline.
+   * The pick falls back to the first date property, so a converted table's date
+   * column receives the picked day without a separate setting.
+   */
+  function createTaskOnDate(date: string) {
+    const target =
+      payload.properties.find(
+        (property) => property.type === 'date' && /due|deadline|마감|기한/i.test(property.name),
+      ) ?? payload.properties.find((property) => property.type === 'date')
+    const title = payload.properties.find((property) => property.type === 'title')
+    const values: Record<string, unknown> = {}
+    if (title) values[title.id] = ''
+    if (target) values[target.id] = date
+    commit({
+      ...clonePayload(payload),
+      records: [...payload.records, newRecord(crypto.randomUUID(), values)],
+    })
+  }
+
   // ── date rules ────────────────────────────────────────────────────────
   function addRule(basePropertyId: string, targetPropertyId: string, offsetDays: number) {
     const problem = ruleProblem(payload, basePropertyId, targetPropertyId, offsetDays)
@@ -380,6 +403,31 @@
 
   function reattach(recordId: string, propertyId: string) {
     commit(reattachManualDate(payload, recordId, propertyId))
+  }
+
+  // ── date rule editor ───────────────────────────────────────────────────
+  let ruleDraftBase = $state('')
+  let ruleDraftTarget = $state('')
+  let ruleDraftOffset = $state(7)
+  let ruleError = $state('')
+
+  $effect(() => {
+    // Drafts only need a valid starting pair of date properties.
+    if (ruleDraftBase === '' || ruleDraftTarget === '') {
+      const dates = payload.properties.filter((property) => property.type === 'date')
+      if (ruleDraftBase === '' && dates[0]) ruleDraftBase = dates[0].id
+      if (ruleDraftTarget === '' && dates[1]) ruleDraftTarget = dates[1].id
+    }
+  })
+
+  function submitRule() {
+    const problem = ruleProblem(payload, ruleDraftBase, ruleDraftTarget, ruleDraftOffset)
+    if (problem) {
+      ruleError = problem.message
+      return
+    }
+    ruleError = ''
+    addRule(ruleDraftBase, ruleDraftTarget, ruleDraftOffset)
   }
 
   // ── highlights ────────────────────────────────────────────────────────
@@ -487,6 +535,9 @@
     <button type="button" class="quiet" onclick={() => (filtersOpen = !filtersOpen)}>
       {messages.filter}
     </button>
+    <button type="button" class="quiet" onclick={() => (rulesOpen = !rulesOpen)}>
+      {messages.ruleEditor}
+    </button>
     {#each payload.filters ?? [] as filter, index (index)}
       <span class="filter-chip">{filter.propertyId}</span>
     {/each}
@@ -583,6 +634,53 @@
     </div>
   {/if}
 
+  {#if rulesOpen}
+    <div class="database-rules">
+      <span class="muted">{messages.ruleEditor}:</span>
+      <select bind:value={ruleDraftBase}>
+        {#each payload.properties.filter((property) => property.type === 'date') as property (property.id)}
+          <option value={property.id}>{property.name}</option>
+        {/each}
+      </select>
+      <span class="muted">+</span>
+      <input
+        type="number"
+        class="rule-offset"
+        bind:value={ruleDraftOffset}
+        aria-label={messages.shiftDays}
+      />
+      <span class="muted">{messages.shiftDays}</span>
+      <span class="muted">→</span>
+      <select bind:value={ruleDraftTarget}>
+        {#each payload.properties.filter((property) => property.type === 'date') as property (property.id)}
+          <option value={property.id}>{property.name}</option>
+        {/each}
+      </select>
+      <button type="button" class="quiet" onclick={submitRule}>{messages.batchApply}</button>
+      {#if ruleError}
+        <span class="database-error" role="alert">{ruleError}</span>
+      {/if}
+    </div>
+  {/if}
+
+  {#if payload.view === 'week'}
+    <WeekView
+      {payload}
+      {language}
+      {editable}
+      onOpenRecord={(recordId) => (openedRecordId = recordId)}
+      onCreateTask={createTaskOnDate}
+    />
+  {:else if payload.view === 'month'}
+    <MonthView
+      {payload}
+      {language}
+      {editable}
+      onOpenRecord={(recordId) => (openedRecordId = recordId)}
+      onCreateTask={createTaskOnDate}
+    />
+  {/if}
+
   {#if payload.view === 'table'}
     {#if records.length === 0}
       <p class="database-empty">{messages.emptyRecords}</p>
@@ -629,6 +727,9 @@
                 class:selected={selected.has(record.id)}
                 class:overdue={isOverdue(payload, record)}
                 class:due-soon={isDueSoon(payload, record)}
+                class={payload.rowHighlights?.[record.id]
+                  ? `highlight-${payload.rowHighlights[record.id]}`
+                  : ''}
               >
                 <td class="select-column">
                   <input
@@ -718,6 +819,29 @@
                   >
                     {messages.openRecord}
                   </button>
+                  <span class="record-badges">
+                    {#if isRecordComplete(payload, record)}
+                      <span class="badge complete" title={messages.dueComplete}>✓</span>
+                    {:else if isOverdue(payload, record)}
+                      <span class="badge overdue" title={messages.dueOverdue}>!</span>
+                    {:else if isDueSoon(payload, record)}
+                      <span class="badge soon" title={messages.dueSoon}>·</span>
+                    {/if}
+                  </span>
+                  <select
+                    class="highlight-select"
+                    aria-label={messages.highlight}
+                    value={payload.rowHighlights?.[record.id] ?? ''}
+                    onchange={(event) =>
+                      setHighlight(record.id, (event.target as HTMLSelectElement).value)}
+                  >
+                    <option value="">{messages.highlightNone}</option>
+                    <option value="yellow">{messages.highlightYellow}</option>
+                    <option value="blue">{messages.highlightBlue}</option>
+                    <option value="green">{messages.highlightGreen}</option>
+                    <option value="red">{messages.highlightRed}</option>
+                    <option value="purple">{messages.highlightPurple}</option>
+                  </select>
                   <button type="button" class="quiet" onclick={() => deleteRecord(record.id)}>×</button>
                 </td>
               </tr>
@@ -863,6 +987,81 @@
     flex-wrap: wrap;
     gap: 6px;
     align-items: center;
+  }
+
+  .rule-offset {
+    width: 5em;
+  }
+
+  .highlight-select {
+    max-width: 5.5em;
+  }
+
+  .database-error {
+    color: var(--danger-text);
+    font-size: 0.82rem;
+  }
+
+  .record-badges {
+    display: inline-flex;
+    gap: 2px;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    border-radius: 999px;
+    font-size: 0.7em;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .badge.overdue {
+    background: var(--danger-bg);
+    color: var(--danger-text-strong);
+  }
+
+  .badge.soon {
+    background: var(--surface-active);
+    color: var(--text-secondary);
+  }
+
+  .badge.complete {
+    background: var(--surface-active);
+    color: var(--text-muted);
+  }
+
+  /* A manual row highlight tints the row. Conditional warnings stay a separate
+     badge, so a user color is never lost when a deadline warning also applies. */
+  .database-grid tr.highlight-yellow td {
+    background: color-mix(in srgb, #e8c547 22%, transparent);
+  }
+
+  .database-grid tr.highlight-blue td {
+    background: color-mix(in srgb, #4a7fd4 20%, transparent);
+  }
+
+  .database-grid tr.highlight-green td {
+    background: color-mix(in srgb, #4fa36b 20%, transparent);
+  }
+
+  .database-grid tr.highlight-red td {
+    background: color-mix(in srgb, #d4574a 20%, transparent);
+  }
+
+  .database-grid tr.highlight-purple td {
+    background: color-mix(in srgb, #8a5fd4 20%, transparent);
+  }
+
+  .database-grid tr.selected.highlight-yellow td,
+  .database-grid tr.selected.highlight-blue td,
+  .database-grid tr.selected.highlight-green td,
+  .database-grid tr.selected.highlight-red td,
+  .database-grid tr.selected.highlight-purple td {
+    background: var(--surface-active);
   }
 
   .database-empty {
