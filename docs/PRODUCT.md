@@ -1,6 +1,6 @@
 # Flashnote Product Contract
 
-_Status: product baseline v0.1 · 2026-08-27_
+_Status: product baseline v0.1 · 2026-08-27 · updated 2026-10-23 for in-note tables, the in-note task database, and its calendar views_
 
 This document is the current product authority for Flashnote's agreed MVP direction. It records product behavior and durable constraints, not transient implementation details. When implementation choices change without changing the product contract, update lower-level technical documentation instead of expanding this document.
 
@@ -31,24 +31,25 @@ Flashnote does **not** include:
 - accounts or authentication
 - cloud storage or sync
 - collaboration
-- database-style pages or structured-data views
+- standalone database pages, workspace-level databases, or databases shared between notes
+- relational properties, rollups, and a general formula engine
+- kanban, timeline, and Gantt views
+- recurring-task generation, reminders/notifications, and external calendar sync
 - tags, backlinks, note graph, or PKM workflows
 - internal note links or `[[...]]` syntax
 - plugins
 - AI features
 - templates
 - nested folders
-- a block database
 - block drag handles or block reordering UI
 - document tabs, split view, or multiple document windows
 - pinned documents
 - command palette
 - customizable keyboard shortcuts
-- table editing
 - PDF/HTML/CSV export
 - Markdown import/re-import
 - quick-capture tray/menu-bar workflows
-- sticky notes, reminders, calendar integration, or mobile capture
+- external calendar integration or mobile capture
 - document outline, table of contents pane, chapters, pagination, or document statistics
 
 Future features should not be pre-built speculatively. They should be added only when the product need is demonstrated.
@@ -169,11 +170,12 @@ Supported inline formatting:
 - inline code
 - external URL link
 
-Todo/checklist completion is deliberately document-local: checking or unchecking changes only that item's checked state and visual treatment. Completed items stay in place. Do not automatically reorder or hide them, add completion timestamps, task filters, reminders, or a task database.
+Todo/checklist completion is deliberately document-local: checking or unchecking changes only that item's checked state and visual treatment. Completed items stay in place. Do not automatically reorder or hide them, add completion timestamps, or task filters.
+
+Todo/checklist items are not a task database. The in-note task database defined in §5.6 is a separate, deliberately narrow construct with its own scope.
 
 Not supported in the MVP:
 
-- tables
 - embeds
 - arbitrary block types
 - internal note links
@@ -219,6 +221,114 @@ Only external URL links are supported in the MVP.
 
 Do not implement note autocomplete, internal links, backlinks, broken-link management, or graph semantics.
 
+### 5.6 Tables and the in-note task database
+
+#### 5.6.1 Plain tables
+
+A note body may contain an ordinary editable table. It is a normal document element and participates in typing flow, horizontal width, and vertical scroll like any other block.
+
+A table supports:
+
+- adding and deleting rows
+- adding and deleting columns
+- editing cell content
+- a header row and header column
+- column width adjustment
+- cell merge and unmerge
+- keyboard cell movement
+- the note's existing Undo/Redo history
+- copy and paste
+- structure and content restoration after save and relaunch
+
+A table is not a database by default. It acquires database behavior only when the user explicitly converts it (§5.6.2).
+
+#### 5.6.2 Converting a table to a database
+
+The user may convert a plain table into a database after creating it.
+
+Conversion rules:
+
+1. each row becomes one database record;
+2. each column becomes one database property;
+3. every existing cell's text data is preserved;
+4. the first conversion assigns a sensible default text property;
+5. the user may change a property's type afterwards;
+6. the whole conversion is one Undo unit;
+7. a failed conversion leaves the original table untouched.
+
+A table containing merged cells cannot be converted directly.
+
+- the conversion control states the blocking reason clearly;
+- it explains how to unmerge;
+- after the user unmerges, conversion becomes available again;
+- Flashnote never silently unmerges cells or discards cell content to force a conversion.
+
+Converting a database back to a plain table is **not** part of this scope.
+
+#### 5.6.3 Database location and ownership
+
+A database always lives inside one note.
+
+- Flashnote never creates a database outside a note;
+- notes never share a database;
+- a database's records are never promoted to global entities;
+- trash, restore, duplicate, and export flows for the owning note apply to its database;
+- moving a note between folders never changes which note owns a database.
+
+The database payload is part of the owning note's canonical document JSON (§9.1). It is not a second source of truth, and it never lives in a separate normalized table.
+
+Supported properties are: title, text, number, date, status, checkbox, single select, and multi select. Records and properties carry stable identifiers that sorting, filtering, and row reordering never change. Identifiers are generated by the same generator identity the rest of the app already uses.
+
+#### 5.6.4 Record detail panel
+
+Selecting a record opens a detail panel inside the note's editing area. The panel provides:
+
+- the record title
+- the database property values
+- an additional Markdown memo
+
+The memo is stored in the owning note's document JSON together with its record. The panel is neither a second document nor a separate SQLite source of truth. Opening or closing it must not lose in-progress changes, and its edits enter the note's existing autosave and revision flow.
+
+#### 5.6.5 Sorting and filtering
+
+A database offers sorting and filtering.
+
+- they change presentation only;
+- hidden rows or a changed order never lose original data;
+- editing a record while sorted changes exactly that record's data;
+- clearing a filter restores every original record;
+- sort and filter survive save and relaunch.
+
+#### 5.6.6 Batch edit
+
+Selecting several rows lets the user change their properties at once.
+
+Allowed:
+
+- every editable property except title
+- assigning the same date
+- applying a relative date calculation
+
+Required safety:
+
+- the change applies only to the selected records;
+- rows hidden by a filter are never modified by accident;
+- a partially invalid batch is never saved in an intermediate state;
+- the whole batch edit is one Undo unit;
+- detail panel, table, and calendar show the same result afterwards.
+
+#### 5.6.7 Views
+
+One database offers three views over the same data:
+
+- table
+- week calendar
+- month calendar
+
+The calendar views are a task view driven by the database's date property. Editing a date in the table shows it in the calendar, clicking a calendar record opens its detail panel, and selecting a calendar date creates a task with that date as its deadline.
+
+Out of scope: time-of-day scheduling, drag-to-reschedule, external calendar connections, recurring events, reminders, and any global calendar that merges several databases.
+
 ## 6. Paste and image handling
 
 ### 6.1 Rich paste policy
@@ -233,6 +343,7 @@ Preserve when representable:
 - links
 - supported paragraph/quote/code structures
 - supported images
+- tables, including rows, columns, headers, and column widths
 
 Strip or simplify:
 
@@ -242,11 +353,11 @@ Strip or simplify:
 - unsupported embeds or widgets
 - source-editor-specific metadata
 - unsupported block types
-- tables
+- unsupported content nested inside a pasted table
 
 The resulting document must always fit the canonical Flashnote rich-text schema.
 
-Pasted tables should degrade to a reasonable supported textual representation rather than introducing table nodes.
+A pasted table whose cells carry no unsupported structure becomes a real table node. A pasted table whose structure cannot be represented degrades to a reasonable supported textual representation rather than being silently dropped. Content is never silently lost in either direction.
 
 ### 6.2 Images
 
@@ -277,8 +388,14 @@ Search scope:
 - explicit note title
 - derived display title
 - note body text
+- plain-table cell text
+- database record titles
+- text and select-type property display strings
+- searchable text inside a record's detail memo
 
 Ranking should favor title matches over body matches, then favor more recently modified documents when otherwise comparable.
+
+A note whose body consists only of a database block no longer collapses to a meaningless `Untitled` derived title once its records carry text; the derived title comes from the first meaningful record text, while an explicitly authored title still wins. Derived display titles remain presentation data, never a second stored title (§5.3, §9.1).
 
 Results may show a short matching body excerpt. The sidebar itself remains title-only.
 
@@ -346,6 +463,8 @@ Rich-text document data is canonical. Plain text used for search, derived displa
 
 Markdown files are export artifacts, not the live storage authority.
 
+The persisted document carries an explicit schema version. A newer version adds vocabulary; it never rewrites existing text, image, list, or checklist meaning. Documents written by an older version keep opening, and opening one never performs a destructive rewrite on its own. A document claiming an unknown future version fails visibly instead of being quietly downgraded. Database payloads live in this same document JSON, so the in-note task database gains no second authority (§5.6.3).
+
 ### 9.2 Identity
 
 Use stable path-independent identities for notes, folders, and attachments.
@@ -411,6 +530,17 @@ Markdown import/re-import is not part of the MVP.
 Do not add PDF, HTML, CSV, or extensive export customization in the MVP.
 
 Cross-platform filename sanitization/collision handling is an export concern and must not leak back into the canonical note identity model.
+
+#### 11.1 Tables and databases in Markdown export
+
+Export covers the constructs added in §5.6:
+
+- a plain table exports as a GFM table when its structure is representable there;
+- a table with merged cells exports as an HTML table when structure must survive;
+- a database exports each record's values as a Markdown table;
+- a record's detail memo exports below its record under its own heading, with the memo text preserved verbatim.
+
+Record values, dates, and memos must never be silently omitted. Data that cannot be represented raises a clear export error under the existing rule rather than dropping content. Both single-note and full-library export honor this.
 
 ## 12. Visual design
 

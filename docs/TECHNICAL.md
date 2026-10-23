@@ -62,6 +62,8 @@ Use **Tiptap 3** as the rich-text editor layer, backed by ProseMirror.
 - Paste normalization, image-node behavior, slash-command behavior, and constrained document schema can be implemented while retaining access to lower-level ProseMirror APIs when necessary.
 - Svelte integration is supported without making React a dependency of the application UI.
 
+The table construct uses Tiptap's table extension (`@tiptap/extension-table`) rather than a hand-built ProseMirror table schema, because merge, column-width, and keyboard cell movement are already solved there and re-implementing them would create a competing owner of table semantics. Flashnote still owns which of those attributes are valid canonical data (§4).
+
 ## 4. Canonical rich-text persistence schema
 
 ### Decision
@@ -87,6 +89,55 @@ The initial schema should include only MVP-supported document constructs. New Ti
 Validation, normalization, and migrations must preserve user content or fail visibly; they must not silently discard unknown consequential document data.
 
 The exact JSON envelope and first schema version will be implemented alongside the first persistence vertical slice rather than expanded into a separate abstract document model now.
+
+### Schema version 2
+
+`schemaVersion` was extended from `1` to `2` to add two constructs: an ordinary in-note table, and an in-note task database (`docs/PRODUCT.md` §5.6).
+
+- v1 documents remain readable. A v1 document is never destructively rewritten merely because it was opened.
+- The frontend may promote a v1 document to v2 when it saves, because v2 admits the whole v1 vocabulary unchanged. Promotion is a single version-bump on an otherwise identical body, so existing text, image, list, and checklist meaning is preserved by construction.
+- A document claiming a version above the supported one fails validation visibly. Flashnote does not silently downgrade an unknown future version, because that would lose data it cannot interpret.
+- Every new node type and attribute is validated explicitly in Go. Duplicate identifiers, wrong types, dangling row/property references, and circular date rules are rejected rather than normalized away.
+- An invalid document is rejected with a specific error; Flashnote never replaces a malformed document with an empty note.
+
+Version 2 adds exactly two node types to the vocabulary:
+
+- `table` / `tableRow` / `tableCell` / `tableHeader` — an ordinary document table. Its stored JSON is the same shape the Tiptap table extension emits, so editor load/save needs no translation layer. `tableCell` and `tableHeader` carry `colspan`, `rowspan`, and `colwidth` because that is what makes merge and column-width state round-trip without a second representation.
+- `database` — one in-note task database. Its entire payload lives in the node's `attrs`; it has no child nodes.
+
+The `database` payload is the database's single authority and is a plain JSON value, so it inherits the owning note's save, revision, backup, trash, and restore behavior without a second transaction path. Its shape is:
+
+```json
+{
+  "properties": [{ "id": "…", "name": "Status", "type": "status",
+                   "options": [{ "id": "…", "name": "To do", "done": false }] }],
+  "records": [{ "id": "…", "values": { "…": "…" }, "memo": "Markdown memo" }],
+  "dateRules": [{ "id": "…", "basePropertyId": "…", "targetPropertyId": "…", "offsetDays": 7 }],
+  "manualDates": [{ "recordId": "…", "propertyId": "…" }],
+  "view": "table",
+  "sort": { "propertyId": "…", "direction": "asc" },
+  "filters": [{ "propertyId": "…", "op": "is", "value": "…" }],
+  "rowHighlights": { "…": "yellow" }
+}
+```
+
+Supported property types are `title`, `text`, `number`, `date`, `status`, `checkbox`, `select`, and `multiSelect`. Exactly one property is the `title`. Date values are calendar dates in `YYYY-MM-DD` form; they are never millisecond timestamps, so date arithmetic cannot drift across daylight-saving transitions (§10).
+
+Sorting, filtering, highlight, and view settings are stored as presentation state on the node. They are derived from the same records they present, and clearing a filter or changing a sort never alters record data. Conditional highlights (overdue, due soon, complete) are computed at display time and are deliberately not stored, so a stored value can never become stale highlight state.
+
+### Database date rules
+
+A `dateRule` links one date property to another with a calendar-day offset. The invariant Go enforces on save is: for every record not listed in `manualDates` for that rule, the target value equals the base value shifted by `offsetDays` on the calendar, and is `null` when the base value is missing or invalid. Flashnote never invents a target value for an absent base date. Rules may not form a cycle, may not reference non-date properties, and may not reference a base equal to its target.
+
+A manual edit to a rule-driven target adds an entry to `manualDates` for that record and property. This detaches only that record; the rule definition and every other record's link stay intact, and the record does not get overwritten the next time its base date changes. Detachment is stored, not inferred, because inferring it from value comparison would silently re-link a date the user set to exactly the value the rule would have produced.
+
+The editor recomputes rule-driven targets in the same ProseMirror transaction that changes the base date, so the base change and its consequences commit atomically to the document. Go's validation is the independent check that the two sides agree; it computes the same calendar arithmetic in `internal/document` and is covered by its own tests.
+
+### Undo and transaction ownership
+
+Every mutating action listed in the product contract — table cell edits, row and column add/delete, merge and unmerge, table-to-database conversion, database cell edits, detail-panel edits, batch edits, date-rule edits, and calendar task creation — is one ProseMirror transaction on the owning note. A batch edit and a conversion are each one logical Undo unit.
+
+Because the whole `database` payload lives in one node's attrs, a database edit is a `setNodeAttrs` step rather than a text transaction. This keeps a database edit inside the note's normal undo history while leaving the surrounding prose history untouched. The existing behavior that switching notes clears undo history is unchanged; moving between detail panel, calendar, and table inside one note must not break undo or edit the wrong record.
 
 ## 5. SQLite driver
 
