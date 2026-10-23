@@ -9,7 +9,13 @@ import (
 	"sort"
 )
 
-const SchemaVersion = 1
+const SchemaVersion = 2
+
+// LegacySchemaVersion is the version Flashnote wrote before in-note tables and
+// the in-note task database existed. It stays readable, and its whole node
+// vocabulary is still valid under SchemaVersion, so promoting a document to the
+// current version is a version bump over an unchanged body.
+const LegacySchemaVersion = 1
 
 var ErrInvalidDocument = errors.New("invalid Flashnote document")
 
@@ -33,7 +39,7 @@ func ValidateAndNormalizeJSON(input string) (string, error) {
 	}
 
 	version, ok := integerValue(envelope["schemaVersion"])
-	if !ok || version != SchemaVersion {
+	if !ok || (version != LegacySchemaVersion && version != SchemaVersion) {
 		return "", fmt.Errorf("%w: unsupported schemaVersion", ErrInvalidDocument)
 	}
 
@@ -41,7 +47,7 @@ func ValidateAndNormalizeJSON(input string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("%w: doc must be an object", ErrInvalidDocument)
 	}
-	if err := validateNode(doc, true); err != nil {
+	if err := validateNode(doc, true, version); err != nil {
 		return "", fmt.Errorf("%w: %v", ErrInvalidDocument, err)
 	}
 
@@ -105,7 +111,21 @@ func ensureEOF(decoder *json.Decoder) error {
 	return nil
 }
 
-func validateNode(node map[string]any, root bool) error {
+// nodesWithAttributes are the node types that carry persistent attributes.
+// Every other node type must not carry attributes; an empty attribute object is
+// stripped so the stored document stays canonical.
+var nodesWithAttributes = map[string]struct{}{
+	"heading":        {},
+	"orderedList":    {},
+	"codeBlock":      {},
+	"taskItem":       {},
+	"image":          {},
+	"tableCell":      {},
+	"tableHeader":    {},
+	"database":       {},
+}
+
+func validateNode(node map[string]any, root bool, version int) error {
 	if err := validateKeys(node, "type", "attrs", "content", "text", "marks"); err != nil {
 		return err
 	}
@@ -114,6 +134,7 @@ func validateNode(node map[string]any, root bool) error {
 	if !ok || nodeType == "" {
 		return errors.New("node type must be a non-empty string")
 	}
+	versionTwo := version >= SchemaVersion
 
 	switch nodeType {
 	case "doc":
@@ -157,11 +178,28 @@ func validateNode(node map[string]any, root bool) error {
 		if _, exists := node["content"]; exists {
 			return errors.New("text node cannot contain content")
 		}
+	case "table", "tableRow", "tableCell", "tableHeader":
+		if !versionTwo {
+			return fmt.Errorf("unsupported node type %q in schemaVersion %d", nodeType, version)
+		}
+		if err := validateTableNode(node, nodeType); err != nil {
+			return err
+		}
+	case "database":
+		if !versionTwo {
+			return fmt.Errorf("unsupported node type %q in schemaVersion %d", nodeType, version)
+		}
+		if _, exists := node["content"]; exists {
+			return errors.New("database node cannot contain content")
+		}
+		if err := validateDatabaseNode(node); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("unsupported node type %q", nodeType)
 	}
 
-	if nodeType != "heading" && nodeType != "orderedList" && nodeType != "codeBlock" && nodeType != "taskItem" && nodeType != "image" {
+	if _, allowed := nodesWithAttributes[nodeType]; !allowed {
 		if attrs, exists := node["attrs"]; exists {
 			if attrs == nil {
 				delete(node, "attrs")
@@ -204,7 +242,7 @@ func validateNode(node map[string]any, root bool) error {
 			if !ok {
 				return errors.New("child node must be an object")
 			}
-			if err := validateNode(child, false); err != nil {
+			if err := validateNode(child, false, version); err != nil {
 				return err
 			}
 		}

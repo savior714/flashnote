@@ -166,3 +166,46 @@ func TestSanitizeExportBasenameIsCrossPlatformSafe(t *testing.T) {
 		}
 	}
 }
+
+func TestSingleNoteMarkdownExportCoversTablesAndDatabases(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "flashnote.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	note, _, err := store.OpenInitialNote(ctx)
+	if err != nil {
+		t.Fatalf("OpenInitialNote() error = %v", err)
+	}
+	if _, err := store.SaveNote(ctx, note.ID, "Kernel", v2TableAndDatabaseNote, note.Revision); err != nil {
+		t.Fatalf("SaveNote() error = %v", err)
+	}
+
+	exportDir := t.TempDir()
+	destination := filepath.Join(exportDir, "Kernel.md")
+	if err := store.ExportNoteMarkdown(ctx, note.ID, destination); err != nil {
+		t.Fatalf("ExportNoteMarkdown() error = %v", err)
+	}
+
+	markdown, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatalf("read Markdown export: %v", err)
+	}
+	content := string(markdown)
+	for _, expected := range []string{
+		"# Kernel",
+		"kernel note",
+		"<th colspan=\"2\">Feature</th>",
+		"| ship the kernel | Done | 2026-10-01 | 2026-10-08 |",
+		"| second kernel task | To do |  |  |",
+		"#### ship the kernel",
+		"remember the deploy checklist",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("Markdown export missing %q:\n%s", expected, content)
+		}
+	}
+}
+

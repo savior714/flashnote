@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -298,40 +297,16 @@ func deriveDisplayTitle(title, documentJSON string) (DerivedDisplayTitle, error)
 		return DerivedDisplayTitle{Value: explicit}, nil
 	}
 
-	normalized, err := document.ValidateAndNormalizeJSON(documentJSON)
+	blocks, err := document.SearchBlocks(documentJSON)
 	if err != nil {
 		return DerivedDisplayTitle{}, err
 	}
-	var envelope struct {
-		Doc map[string]any `json:"doc"`
-	}
-	if err := json.Unmarshal([]byte(normalized), &envelope); err != nil {
-		return DerivedDisplayTitle{}, fmt.Errorf("decode normalized document: %w", err)
-	}
-
-	content, _ := envelope.Doc["content"].([]any)
-	for _, child := range content {
-		var text strings.Builder
-		appendNodeText(&text, child)
-		if value := strings.Join(strings.Fields(text.String()), " "); value != "" {
-			return DerivedDisplayTitle{Value: value}, nil
+	for _, block := range blocks {
+		if block != "" {
+			return DerivedDisplayTitle{Value: block}, nil
 		}
 	}
 	return DerivedDisplayTitle{Value: "Untitled", IsGeneratedFallback: true}, nil
-}
-
-func appendNodeText(builder *strings.Builder, value any) {
-	node, ok := value.(map[string]any)
-	if !ok {
-		return
-	}
-	if text, ok := node["text"].(string); ok {
-		builder.WriteString(text)
-	}
-	children, _ := node["content"].([]any)
-	for _, child := range children {
-		appendNodeText(builder, child)
-	}
 }
 
 func newNoteID() (string, error) {

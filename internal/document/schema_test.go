@@ -92,16 +92,51 @@ func TestValidateAndNormalizeJSONRejectsInvalidImageAttributes(t *testing.T) {
 	}
 }
 
-func TestValidateAndNormalizeJSONRejectsWrongSchemaVersion(t *testing.T) {
-	_, err := ValidateAndNormalizeJSON(`{"schemaVersion":2,"doc":{"type":"doc","content":[]}}`)
-	if !errors.Is(err, ErrInvalidDocument) {
-		t.Fatalf("expected ErrInvalidDocument, got %v", err)
+func TestValidateAndNormalizeJSONRejectsUnknownSchemaVersion(t *testing.T) {
+	// An unknown future version must fail visibly rather than be quietly
+	// downgraded, and a malformed version must not slip through either.
+	tests := []string{
+		`{"schemaVersion":3,"doc":{"type":"doc","content":[]}}`,
+		`{"schemaVersion":0,"doc":{"type":"doc","content":[]}}`,
+		`{"schemaVersion":-1,"doc":{"type":"doc","content":[]}}`,
+		`{"schemaVersion":"1","doc":{"type":"doc","content":[]}}`,
+		`{"schemaVersion":1.5,"doc":{"type":"doc","content":[]}}`,
+		`{"doc":{"type":"doc","content":[]}}`,
+	}
+	for _, input := range tests {
+		if _, err := ValidateAndNormalizeJSON(input); !errors.Is(err, ErrInvalidDocument) {
+			t.Fatalf("expected ErrInvalidDocument for %s, got %v", input, err)
+		}
+	}
+}
+
+func TestValidateAndNormalizeJSONAcceptsLegacyVersionOneDocument(t *testing.T) {
+	input := `{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"legacy"}]}]}}`
+
+	normalized, err := ValidateAndNormalizeJSON(input)
+	if err != nil {
+		t.Fatalf("ValidateAndNormalizeJSON(legacy v1) error = %v", err)
+	}
+	if !strings.Contains(normalized, `"schemaVersion":1`) || !strings.Contains(normalized, `"text":"legacy"`) {
+		t.Fatalf("legacy document was rewritten: %s", normalized)
+	}
+}
+
+func TestValidateAndNormalizeJSONRejectsVersionTwoNodesInVersionOneDocument(t *testing.T) {
+	tests := []string{
+		`{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"table"}]}}`,
+		`{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"database","attrs":{"properties":[{"id":"p","name":"Title","type":"title"}],"records":[],"dateRules":[],"manualDates":[],"view":"table"}}]}}`,
+	}
+	for _, input := range tests {
+		if _, err := ValidateAndNormalizeJSON(input); !errors.Is(err, ErrInvalidDocument) {
+			t.Fatalf("expected ErrInvalidDocument for %s, got %v", input, err)
+		}
 	}
 }
 
 func TestValidateAndNormalizeJSONRejectsUnknownNodeAndMark(t *testing.T) {
 	tests := []string{
-		`{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"table"}]}}`,
+		`{"schemaVersion":2,"doc":{"type":"doc","content":[{"type":"embed"}]}}`,
 		`{"schemaVersion":1,"doc":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"x","marks":[{"type":"highlight"}]}]}]}}`,
 	}
 	for _, input := range tests {

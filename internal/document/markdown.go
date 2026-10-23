@@ -124,6 +124,10 @@ func renderMarkdownBlock(node markdownNode, resolveImage ImagePathResolver) (str
 		return fence + language + "\n" + content + "\n" + fence, nil
 	case "horizontalRule":
 		return "---", nil
+	case "table":
+		return renderMarkdownTable(node, resolveImage)
+	case "database":
+		return renderMarkdownDatabase(node, resolveImage)
 	case "image":
 		return renderMarkdownImage(node, resolveImage)
 	case "hardBreak":

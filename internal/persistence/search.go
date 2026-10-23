@@ -3,7 +3,6 @@ package persistence
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -229,31 +228,17 @@ func removeNoteSearchTx(ctx context.Context, tx *sql.Tx, noteID string) error {
 }
 
 func buildSearchFields(title, documentJSON string) (searchFields, error) {
-	normalized, err := document.ValidateAndNormalizeJSON(documentJSON)
+	blocks, err := document.SearchBlocks(documentJSON)
 	if err != nil {
 		return searchFields{}, err
 	}
-	var envelope struct {
-		Doc map[string]any `json:"doc"`
-	}
-	if err := json.Unmarshal([]byte(normalized), &envelope); err != nil {
-		return searchFields{}, fmt.Errorf("decode normalized document: %w", err)
-	}
 
-	content, _ := envelope.Doc["content"].([]any)
-	blocks := make([]string, 0, len(content))
 	derivedTitle := ""
-	for _, child := range content {
-		var text strings.Builder
-		appendNodeText(&text, child)
-		blockText := strings.Join(strings.Fields(text.String()), " ")
-		if blockText == "" {
-			continue
+	for _, block := range blocks {
+		if block != "" {
+			derivedTitle = block
+			break
 		}
-		if derivedTitle == "" {
-			derivedTitle = blockText
-		}
-		blocks = append(blocks, blockText)
 	}
 
 	explicitTitle := strings.TrimSpace(title)
