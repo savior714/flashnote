@@ -710,3 +710,26 @@ test('a batch edit on several rows lands as one settled payload', () => {
   }
   assert.deepEqual(payload.manualDates, [])
 })
+
+// The batch settles the rule chain once for the whole selection instead of once
+// per row, which is only safe if the two produce the same payload.
+
+test('a batch edit equals the same edit made one row at a time', () => {
+  const original = buildPayload()
+  original.records.push(newRecord('r3', { 'p-title': 'Third', 'p-start': '2026-10-07' }))
+
+  // p-mid sits in the middle of the chain, so it is both a rule's target and the
+  // next rule's base: the one case where a per-row settle could differ.
+  for (const [propertyId, value] of [
+    ['p-start', '2026-11-02'],
+    ['p-mid', '2026-11-02'],
+    ['p-due', '2026-12-25'],
+  ] as const) {
+    const batched = batchSetDateValue(original, ['r1', 'r2', 'r3'], propertyId, value)
+    let oneByOne = original
+    for (const recordId of ['r1', 'r2', 'r3']) {
+      oneByOne = setDateValue(oneByOne, recordId, propertyId, value)
+    }
+    assert.deepEqual(batched, oneByOne, `batch and single edits disagree on ${propertyId}`)
+  }
+})

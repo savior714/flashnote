@@ -90,14 +90,16 @@ export function setDateValue(
 ): DatabasePayload {
   const next = clonePayload(payload)
   if (!applyDateValueInPlace(next, recordId, propertyId, value)) return payload
+  recomputeLinkedDatesInPlace(next)
   return next
 }
 
 /**
- * The single place a date value is written, on a payload the caller owns. Every
- * date edit — one cell, a batch of rows, a shift — goes through here, so a
- * linked date is recomputed and a hand-set target is detached no matter which
- * entry point the user came from. Reports whether the record exists.
+ * The single place a date value is decided and written, on a payload the caller
+ * owns. Every date edit — one cell, a batch of rows, a shift — goes through here,
+ * so a hand-set target is detached and stays the user's no matter which entry
+ * point the edit came from. It reports whether the record exists; settling the
+ * rule chain is the caller's step, once per edit batch.
  */
 function applyDateValueInPlace(
   payload: DatabasePayload,
@@ -120,15 +122,15 @@ function applyDateValueInPlace(
   }
 
   record.values[propertyId] = value
-  recomputeLinkedDatesInPlace(payload)
   return true
 }
 
 /**
  * Gives several records the same date in one payload change, so a batch edit
- * stays one Undo unit. Each record takes the same path a single-cell edit takes:
- * a linked target is recomputed from its base, and a target the rule would not
- * have produced is detached and stays the user's value.
+ * stays one Undo unit. Each record takes the same decision a single-cell edit
+ * takes, and the rule chain is settled once after the whole batch: settling per
+ * record would make a large selection cost rows x rules x rows for the same
+ * result.
  */
 export function batchSetDateValue(
   payload: DatabasePayload,
@@ -137,9 +139,11 @@ export function batchSetDateValue(
   value: string | null,
 ): DatabasePayload {
   const next = clonePayload(payload)
+  let touched = false
   for (const recordId of recordIds) {
-    applyDateValueInPlace(next, recordId, propertyId, value)
+    if (applyDateValueInPlace(next, recordId, propertyId, value)) touched = true
   }
+  if (touched) recomputeLinkedDatesInPlace(next)
   return next
 }
 
@@ -156,13 +160,17 @@ export function batchShiftDateValue(
   today: CalendarDate = todayCalendarDate(),
 ): DatabasePayload {
   const next = clonePayload(payload)
+  let touched = false
   for (const recordId of recordIds) {
     const record = next.records.find((candidate) => candidate.id === recordId)
     if (!record) continue
     const current = record.values[propertyId]
     const from = isValidCalendarDate(current) ? current : today
-    applyDateValueInPlace(next, recordId, propertyId, addCalendarDays(from, days))
+    if (applyDateValueInPlace(next, recordId, propertyId, addCalendarDays(from, days))) {
+      touched = true
+    }
   }
+  if (touched) recomputeLinkedDatesInPlace(next)
   return next
 }
 
