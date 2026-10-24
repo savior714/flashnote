@@ -77,8 +77,6 @@ export const Database = Node.create({
           payload: readPayload((node.attrs as DatabaseAttributes).payload),
           language: databaseLanguage,
           editable: editor.isEditable,
-          onCreateTask: (date: string) =>
-            commit(appendRecordWithDate((node.attrs as DatabaseAttributes).payload, date)),
           onChange: (next: DatabasePayload) => commit(next),
         },
       }) as { setPayload?: (next: DatabasePayload) => void }
@@ -103,19 +101,6 @@ export const Database = Node.create({
   },
 })
 
-// Adding a record with a deadline is the one database action that originates
-// outside the table (the calendar views), so the payload change is built here
-// and committed by the node view as an ordinary transaction.
-function appendRecordWithDate(payload: DatabasePayload, date: string): DatabasePayload {
-  const title = payload.properties.find((property) => property.type === 'title')
-  const values: Record<string, unknown> = {}
-  const dateProperty = payload.properties.find(
-    (property) => property.type === 'date' && property.name.toLowerCase().includes('due'),
-  ) ?? payload.properties.find((property) => property.type === 'date')
-  if (title) values[title.id] = ''
-  if (dateProperty && date) values[dateProperty.id] = date
-  return {
-    ...payload,
-    records: [...payload.records, { id: crypto.randomUUID(), values }],
-  }
-}
+// A task created from a calendar date is built by `appendRecordWithDeadline`,
+// which the database view owns: it is the one database action that originates
+// outside the table, and this keeps a single payload-building path for it.

@@ -333,6 +333,7 @@ This section records what is actually implemented, which is a different claim fr
 - The editor's table editing: rows, columns, header cells, merge and unmerge, column resizing, keyboard movement, paste, and undo/redo through the Tiptap table extension, with the alignment attribute dropped from the cell node spec so it never becomes durable state.
 - Table-to-database conversion as one transaction, refusal on merged cells, and the payload-building rules.
 - Database editing for every property type, sorting and filtering as presentation only, batch edit on selected records as one unit, the record detail panel with its Markdown memo, linked date rules with calendar arithmetic, manual detach and reattach, conditional highlights, and the week and month calendar views.
+- The editorial guarantees that keep a database savable and lossless: every date write — one cell, the detail panel, or a batch of rows — goes through `databaseRules.setDateValue`, so a linked date is recomputed and a hand-set deadline is stored as detached rather than as a stale derived date the save would reject. A property type change either converts every stored value (`convertValue`) or is refused with the reason (`propertyTypeChangeProblem`), never dropping values; the exactly-one-title, date-rule, and filter-shape invariants are checked before the change instead of at save time. A task created from a calendar date is built by `databaseTypes.appendRecordWithDeadline`, which adds the date property a database without one is missing.
 
 **Proven, but only against the automatable layers**
 

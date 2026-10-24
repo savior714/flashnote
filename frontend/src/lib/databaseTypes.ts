@@ -6,6 +6,8 @@
 // persistence path. internal/document holds the authoritative shape; these types
 // and helpers mirror it for the editor.
 
+import { isValidCalendarDate } from './databaseDates'
+
 export type PropertyType =
   | 'title'
   | 'text'
@@ -202,6 +204,280 @@ export function displayValue(property: DatabaseProperty, value: unknown): string
 export function optionName(property: DatabaseProperty, optionId: string): string {
   const option = property.options?.find((candidate) => candidate.id === optionId)
   return option ? option.name : ''
+}
+
+/**
+ * Whether a stored value is already shaped the way `property.type` requires.
+ * This is the check a value must pass after a type change, not a licence to drop
+ * one that does not: see `convertValue` for what a type change actually does with
+ * a stored value.
+ */
+export function valueFitsType(property: DatabaseProperty, value: unknown): boolean {
+  // A value that is not there fits every type, exactly as the Go schema accepts
+  // null for every property type.
+  if (value === null || value === undefined) return true
+  switch (property.type) {
+    case 'title':
+    case 'text':
+    case 'date':
+      return typeof value === 'string'
+    case 'number':
+      return typeof value === 'number'
+    case 'checkbox':
+      return typeof value === 'boolean'
+    case 'status':
+    case 'select':
+      return typeof value === 'string' && optionName(property, value) !== ''
+    case 'multiSelect':
+      return Array.isArray(value)
+    default:
+      return false
+  }
+}
+
+/** A value that fits the type it is being changed to, or the reason it cannot. */
+export type ConvertedValue =
+  | { ok: true; value: unknown }
+  | { ok: false }
+
+/**
+ * Rewrites one stored value so the target property can hold it. A value that
+ * carries the same information in the new type is converted — a stored `100`
+ * becomes the number 100, a stored option id becomes its option name when the
+ * column becomes plain text — and a value that has no representation there is
+ * refused, so the caller can stop the whole type change instead of quietly
+ * discarding data the schema would have rejected.
+ *
+ * `from` is the property as it stands, `to` the same property with its new type
+ * and options already in place.
+ */
+export function convertValue(
+  from: DatabaseProperty,
+  to: DatabaseProperty,
+  value: unknown,
+): ConvertedValue {
+  if (value === null || value === undefined) return { ok: true, value: null }
+  const converted = convertForType(from, to, value)
+  // Whatever the conversion produced, it still has to be a value the new type
+  // accepts: the Go schema checks that shape on save.
+  if (!converted.ok) return converted
+  return valueFitsType(to, converted.value) ? converted : { ok: false }
+}
+
+function convertForType(
+  from: DatabaseProperty,
+  to: DatabaseProperty,
+  value: unknown,
+): ConvertedValue {
+  switch (to.type) {
+    case 'title':
+    case 'text':
+      return convertToText(from, value)
+    case 'number':
+      return convertToNumber(value)
+    case 'date':
+      return isValidCalendarDate(value) ? { ok: true, value } : { ok: false }
+    case 'checkbox':
+      return typeof value === 'boolean' ? { ok: true, value } : { ok: false }
+    case 'status':
+    case 'select':
+      return typeof value === 'string' && optionName(to, value) !== ''
+        ? { ok: true, value }
+        : { ok: false }
+    case 'multiSelect':
+      // One chosen option stays the same choice in a list of them.
+      if (typeof value === 'string') {
+        return optionName(to, value) === '' ? { ok: false } : { ok: true, value: [value] }
+      }
+      return Array.isArray(value) &&
+        value.every((entry) => typeof entry === 'string' && optionName(to, entry) !== '')
+        ? { ok: true, value }
+        : { ok: false }
+    default:
+      return { ok: false }
+  }
+}
+
+function convertToText(from: DatabaseProperty, value: unknown): ConvertedValue {
+  if (typeof value === 'number') return { ok: true, value: String(value) }
+  if (typeof value === 'boolean') return { ok: true, value: String(value) }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return { ok: true, value: '' }
+    const names = value.map((entry) =>
+      typeof entry === 'string' ? optionName(from, entry) : '',
+    )
+    if (names.some((name) => name === '')) return { ok: false }
+    return { ok: true, value: names.join(', ') }
+  }
+  if (typeof value !== 'string') return { ok: false }
+  // An option id is stored data, but the text a user reads is the option name.
+  if (from.type === 'status' || from.type === 'select') {
+    const name = optionName(from, value)
+    return name === '' ? { ok: false } : { ok: true, value: name }
+  }
+  return { ok: true, value }
+}
+
+function convertToNumber(value: unknown): ConvertedValue {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? { ok: true, value } : { ok: false }
+  }
+  if (typeof value !== 'string') return { ok: false }
+  // A blank cell holds no number, which is the same as no value at all.
+  if (value.trim() === '') return { ok: true, value: null }
+  const parsed = Number(value.trim())
+  return Number.isFinite(parsed) ? { ok: true, value: parsed } : { ok: false }
+}
+
+/**
+ * Why a property's type cannot change. Every reason describes state the user can
+ * clear, because the alternative — saving a payload the Go schema rejects — costs
+ * the whole document save, and the alternative the old code chose, deleting
+ * values the new type did not accept, cost the data.
+ */
+export type PropertyTypeChangeBlock =
+  | 'last-title-property'
+  | 'title-property-exists'
+  | 'date-rule-references-property'
+  | 'filter-references-property'
+  | 'value-not-representable'
+
+export interface PropertyTypeChangeProblem {
+  reason: PropertyTypeChangeBlock
+  /** The record holding the value that cannot change shape, when there is one. */
+  recordId?: string
+}
+
+/**
+ * The reason `propertyId` cannot become `type`, or null when the change is safe.
+ * The Go schema checks these invariants on save; checking them here means the
+ * user is told at the point of the change instead of losing the save.
+ */
+export function propertyTypeChangeProblem(
+  payload: DatabasePayload,
+  propertyId: string,
+  type: PropertyType,
+): PropertyTypeChangeProblem | null {
+  const property = propertyById(payload, propertyId)
+  if (!property || property.type === type) return null
+
+  // A database always carries exactly one title property.
+  const titlesAfter = payload.properties.filter(
+    (candidate) => candidate.type === 'title' && candidate.id !== propertyId,
+  )
+  if (type === 'title') titlesAfter.push(property)
+  if (titlesAfter.length !== 1) {
+    return { reason: type === 'title' ? 'title-property-exists' : 'last-title-property' }
+  }
+
+  // A date rule only works between date properties, so a rule that references
+  // this property has to go before its type can.
+  if (type !== 'date') {
+    const references = payload.dateRules.some(
+      (rule) => rule.basePropertyId === propertyId || rule.targetPropertyId === propertyId,
+    )
+    if (references) return { reason: 'date-rule-references-property' }
+  }
+
+  const target: DatabaseProperty = { ...property, type }
+  if (type === 'status' || type === 'select' || type === 'multiSelect') {
+    target.options = property.options
+  } else {
+    delete target.options
+  }
+
+  // A filter is stored in the shape of the type it was written for, and the Go
+  // schema checks that shape on save.
+  const filterBlocked = (payload.filters ?? []).some(
+    (filter) =>
+      filter.propertyId === propertyId &&
+      filterFitsPropertyType(property, filter) &&
+      !filterFitsPropertyType(target, filter),
+  )
+  if (filterBlocked) return { reason: 'filter-references-property' }
+
+  for (const record of payload.records) {
+    const value = record.values[propertyId]
+    if (value === null || value === undefined) continue
+    if (!convertValue(property, target, value).ok) {
+      return { reason: 'value-not-representable', recordId: record.id }
+    }
+  }
+  return null
+}
+
+/**
+ * Whether one stored filter is legal on `property`. This mirrors what the Go
+ * schema checks on save, so a type change is refused while its filters still hold
+ * rather than after the document can no longer be saved.
+ */
+function filterFitsPropertyType(property: DatabaseProperty, filter: DatabaseFilter): boolean {
+  const hasValue = filter.value !== null && filter.value !== undefined
+  switch (filter.op) {
+    case 'isEmpty':
+    case 'isNotEmpty':
+      return !hasValue
+    case 'isChecked':
+    case 'isUnchecked':
+      return property.type === 'checkbox' && !hasValue
+    case 'before':
+    case 'after':
+      return property.type === 'date' && isValidCalendarDate(filter.value)
+    case 'contains':
+      return typeof filter.value === 'string'
+    case 'is':
+    case 'isNot':
+      return !hasValue || equalityValueFits(property, filter.value)
+    default:
+      return false
+  }
+}
+
+function equalityValueFits(property: DatabaseProperty, value: unknown): boolean {
+  switch (property.type) {
+    case 'title':
+    case 'text':
+      return typeof value === 'string'
+    case 'number':
+      return typeof value === 'number'
+    case 'date':
+      return isValidCalendarDate(value)
+    case 'checkbox':
+      return typeof value === 'boolean'
+    case 'status':
+    case 'select':
+    case 'multiSelect':
+      return typeof value === 'string' && optionName(property, value) !== ''
+    default:
+      return false
+  }
+}
+
+/**
+ * Appends a record that carries `date` as its deadline. The calendar views create
+ * a task on the day the user picked, and the product contract makes that day the
+ * task's deadline, so a database with no date property gets one instead of
+ * quietly storing a task with no deadline at all.
+ */
+export function appendRecordWithDeadline(
+  payload: DatabasePayload,
+  date: string,
+  newDatePropertyName: string,
+): DatabasePayload {
+  const next = clonePayload(payload)
+  const title = titleProperty(next)
+  const named = next.properties.find(
+    (property) => property.type === 'date' && /due|deadline|마감|기한/i.test(property.name),
+  )
+  const deadline = named ?? next.properties.find((property) => property.type === 'date')
+  const target = deadline ?? newProperty(newId(), newDatePropertyName, 'date')
+  if (!deadline) next.properties.push(target)
+
+  const values: Record<string, unknown> = {}
+  if (title) values[title.id] = ''
+  values[target.id] = date
+  next.records = [...next.records, newRecord(newId(), values)]
+  return next
 }
 
 /** Reports whether a record is completed, which suppresses due warnings. */

@@ -7,7 +7,7 @@
 // record, stores the detachment, and leaves the rule and every other record's
 // link intact.
 
-import { addCalendarDays, isValidCalendarDate } from './databaseDates'
+import { addCalendarDays, isValidCalendarDate, todayCalendarDate, type CalendarDate } from './databaseDates'
 import {
   clonePayload,
   type DatabasePayload,
@@ -45,12 +45,22 @@ function manualKey(recordId: string, propertyId: string): string {
  */
 export function recomputeLinkedDates(payload: DatabasePayload): DatabasePayload {
   const next = clonePayload(payload)
+  recomputeLinkedDatesInPlace(next)
+  return next
+}
+
+/**
+ * The same reconciliation on a payload the caller already owns exclusively, so a
+ * batch of date edits reconciles once at the end instead of copying the whole
+ * database per record. It mutates only the payload it is handed.
+ */
+function recomputeLinkedDatesInPlace(payload: DatabasePayload): void {
   const manual = new Set(payload.manualDates.map((entry) => manualKey(entry.recordId, entry.propertyId)))
 
-  for (let pass = 0; pass < next.dateRules.length + 1; pass += 1) {
+  for (let pass = 0; pass < payload.dateRules.length + 1; pass += 1) {
     let changed = false
-    for (const rule of next.dateRules) {
-      for (const record of next.records) {
+    for (const rule of payload.dateRules) {
+      for (const record of payload.records) {
         if (manual.has(manualKey(record.id, rule.targetPropertyId))) continue
         const base = record.values[rule.basePropertyId]
         const recomputed = isValidCalendarDate(base)
@@ -64,7 +74,6 @@ export function recomputeLinkedDates(payload: DatabasePayload): DatabasePayload 
     }
     if (!changed) break
   }
-  return next
 }
 
 /**
@@ -80,22 +89,81 @@ export function setDateValue(
   value: string | null,
 ): DatabasePayload {
   const next = clonePayload(payload)
-  const record = next.records.find((candidate) => candidate.id === recordId)
-  if (!record) return payload
+  if (!applyDateValueInPlace(next, recordId, propertyId, value)) return payload
+  return next
+}
 
-  const rule = ruleTargetFor(next, propertyId)
-  if (rule && !isManualDate(next, recordId, propertyId)) {
+/**
+ * The single place a date value is written, on a payload the caller owns. Every
+ * date edit — one cell, a batch of rows, a shift — goes through here, so a
+ * linked date is recomputed and a hand-set target is detached no matter which
+ * entry point the user came from. Reports whether the record exists.
+ */
+function applyDateValueInPlace(
+  payload: DatabasePayload,
+  recordId: string,
+  propertyId: string,
+  value: string | null,
+): boolean {
+  const record = payload.records.find((candidate) => candidate.id === recordId)
+  if (!record) return false
+
+  const rule = ruleTargetFor(payload, propertyId)
+  if (rule && !isManualDate(payload, recordId, propertyId)) {
     const base = record.values[rule.basePropertyId]
     const expected = isValidCalendarDate(base)
       ? addCalendarDays(base, rule.offsetDays)
       : null
     if (value !== expected) {
-      next.manualDates.push({ recordId, propertyId })
+      payload.manualDates.push({ recordId, propertyId })
     }
   }
 
   record.values[propertyId] = value
-  return recomputeLinkedDates(next)
+  recomputeLinkedDatesInPlace(payload)
+  return true
+}
+
+/**
+ * Gives several records the same date in one payload change, so a batch edit
+ * stays one Undo unit. Each record takes the same path a single-cell edit takes:
+ * a linked target is recomputed from its base, and a target the rule would not
+ * have produced is detached and stays the user's value.
+ */
+export function batchSetDateValue(
+  payload: DatabasePayload,
+  recordIds: readonly string[],
+  propertyId: string,
+  value: string | null,
+): DatabasePayload {
+  const next = clonePayload(payload)
+  for (const recordId of recordIds) {
+    applyDateValueInPlace(next, recordId, propertyId, value)
+  }
+  return next
+}
+
+/**
+ * Shifts several records' dates by whole calendar days. A record that holds no
+ * usable date is shifted from today, so a blank cell still gets a real date
+ * rather than staying blank or becoming an invalid one.
+ */
+export function batchShiftDateValue(
+  payload: DatabasePayload,
+  recordIds: readonly string[],
+  propertyId: string,
+  days: number,
+  today: CalendarDate = todayCalendarDate(),
+): DatabasePayload {
+  const next = clonePayload(payload)
+  for (const recordId of recordIds) {
+    const record = next.records.find((candidate) => candidate.id === recordId)
+    if (!record) continue
+    const current = record.values[propertyId]
+    const from = isValidCalendarDate(current) ? current : today
+    applyDateValueInPlace(next, recordId, propertyId, addCalendarDays(from, days))
+  }
+  return next
 }
 
 /** Detaches one record from the rule targeting `propertyId`. */
@@ -121,7 +189,8 @@ export function reattachManualDate(
   next.manualDates = next.manualDates.filter(
     (entry) => !(entry.recordId === recordId && entry.propertyId === propertyId),
   )
-  return recomputeLinkedDates(next)
+  recomputeLinkedDatesInPlace(next)
+  return next
 }
 
 export interface RuleProblem {

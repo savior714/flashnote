@@ -4,6 +4,8 @@ import './noExtensionSpecifiers.ts'
 import type { RuleProblem } from '../src/lib/databaseRules.ts'
 
 const {
+  batchSetDateValue,
+  batchShiftDateValue,
   detachManualDate,
   isManualDate,
   reattachManualDate,
@@ -12,7 +14,9 @@ const {
   setDateValue,
   wouldCreateCycle,
 } = await import('../src/lib/databaseRules.ts')
-import {
+// The payload module reads the calendar-date module, so it is loaded the same
+// way: after the resolver above is in place.
+const {
   compareRecords,
   createEmptyPayload,
   displayValue,
@@ -21,8 +25,8 @@ import {
   newRecord,
   propertyById,
   visibleRecords,
-  type DatabasePayload,
-} from '../src/lib/databaseTypes.ts'
+} = await import('../src/lib/databaseTypes.ts')
+import type { DatabasePayload } from '../src/lib/databaseTypes.ts'
 
 // A database with two linked date rules: Start drives Mid, and Mid drives Due,
 // so one base change has to travel two steps.
@@ -593,4 +597,116 @@ test('empty values stay last in a descending sort too', () => {
     visibleRecords(payload).map((record) => record.id),
     ['r1', 'r2'],
   )
+})
+
+// A batch date edit is the same edit repeated over the selected rows, so these
+// cases replay the single-cell cases from above across a selection.
+
+test('a batch edit on the base date moves every linked date', () => {
+  const original = buildPayload()
+  const before = JSON.stringify(original)
+
+  const payload = batchSetDateValue(original, ['r1'], 'p-start', '2026-10-10')
+
+  // The base changed and the whole chain followed it in the same change.
+  assert.equal(dateValue(payload, 'r1', 'p-start'), '2026-10-10')
+  assert.equal(dateValue(payload, 'r1', 'p-mid'), '2026-10-15')
+  assert.equal(dateValue(payload, 'r1', 'p-due'), '2026-10-25')
+  assert.deepEqual(payload.manualDates, [])
+
+  // The other record keeps its own base and its own derived dates.
+  assert.equal(dateValue(payload, 'r2', 'p-start'), '2026-10-05')
+  assert.equal(dateValue(payload, 'r2', 'p-mid'), '2026-10-10')
+  assert.equal(dateValue(payload, 'r2', 'p-due'), '2026-10-20')
+
+  assert.equal(JSON.stringify(original), before)
+})
+
+test('a batch edit on a linked deadline detaches those rows only', () => {
+  const original = buildPayload()
+
+  const payload = batchSetDateValue(original, ['r1'], 'p-due', '2026-10-31')
+
+  // Only the selected record is detached; the rule itself survives.
+  assert.deepEqual(payload.manualDates, [{ recordId: 'r1', propertyId: 'p-due' }])
+  assert.equal(dateValue(payload, 'r1', 'p-due'), '2026-10-31')
+  assert.equal(dateValue(payload, 'r1', 'p-mid'), '2026-10-06')
+  assert.equal(dateValue(payload, 'r2', 'p-due'), '2026-10-20')
+
+  // A later base change still moves the linked record, and never overwrites the
+  // deadline this record now holds by hand.
+  const moved = batchSetDateValue(payload, ['r1'], 'p-start', '2026-11-01')
+  assert.equal(dateValue(moved, 'r1', 'p-mid'), '2026-11-06')
+  assert.equal(dateValue(moved, 'r1', 'p-due'), '2026-10-31')
+  assert.equal(dateValue(moved, 'r2', 'p-due'), '2026-10-20')
+})
+
+test('a batch edit clears a date and keeps the link it clears', () => {
+  const payload = batchSetDateValue(buildPayload(), ['r1'], 'p-start', null)
+
+  // A base date with no value produces no derived date, and the detached target
+  // is left empty rather than filled with an invented day.
+  assert.equal(dateValue(payload, 'r1', 'p-start'), null)
+  assert.equal(dateValue(payload, 'r1', 'p-mid'), null)
+  assert.equal(dateValue(payload, 'r1', 'p-due'), null)
+  assert.deepEqual(payload.manualDates, [])
+})
+
+test('a batch shift moves dates and shifts a blank one from today', () => {
+  const original = buildPayload()
+  original.records[0].values['p-end'] = null
+
+  const payload = batchShiftDateValue(original, ['r1'], 'p-end', 7, '2026-10-24')
+
+  assert.equal(dateValue(payload, 'r1', 'p-end'), '2026-10-31')
+
+  const shifted = batchShiftDateValue(original, ['r1'], 'p-start', -2, '2026-10-24')
+  assert.equal(dateValue(shifted, 'r1', 'p-start'), '2026-09-29')
+  assert.equal(dateValue(shifted, 'r1', 'p-mid'), '2026-10-04')
+  assert.equal(dateValue(shifted, 'r1', 'p-due'), '2026-10-14')
+  // Shifting the base is not a hand edit, so nothing is detached.
+  assert.deepEqual(shifted.manualDates, [])
+})
+
+test('a batch shift on a linked deadline keeps that deadline the user set', () => {
+  const payload = batchShiftDateValue(buildPayload(), ['r1'], 'p-due', 7, '2026-10-24')
+
+  assert.equal(dateValue(payload, 'r1', 'p-due'), '2026-10-23')
+  assert.deepEqual(payload.manualDates, [{ recordId: 'r1', propertyId: 'p-due' }])
+})
+
+test('a batch edit touches only the records it is given', () => {
+  const original = buildPayload()
+
+  // One of two selected rows.
+  const one = batchSetDateValue(original, ['r1'], 'p-start', '2026-10-10')
+  assert.equal(dateValue(one, 'r2', 'p-start'), '2026-10-05')
+  assert.equal(dateValue(one, 'r2', 'p-due'), '2026-10-20')
+
+  // A filter-hidden row is not part of the selection, so it is not in the list of
+  // ids the batch receives in the first place.
+  const hidden = visibleRecords({ ...original, filters: [{ propertyId: 'p-status', op: 'is', value: 'o-doing' }] })
+  assert.deepEqual(hidden.map((record) => record.id), ['r1'])
+
+  // A record the database does not hold changes nothing.
+  const unknown = batchSetDateValue(original, ['r-nope'], 'p-start', '2026-10-10')
+  assert.equal(dateValue(unknown, 'r1', 'p-start'), '2026-10-01')
+
+  // An empty selection leaves the payload as it was.
+  const none = batchSetDateValue(original, [], 'p-start', '2026-10-10')
+  assert.deepEqual(none.records, original.records)
+  assert.deepEqual(none.manualDates, [])
+})
+
+test('a batch edit on several rows lands as one settled payload', () => {
+  const original = buildPayload()
+  original.records.push(newRecord('r3', { 'p-title': 'Third', 'p-start': '2026-10-07' }))
+
+  const payload = batchSetDateValue(original, ['r1', 'r2', 'r3'], 'p-start', '2026-10-10')
+
+  for (const recordId of ['r1', 'r2', 'r3']) {
+    assert.equal(dateValue(payload, recordId, 'p-mid'), '2026-10-15', `${recordId} Mid`)
+    assert.equal(dateValue(payload, recordId, 'p-due'), '2026-10-25', `${recordId} Due`)
+  }
+  assert.deepEqual(payload.manualDates, [])
 })

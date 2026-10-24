@@ -178,6 +178,12 @@ const englishMessages = {
       'This table has merged cells, so it cannot become a database yet. Unmerge the cells, then convert again.',
     convertHint: 'Turn this table into a task database',
     createTaskOn: (date: string) => `New task on ${date}`,
+    dueDate: 'Due date',
+    typeChangeBlockedTitle: 'A database keeps exactly one title column, so this one stays the title.',
+    typeChangeBlockedRule: (name: string) => `Remove the date rule that uses “${name}” first.`,
+    typeChangeBlockedFilter: (name: string) => `Remove the filter on “${name}” first.`,
+    typeChangeBlockedValue: (name: string, type: string, record: string) =>
+      `“${record}” holds a value that “${name}” cannot keep as ${type}, so the type stayed the same.`,
   },
   dialogs: {
     noteTrashTitle: 'Move note to Trash?',
@@ -412,6 +418,12 @@ const koreanMessages = {
       '이 표에는 병합된 셀이 있어 데이터베이스로 바꿀 수 없습니다. 병합을 해제한 뒤 다시 전환하세요.',
     convertHint: '이 표를 작업 데이터베이스로 바꿉니다',
     createTaskOn: (date: string) => `${date}에 새 작업 만들기`,
+    dueDate: '기한',
+    typeChangeBlockedTitle: '데이터베이스에는 제목 열이 정확히 하나 있어야 해서 이 열은 제목으로 남습니다.',
+    typeChangeBlockedRule: (name: string) => `“${name}”을 쓰는 날짜 규칙을 먼저 지우세요.`,
+    typeChangeBlockedFilter: (name: string) => `“${name}”에 대한 필터를 먼저 지우세요.`,
+    typeChangeBlockedValue: (name: string, type: string, record: string) =>
+      `“${record}”의 값을 ${type}으로 담을 수 없어 “${name}”의 유형을 바꾸지 않았습니다.`,
   },
   dialogs: {
     noteTrashTitle: '노트를 휴지통으로 옮길까요?',

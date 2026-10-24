@@ -11,6 +11,7 @@
     type PropertyType,
   } from './databaseTypes'
   import { isValidCalendarDate } from './databaseDates'
+  import { setDateValue } from './databaseRules'
   import { dueState, isManual } from './databaseHighlight'
 
   type Props = {
@@ -47,9 +48,23 @@
   })
 
   function setValue(propertyId: string, value: unknown) {
+    const property = payload.properties.find((candidate) => candidate.id === propertyId)
+    // A date takes the same path the table takes, so a linked date follows the
+    // edit and a deadline the user sets by hand is stored as a detached one.
+    if (property?.type === 'date') {
+      onChange(
+        setDateValue(
+          payload,
+          record.id,
+          propertyId,
+          typeof value === 'string' || value === null ? value : null,
+        ),
+      )
+      return
+    }
     const next: DatabasePayload = {
       ...payload,
-      properties: payload.properties.map((property) => ({ ...property })),
+      properties: payload.properties.map((candidate) => ({ ...candidate })),
       records: payload.records.map((candidate) =>
         candidate.id === record.id
           ? { ...candidate, values: { ...candidate.values, [propertyId]: value } }

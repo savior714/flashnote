@@ -6,18 +6,26 @@
     isRecordComplete,
     newProperty,
     newRecord,
-    optionName,
+    PROPERTY_TYPES,
     propertyById,
+    recordById,
+    titleProperty,
+    propertyTypeChangeProblem,
+    appendRecordWithDeadline,
+    convertValue,
     visibleRecords,
     type DatabasePayload,
     type DatabaseProperty,
     type DatabaseRecord,
+    type PropertyTypeChangeProblem,
     type FilterOp,
     type PropertyType,
   } from './databaseTypes'
-  import { addCalendarDays, isValidCalendarDate, todayCalendarDate } from './databaseDates'
+  import { isValidCalendarDate } from './databaseDates'
   import { isDueSoon, isManual, isOverdue } from './databaseHighlight'
   import {
+    batchSetDateValue,
+    batchShiftDateValue,
     detachManualDate,
     reattachManualDate,
     ruleProblem,
@@ -33,7 +41,6 @@
     // The resolved language reaches this node view as a store, because Tiptap
     // mounts it outside the component tree that resolves the language.
     language: import('svelte/store').Readable<ResolvedLanguage>
-    onCreateTask: (date: string) => void
     onChange: (payload: DatabasePayload) => void
   }
 
@@ -41,7 +48,6 @@
     payload,
     editable = true,
     language,
-    onCreateTask,
     onChange,
   }: Props = $props()
 
@@ -60,6 +66,9 @@
   let openedRecordId = $state<string | null>(null)
   let filtersOpen = $state(false)
   let rulesOpen = $state(false)
+  // Why the last property type change was refused. It is a local refusal notice:
+  // it is never written into the document.
+  let typeError = $state('')
 
   let openedRecord = $derived.by(() => {
     const openId = openedRecordId
@@ -146,11 +155,18 @@
   function changePropertyType(propertyId: string, type: PropertyType) {
     const property = propertyById(payload, propertyId)
     if (!property || property.type === type) return
+    // A type change that would break an invariant the save checks, or that a
+    // stored value cannot follow, is refused here with the payload untouched:
+    // the alternative is either a rejected save or deleted data.
+    const problem = propertyTypeChangeProblem(payload, propertyId, type)
+    if (problem) {
+      typeError = typeChangeMessage(problem, property, type)
+      return
+    }
+    typeError = ''
     const next = clonePayload(payload)
     const target = next.properties.find((candidate) => candidate.id === propertyId)
     if (!target) return
-    // Changing a type drops values the new type cannot hold rather than storing
-    // data the schema would then reject.
     target.type = type
     if (type === 'status' || type === 'select' || type === 'multiSelect') {
       if (!target.options?.length) {
@@ -161,30 +177,51 @@
     }
     for (const record of next.records) {
       const value = record.values[propertyId]
-      if (value === undefined || value === null) continue
-      if (!valueFitsType(target, value)) delete record.values[propertyId]
+      if (value === null || value === undefined) continue
+      const converted = convertValue(property, target, value)
+      if (converted.ok) record.values[propertyId] = converted.value
     }
     commit(next)
   }
 
-  function valueFitsType(property: DatabaseProperty, value: unknown): boolean {
-    switch (property.type) {
-      case 'title':
-      case 'text':
-      case 'date':
-        return typeof value === 'string'
-      case 'number':
-        return typeof value === 'number'
-      case 'checkbox':
-        return typeof value === 'boolean'
-      case 'status':
-      case 'select':
-        return typeof value === 'string' && !!optionName(property, value)
-      case 'multiSelect':
-        return Array.isArray(value)
-      default:
-        return false
+  /** Says why a type change was refused, naming what the user can clear first. */
+  function typeChangeMessage(
+    problem: PropertyTypeChangeProblem,
+    property: DatabaseProperty,
+    type: PropertyType,
+  ): string {
+    const typeName = messages[type]
+    switch (problem.reason) {
+      case 'last-title-property':
+      case 'title-property-exists':
+        return messages.typeChangeBlockedTitle
+      case 'date-rule-references-property':
+        return messages.typeChangeBlockedRule(property.name)
+      case 'filter-references-property':
+        return messages.typeChangeBlockedFilter(property.name)
+      default: {
+        const record = problem.recordId ? recordById(payload, problem.recordId) : undefined
+        const recordName = record ? recordTitleOf(record) : ''
+        return messages.typeChangeBlockedValue(property.name, typeName, recordName)
+      }
     }
+  }
+
+  function recordTitleOf(record: DatabaseRecord): string {
+    const title = titleProperty(payload)
+    if (!title) return ''
+    const value = record.values[title.id]
+    return typeof value === 'string' ? value : ''
+  }
+
+  /** The types a property may be changed to without breaking a save invariant. */
+  function typeChoices(property: DatabaseProperty): PropertyType[] {
+    const others = payload.properties.filter((candidate) => candidate.id !== property.id)
+    const hasOtherTitle = others.some((candidate) => candidate.type === 'title')
+    const isOnlyTitle = property.type === 'title' && !hasOtherTitle
+    return PROPERTY_TYPES.filter((type) =>
+      isOnlyTitle ? type === 'title' : type !== 'title',
+    )
   }
 
   function deleteProperty(propertyId: string) {
@@ -319,19 +356,21 @@
     commit(next)
   }
 
+  /**
+   * A batch date edit takes the same path a single-cell date edit takes, so the
+   * linked dates follow the change and a hand-set deadline is detached, in one
+   * commit for the whole selection.
+   */
   function batchSetDate(propertyId: string, date: string) {
-    applyToSelected((record) => {
-      record.values[propertyId] = date === '' ? null : date
-    })
+    const ids = selectedIds()
+    if (ids.length === 0) return
+    commit(batchSetDateValue(payload, ids, propertyId, date === '' ? null : date))
   }
 
   function batchShiftDate(propertyId: string, days: number) {
-    const base = todayCalendarDate()
-    applyToSelected((record) => {
-      const current = record.values[propertyId]
-      const from = isValidCalendarDate(current) ? (current as string) : base
-      record.values[propertyId] = addCalendarDays(from, days)
-    })
+    const ids = selectedIds()
+    if (ids.length === 0) return
+    commit(batchShiftDateValue(payload, ids, propertyId, days))
   }
 
   function batchSetStatus(propertyId: string, optionId: string) {
@@ -359,22 +398,11 @@
 
   /**
    * Creates a task from a calendar date, giving it that date as its deadline.
-   * The pick falls back to the first date property, so a converted table's date
-   * column receives the picked day without a separate setting.
+   * A database with no date property gets one, because the contract is that the
+   * picked day is the new task's deadline rather than an unlabelled date.
    */
   function createTaskOnDate(date: string) {
-    const target =
-      payload.properties.find(
-        (property) => property.type === 'date' && /due|deadline|마감|기한/i.test(property.name),
-      ) ?? payload.properties.find((property) => property.type === 'date')
-    const title = payload.properties.find((property) => property.type === 'title')
-    const values: Record<string, unknown> = {}
-    if (title) values[title.id] = ''
-    if (target) values[target.id] = date
-    commit({
-      ...clonePayload(payload),
-      records: [...payload.records, newRecord(crypto.randomUUID(), values)],
-    })
+    commit(appendRecordWithDeadline(payload, date, messages.dueDate))
   }
 
   // ── date rules ────────────────────────────────────────────────────────
@@ -546,6 +574,13 @@
     {/if}
   </div>
 
+  {#if typeError}
+    <div class="database-type-error" role="alert">
+      <span>{typeError}</span>
+      <button type="button" class="quiet" onclick={() => (typeError = '')}>×</button>
+    </div>
+  {/if}
+
   {#if filtersOpen}
     <div class="database-filters">
       {#each payload.filters ?? [] as filter, index (index)}
@@ -704,14 +739,9 @@
                     onchange={(event) =>
                       changePropertyType(property.id, (event.target as HTMLSelectElement).value as PropertyType)}
                   >
-                    <option value="title">{messages.title}</option>
-                    <option value="text">{messages.text}</option>
-                    <option value="number">{messages.number}</option>
-                    <option value="date">{messages.date}</option>
-                    <option value="status">{messages.status}</option>
-                    <option value="checkbox">{messages.checkbox}</option>
-                    <option value="select">{messages.select}</option>
-                    <option value="multiSelect">{messages.multiSelect}</option>
+                    {#each typeChoices(property) as type (type)}
+                      <option value={type}>{messages[type]}</option>
+                    {/each}
                   </select>
                 </th>
               {/each}
@@ -998,6 +1028,18 @@
   }
 
   .database-error {
+    color: var(--danger-text);
+    font-size: 0.82rem;
+  }
+
+  .database-type-error {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    padding: 4px 8px;
+    border: 1px solid var(--danger-text);
+    border-radius: 6px;
     color: var(--danger-text);
     font-size: 0.82rem;
   }
