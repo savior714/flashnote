@@ -343,7 +343,20 @@ This section records what is actually implemented, which is a different claim fr
 
 **Not verified in a live application session**
 
-The macOS acceptance pipeline cannot complete in the current environment. It reaches the slash-menu filtering step and then stops with no further activity, both on this branch and on the untouched `origin/main` ancestor, so the stall is environmental rather than a regression. That means the editor-level behavior — actually inserting a table, converting it, typing in a cell, dragging a resize handle, the record panel, and the calendar views — has not been exercised by a real session, and no performance comparison against the baseline profile exists. Those remain open until an interactive session can be used.
+The macOS acceptance pipeline cannot complete in the current environment. It reaches the slash-menu filtering step and then stops with no further activity: the runner reports `acceptance app did not exit`, with the last application activity at the fifth note save, on the published revision `6fd7946` (`vcs.revision=6fd7946 vcs.modified=false`) as well as on the untouched `origin/main` ancestor. So the stall is environmental rather than a regression. A guided real-session walkthrough of the table and database behavior is scripted and waits on an active desktop session: the current session has no active user (`UserIsActive 0`) and every screen capture — `screencapture`, ScreenCaptureKit, the window capture used by the automation driver — returns a black frame, while the Flashnote WebView exposes no accessibility tree, so an element-indexed walkthrough is not possible either.
+
+What the isolated runs do prove: the app resolves its data directory inside the isolated `HOME` (`FLASHNOTE_DATA_DIR path=`), the running bundle reports the published revision, a note holding a `database` payload with a rule chain and a detached deadline opens and survives `SIGKILL` plus relaunch with every value intact, and the real data directory stays byte-identical across all of it.
+
+Startup was measured on one machine against the two baseline revisions, n=20 per revision, fresh isolated `HOME` per launch:
+
+- `start -> RUNTIME_READY` p50/p95: `db1c5b8` 331.6/1296.9ms · `8180b6a8` 366.9/1271.0ms · current 347.9/924.3ms
+- `start -> first note open` p50/p95: `db1c5b8` 352.4/1334.2ms · `8180b6a8` 392.5/1313.9ms · current 370.2/967.7ms
+
+These are not the documented baseline numbers (p50 538.0 / p95 938.4ms for `RUNTIME_READY`), which were produced by a different harness on a different load; they are the same measurement for all three revisions on one machine, and the current revision sits between the two baselines on p50 with the lowest p95 of the three, so no regression is demonstrated. Note-switch, typing, and search latency have no baseline and no instrumented marker, so they remain unmeasured; inventing a regression rate for them would be fabrication.
+
+The 500-row × 10-column database was measured at the payload layer (the pure functions the UI calls, not rendering): visible records 0.03ms, sort 0.05ms, filter 0.05ms, a batch date edit over all 500 rows 10.1ms p50, and the linked rule chain 1.8ms. A first measurement showed the batch edit at 927ms because the rule chain was settled once per record, which is quadratic in the selection size; that was fixed by settling once per batch, with a test pinning that a batch edit produces exactly the payload the same edits produce one row at a time.
+
+One gap between the docs and the build is now recorded rather than implied: the plain table has no UI for adding or removing rows and columns, for header-cell toggling, or for cell merge and unmerge. Column resizing, cell typing, Tab movement, table deletion, and database conversion are present. The merged-cell refusal at conversion time is therefore not reachable by hand and is covered by the automated tests only.
 
 ## 13. Open technical decisions
 
