@@ -113,7 +113,18 @@ export function buildDatabasePayload(
 export function convertTableToDatabase(editor: Editor): ConversionResult {
   const found = tableAtSelection(editor)
   if (!found) return { ok: false, reason: 'no-table' }
-  const table = found.node as ConvertibleTable
+
+  // A live ProseMirror node keeps its children in a Fragment: it is neither a
+  // plain array nor directly iterable, and each cell's text sits on nested
+  // descendants rather than on the node itself. Reading the node as an array
+  // throws `table.content is not iterable`, and guarding on `Array.isArray` then
+  // drops every nested cell string to "" — which is exactly how a real editor
+  // table produced no database and no error. Serializing to JSON once removes
+  // both faults: `toJSON` yields the same plain nested arrays the saved document
+  // already uses, so merged-cell detection, cell text, and payload building all
+  // read one consistent representation and no cell value is silently lost.
+  const node = found.node as { toJSON?: () => unknown; nodeSize?: number }
+  const table = (typeof node?.toJSON === 'function' ? node.toJSON() : found.node) as ConvertibleTable
   if (!table?.content) return { ok: false, reason: 'no-table' }
 
   if (hasMergedCells(table)) return { ok: false, reason: 'merged-cells' }
@@ -132,12 +143,18 @@ export function convertTableToDatabase(editor: Editor): ConversionResult {
     databaseType as unknown as { create: (attrs: unknown) => unknown }
   ).create({ payload })
 
-  const tableSize = (found.node as { nodeSize?: number }).nodeSize ?? 2
+  const tableSize = node.nodeSize ?? 2
   const transaction = editor.state.tr
-  transaction.replaceRangeWith(found.pos, found.pos + tableSize, databaseNode as never)
-  transaction.setSelection(
-    NodeSelection.create(transaction.doc, transaction.mapping.map(found.pos) + 1) as never,
-  )
+  const tableStart = found.pos
+  transaction.replaceRangeWith(tableStart, tableStart + tableSize, databaseNode as never)
+  // The database node lands exactly where the table started. A NodeSelection
+  // reads its node from `doc.resolve(pos).nodeAfter`, so its anchor is the
+  // position immediately before that node: the mapped table start, never one
+  // position past it. An off-by-one anchor resolves next to the node rather than
+  // at it, and when the table sat last or alone it resolves past the end, where
+  // there is no node and the whole transaction fails before it dispatches.
+  const databasePos = transaction.mapping.map(tableStart)
+  transaction.setSelection(NodeSelection.create(transaction.doc, databasePos) as never)
   editor.view.dispatch(transaction)
 
   return {

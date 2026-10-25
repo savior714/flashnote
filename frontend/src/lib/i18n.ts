@@ -174,6 +174,8 @@ const englishMessages = {
     highlightPurple: 'Purple',
     convertBlocked: 'Unmerge cells first',
     convertToDatabase: 'Convert to database',
+    convertFailed:
+      'This table could not be turned into a database. The table is unchanged, so you can try again.',
     convertBlockedBody:
       'This table has merged cells, so it cannot become a database yet. Unmerge the cells, then convert again.',
     convertHint: 'Turn this table into a task database',
@@ -414,6 +416,8 @@ const koreanMessages = {
     highlightPurple: '보라',
     convertBlocked: '셀 병합을 먼저 해제하세요',
     convertToDatabase: '데이터베이스로 전환',
+    convertFailed:
+      '이 표를 데이터베이스로 만들지 못했습니다. 표는 그대로이므로 다시 시도할 수 있습니다.',
     convertBlockedBody:
       '이 표에는 병합된 셀이 있어 데이터베이스로 바꿀 수 없습니다. 병합을 해제한 뒤 다시 전환하세요.',
     convertHint: '이 표를 작업 데이터베이스로 바꿉니다',

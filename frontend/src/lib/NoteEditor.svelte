@@ -12,6 +12,7 @@
     CURRENT_DOCUMENT_SCHEMA_VERSION,
     isReadableDocumentEnvelope,
   } from './documentWire'
+  import { toEditorDocument, toStoredDocument } from './databaseNodeWire'
   import { setDatabaseLanguage } from './databaseLanguage'
   import { isValidExternalWebUrl, openExternalUrl } from './linkHelper'
   import { RichPasteNormalization } from './richPaste'
@@ -166,7 +167,10 @@
     if (!isReadableDocumentEnvelope(envelope)) {
       throw new Error('Flashnote received an invalid persisted document')
     }
-    return envelope.doc as JSONContent
+    // The stored document keeps the database payload flat on the node attrs (the
+    // shape Go validates); the editor models it under `attrs.payload`, so the
+    // shape is widened back before the editor parses it.
+    return toEditorDocument(envelope.doc as JSONContent)
   }
 
   // The database node view is mounted by Tiptap, so the resolved language
@@ -180,13 +184,20 @@
     if (!currentEditor) return
     convertingTable = true
     conversionMessage = ''
-    const result = convertTableToDatabase(currentEditor)
-    if (!result.ok) {
-      conversionMessage = conversionBlockedMessage(result.reason)
-    } else {
-      conversionMessage = ''
+    try {
+      const result = convertTableToDatabase(currentEditor)
+      conversionMessage = result.ok ? '' : conversionBlockedMessage(result.reason)
+    } catch (error) {
+      // The conversion builds and dispatches its whole transaction only after the
+      // payload is complete, so an exception has already left the original table
+      // untouched. Reset the button in `finally` so the user can retry, surface a
+      // concise message they can act on, and log the cause for tracing instead of
+      // silently swallowing it.
+      console.error('FLASHNOTE_TABLE_CONVERSION_FAILED', error)
+      conversionMessage = messages.database.convertFailed
+    } finally {
+      convertingTable = false
     }
-    convertingTable = false
   }
 
   function isImageCandidate(file: File): boolean {
@@ -334,7 +345,7 @@
         onDocumentChange(
           JSON.stringify({
             schemaVersion: CURRENT_DOCUMENT_SCHEMA_VERSION,
-            doc: updatedEditor.getJSON(),
+            doc: toStoredDocument(updatedEditor.getJSON()),
           }),
         )
       },
