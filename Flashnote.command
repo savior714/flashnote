@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd -- "$(dirname -- "$0")"
 
-readonly WAILS_VERSION="v3.0.0-beta.11"
+readonly WAILS_VERSION="v3.0.0"
 readonly WAILS_PACKAGE="github.com/wailsapp/wails/v3/cmd/wails3"
 
 for dependency in go node corepack; do

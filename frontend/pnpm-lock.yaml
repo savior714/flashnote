@@ -27,12 +27,12 @@ importers:
         specifier: 3.30.2
         version: 3.30.2(@floating-ui/dom@1.8.0)(@tiptap/core@3.30.2(@tiptap/pm@3.30.2))(@tiptap/pm@3.30.2)
       '@wailsio/runtime':
-        specifier: 3.0.0-beta.9
-        version: 3.0.0-beta.9
+        specifier: 3.0.0
+        version: 3.0.0
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: 7.3.0
-        version: 7.3.0(svelte@5.56.10)(vite@8.2.2(@types/node@24.13.3))
+        version: 7.3.0(svelte@5.56.10)(vite@8.2.4(@types/node@24.13.3))
       '@tsconfig/svelte':
         specifier: 5.0.8
         version: 5.0.8
@@ -52,8 +52,8 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
       vite:
-        specifier: 8.2.2
-        version: 8.2.2(@types/node@24.13.3)
+        specifier: 8.2.4
+        version: 8.2.4(@types/node@24.13.3)
 
 packages:
 
@@ -358,8 +358,8 @@ packages:
   '@types/trusted-types@2.0.7':
     resolution: {integrity: sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==}
 
-  '@wailsio/runtime@3.0.0-beta.9':
-    resolution: {integrity: sha512-nsC4bwte9wNSxEFvjB5BslF/sfCZXQKrw2VlmAxQoSu77Lu5z292SeNmOKk0gcHd1r36LubSaNBDCEsJQLddYA==}
+  '@wailsio/runtime@3.0.0':
+    resolution: {integrity: sha512-NkFJXYWD/4Y3TcHAqfIeST4oybtwv9dVWTmriZTMFbINYiQ2FB3Wr4MjsQ7o0BNynEj2GslmUisNejnixEmLVQ==}
 
   acorn@8.18.0:
     resolution: {integrity: sha512-lGq+9yr1/GuAWaVYIHRjvvySG5/4VfKIvC8EWxStPdcDh/Ka7FG3twP6v4d5BkravUilhIAsG4Qj83t02LWUPQ==}
@@ -620,8 +620,8 @@ packages:
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
 
-  vite@8.2.2:
-    resolution: {integrity: sha512-cFKLV/PRgAUlIRm5WjMjJ86jrftzpqcgH+Us+DS8mI3CDNiH30Whrz8uHL3+MOLPAgqbMBAqWdAHAphOAM+z/Q==}
+  vite@8.2.4:
+    resolution: {integrity: sha512-lfauXnrf2x0p+UoA+wXh0dgFWnUjCyG6Js95KBkgaCwUU9k0DAHI4W6Q0WCx+h+5g+Alce1y4Zi2QjjK0UvGBw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
     peerDependencies:
@@ -764,14 +764,14 @@ snapshots:
 
   '@sveltejs/load-config@0.2.3': {}
 
-  '@sveltejs/vite-plugin-svelte@7.3.0(svelte@5.56.10)(vite@8.2.2(@types/node@24.13.3))':
+  '@sveltejs/vite-plugin-svelte@7.3.0(svelte@5.56.10)(vite@8.2.4(@types/node@24.13.3))':
     dependencies:
       deepmerge: 4.3.1
       magic-string: 1.2.2
       obug: 2.1.4
       svelte: 5.56.10
-      vite: 8.2.2(@types/node@24.13.3)
-      vitefu: 1.1.3(vite@8.2.2(@types/node@24.13.3))
+      vite: 8.2.4(@types/node@24.13.3)
+      vitefu: 1.1.3(vite@8.2.4(@types/node@24.13.3))
 
   '@tiptap/core@3.30.2(@tiptap/pm@3.30.2)':
     dependencies:
@@ -942,7 +942,7 @@ snapshots:
 
   '@types/trusted-types@2.0.7': {}
 
-  '@wailsio/runtime@3.0.0-beta.9': {}
+  '@wailsio/runtime@3.0.0': {}
 
   acorn@8.18.0: {}
 
@@ -1208,7 +1208,7 @@ snapshots:
 
   undici-types@7.18.2: {}
 
-  vite@8.2.2(@types/node@24.13.3):
+  vite@8.2.4(@types/node@24.13.3):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.5
@@ -1219,9 +1219,9 @@ snapshots:
       '@types/node': 24.13.3
       fsevents: 2.3.3
 
-  vitefu@1.1.3(vite@8.2.2(@types/node@24.13.3)):
+  vitefu@1.1.3(vite@8.2.4(@types/node@24.13.3)):
     optionalDependencies:
-      vite: 8.2.2(@types/node@24.13.3)
+      vite: 8.2.4(@types/node@24.13.3)
 
   w3c-keyname@2.2.8: {}
 

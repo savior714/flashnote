@@ -56,8 +56,8 @@ NODE_VERSION="$(node --version)"
 XCODE_PATH="$(xcode-select -p)"
 printf 'Go: %s\nNode: %s\nXcode: %s\n' "$GO_VERSION" "$NODE_VERSION" "$XCODE_PATH"
 
-[[ "$GO_VERSION" == *"go1.27.0 "* ]] || {
-  echo "Go 1.27.0 is required for DMG acceptance." >&2
+[[ "$GO_VERSION" == *"go1.27.3 "* ]] || {
+  echo "Go 1.27.3 is required for DMG acceptance." >&2
   exit 1
 }
 [[ "$NODE_VERSION" == v24.* ]] || {
@@ -73,12 +73,12 @@ PNPM_VERSION="$(pnpm --version)"
   exit 1
 }
 
-GOBIN="$TOOL_BIN" go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.11
+GOBIN="$TOOL_BIN" go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
 WAILS="$TOOL_BIN/wails3"
 export PATH="$TOOL_BIN:$PATH"
 WAILS_VERSION="$("$WAILS" version 2>&1)"
-[[ "$WAILS_VERSION" == "v3.0.0-beta.11" ]] || {
-  echo "Expected Wails v3.0.0-beta.11, got $WAILS_VERSION." >&2
+[[ "$WAILS_VERSION" == "v3.0.0" ]] || {
+  echo "Expected Wails v3.0.0, got $WAILS_VERSION." >&2
   exit 1
 }
 

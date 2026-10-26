@@ -163,7 +163,7 @@ git pull
 빌드하는 Mac에서:
 
 ```bash
-go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.11
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
 "$(go env GOPATH)/bin/wails3" task --taskfile ./Taskfile.release.yml package:macos:universal:dmg
 ```
 
@@ -202,7 +202,7 @@ go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.11
 
 ```bash
 # wails3가 없다면 먼저 설치
-go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.11
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
 
 # Go 테스트 + 프런트엔드 타입 검사
 wails3 task check

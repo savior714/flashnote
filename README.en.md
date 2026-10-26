@@ -63,7 +63,7 @@ Installing the app does not transfer or sync its notes. Each Mac currently has i
 Use watch mode only while actively changing/debugging code, not as the real-note launcher:
 
 ```bash
-go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.11
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
 wails3 dev -config ./build/config.yml
 ```
 
