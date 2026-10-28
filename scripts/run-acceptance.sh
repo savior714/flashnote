@@ -9,6 +9,16 @@
 # also fails closed inside the app (frontend acceptance isolation gate), but this
 # runner keeps the isolation true in the first place.
 #
+# Before the acceptance process is started this runner guarantees, in order:
+#   1. the binary it is about to run was built from this exact checkout - its
+#      embedded vcs.revision, read back with `go version -m`, must equal HEAD;
+#   2. the run HOME and the baked VITE_FLASHNOTE_ACCEPTANCE_HOME are the same
+#      freshly created isolated HOME, never the real one;
+#   3. the app refuses any acceptance step - before writing a single datum -
+#      unless that baked HOME matches the data directory it resolves.
+# A mis-built or mis-isolated run therefore stops before it can touch data, so
+# it can never report a verdict it did not earn.
+#
 # Usage: scripts/run-acceptance.sh [acceptance-text]
 #   acceptance-text defaults to the durable vertical slice text.
 set -euo pipefail
@@ -84,10 +94,36 @@ HOME="${WORK_HOME}" \
   wails3 build >"${BUILD_LOG}" 2>&1
 test -x ./flashnote
 
-# The isolated HOME is exported for the run by this same process, so the
-# acceptance build and the acceptance process cannot disagree about where data
-# lives.
-print "acceptance isolation: run HOME=${WORK_HOME}"
+# The binary that is about to run must be the build from THIS checkout. The Go
+# toolchain stamps vcs.revision into the binary at build time; read it back with
+# `go version -m` (out of the binary itself, so there is no separate stamp to
+# drift from it) and refuse to launch a binary that is not this exact source
+# revision. This runs before the process starts, so a stale or foreign binary
+# cannot write any acceptance data before the run is stopped.
+BINARY_REVISION="$(go version -m ./flashnote 2>/dev/null | sed -n 's/.*build\tvcs.revision=//p' | head -1)"
+if [[ -z "${BINARY_REVISION}" ]]; then
+  print -u2 "acceptance isolation: refusing to run; ./flashnote carries no vcs.revision stamp (was it built outside a checkout?)"
+  exit 1
+fi
+HEAD_REVISION="$(git -C "${REPO_ROOT}" rev-parse HEAD)"
+if [[ "${BINARY_REVISION}" != "${HEAD_REVISION}" ]]; then
+  print -u2 "acceptance isolation: refusing to run; ./flashnote was built from ${BINARY_REVISION}, not this checkout (${HEAD_REVISION})"
+  exit 1
+fi
+print "acceptance isolation: binary verified to be built from ${BINARY_REVISION}"
+
+# Immediately before launch, re-assert the two run-time guarantees this runner
+# owns by construction: the process runs in the isolated HOME - never the real
+# one - and that isolated HOME is the one baked into the build as
+# VITE_FLASHNOTE_ACCEPTANCE_HOME, so the acceptance build and the acceptance
+# process cannot disagree about where data lives. The app additionally refuses
+# any acceptance step, before the first datum is written, unless that baked HOME
+# matches the data directory it resolves.
+if [[ "${WORK_HOME}" == "${REAL_HOME}" ]]; then
+  print -u2 "acceptance isolation: refusing to run; run HOME is the real HOME (${REAL_HOME})"
+  exit 1
+fi
+print "acceptance isolation: run HOME=${WORK_HOME} (baked VITE_FLASHNOTE_ACCEPTANCE_HOME is the same HOME)"
 HOME="${WORK_HOME}" VITE_FLASHNOTE_DATA_SAFETY_ACCEPTANCE="${DATA_SAFETY_MODE}" ./flashnote >"${RUN_LOG}" 2>&1 &
 readonly RUN_PID=$!
 for _ in $(seq 1 240); do

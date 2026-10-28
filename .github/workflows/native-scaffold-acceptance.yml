@@ -432,8 +432,14 @@ jobs:
             sleep 1
           done
           grep -q 'FLASHNOTE_NOTE_SEARCH query_len=50 ' "$NAV_LOG"
-          sqlite3 "$NAV_DB" 'DROP TRIGGER flashnote_acceptance_fail_p1b_nav;'
+          # Read the end-revision anchor BEFORE dropping the forced-failure
+          # trigger. While the trigger is present every save to the navfail note
+          # aborts, so its durable revision is frozen; a post-drop read would
+          # race the retry-success flush released the instant the trigger is gone
+          # (the app is already looping "Retry saving"), already counting that
+          # write and mis-setting the expected end revision by one.
           nav_rev_at_drop="$(sqlite3 "$NAV_DB" "SELECT revision FROM notes WHERE id = '$nav_note_id';")"
+          sqlite3 "$NAV_DB" 'DROP TRIGGER flashnote_acceptance_fail_p1b_nav;'
 
           for _ in {1..60}; do
             if ! kill -0 "$pid" 2>/dev/null; then break; fi
@@ -462,10 +468,12 @@ jobs:
           # The forced failure was genuinely exercised across Stay/Retry, and the
           # discarded draft neither resurrected a retry nor ever became durable:
           # after the trigger drop any resurrected retry would have succeeded and
-          # written 'P1B navfail latest draft'. The acceptance bootstrap and
-          # slash chain legitimately persist earlier document writes, so durable
-          # write counting anchors on the revision observed at trigger-drop:
-          # exactly one further write came from the retry-success flush.
+          # written 'P1B navfail latest draft'. Every save to the navfail note
+          # aborts while the trigger is present, so its durable revision is frozen
+          # from the acceptance start until the drop; the anchor read just before
+          # the drop is that frozen revision, and the retry-success flush is the
+          # single write that follows it, so the end revision is exactly one
+          # higher.
           nav_failure_count="$(grep -c "FLASHNOTE_NOTE_SAVE_FAILED id=$nav_note_id" "$NAV_LOG")"
           test "$nav_failure_count" -ge 6
           test "$(sqlite3 "$NAV_DB" "SELECT title FROM notes WHERE id = '$nav_note_id';")" = 'P1B navfail retry draft'
