@@ -37,6 +37,7 @@ import { exportCurrentNoteMarkdown, installMarkdownExportShortcut } from './lib/
 import { setMarkdownExportReadiness } from './lib/markdownExportGate'
   import { encodeDocumentForSave, isDeterministicDocumentSaveError } from './lib/documentWire'
   import { assertAcceptanceIsolation } from './lib/acceptanceIsolationGate'
+import { runDataSafetyAcceptance } from './lib/dataSafetyAcceptance'
   import { exportPresentation, getMessages, presentNoteTitle, resolveLanguage } from './lib/i18n'
   import { waitForSaveFlush } from './lib/save-flush-timeout'
 import {
@@ -53,10 +54,18 @@ import {
   const undoDelayMs = 6000
   const flushTimeoutMs = 5000
   const acceptanceText = import.meta.env.VITE_FLASHNOTE_ACCEPTANCE_TEXT ?? ''
+  // Storage-safety acceptance mode (recovery | discard | navigation). Vite
+  // statically removes this block from ordinary builds, so production and
+  // no-mode acceptance builds never read it.
+  const dataSafetyAcceptanceMode = import.meta.env.VITE_FLASHNOTE_DATA_SAFETY_ACCEPTANCE ?? ''
   let editorAcceptanceConsumed = false
+  let dataSafetyAcceptanceStarted = false
 
   let settings = loadSettings()
-  if (acceptanceText) {
+  // The storage-safety suites drive the real UI through fixed English labels
+  // (Retry saving, Discard & exit, ...), so their runs need the same forced
+  // English shell the editor acceptance run has always had.
+  if (acceptanceText || dataSafetyAcceptanceMode) {
     settings = { ...settings, language: 'en' }
   }
   let language = resolveLanguage(settings.language)
@@ -1928,6 +1937,41 @@ import {
     await refreshSidebar()
   }
 
+  /**
+   * Storage-safety acceptance entry, independent of the editor acceptance
+   * chain.
+   *
+   * The mode suites own this process from their first title edit to the exit
+   * decision (retry, discard, close approval), so they used to be reachable
+   * only through NoteEditor's onAcceptanceReady: a stalled slash-menu or
+   * checklist step meant a storage-safety run that never started. This entry
+   * runs at the application boundary instead — after the shell finished
+   * opening the note the suite mutates, and only once acceptance isolation is
+   * proven, so a mis-isolated run fails closed before any test write.
+   */
+  async function runDataSafetyAcceptanceEntry(): Promise<void> {
+    if (dataSafetyAcceptanceStarted) {
+      return
+    }
+    dataSafetyAcceptanceStarted = true
+    try {
+      await initialise()
+      await assertAcceptanceIsolation()
+      await runDataSafetyAcceptance(dataSafetyAcceptanceMode)
+    } catch (error: unknown) {
+      // Same terminal-failure contract as the editor acceptance pipeline:
+      // the failure marker is the only verdict, and the window closes so the
+      // native runner sees a terminal state instead of waiting for its
+      // external timeout.
+      console.error('FLASHNOTE_ACCEPTANCE_FAILURE', error)
+      try {
+        await Window.Close()
+      } catch (closeError: unknown) {
+        console.error('FLASHNOTE_ACCEPTANCE_FAILURE', closeError)
+      }
+    }
+  }
+
   function handleAcceptanceReady() {
     editorAcceptanceConsumed = true
     setTimeout(() => {
@@ -2031,7 +2075,7 @@ import {
     window.addEventListener('keydown', handleGlobalKeydown)
     window.addEventListener('click', handleWindowClick)
     cleanupSettingsListener = initSettingsListener(() => settings.appearance)
-    if (import.meta.env.VITE_FLASHNOTE_DATA_SAFETY_ACCEPTANCE) {
+    if (dataSafetyAcceptanceMode) {
       // Acceptance-only deterministic race probe: start a real SaveNote for
       // the current dirty draft so the harness can click "Discard changes &
       // continue" while a save completion is guaranteed to still be in
@@ -2057,11 +2101,17 @@ import {
         .catch((error: unknown) => {
           console.error('FLASHNOTE_ACCEPTANCE_FAILURE', error)
         })
+      // The storage-safety suite is the sole acceptance owner of this run: it
+      // starts here rather than behind NoteEditor's acceptance callback (see
+      // runDataSafetyAcceptanceEntry), so the editor chain must not run beside
+      // it. Ordinary builds never set the mode and keep the editor chain.
+      void runDataSafetyAcceptanceEntry()
+    } else {
+      void initialise().catch((error: unknown) => {
+        loading = false
+        operationError = 'startupFailed'
+      })
     }
-    void initialise().catch((error: unknown) => {
-      loading = false
-      operationError = 'startupFailed'
-    })
 
     return () => {
       setMarkdownExportReadiness(null)
@@ -2560,7 +2610,7 @@ import {
           <NoteEditor
             {documentJSON}
             onDocumentChange={handleDocumentChange}
-            acceptanceText={editorAcceptanceConsumed ? '' : acceptanceText}
+            acceptanceText={editorAcceptanceConsumed || dataSafetyAcceptanceMode ? '' : acceptanceText}
             editable={!noteTransitionActive}
             {language}
             onAcceptanceReady={handleAcceptanceReady}
