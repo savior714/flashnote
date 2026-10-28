@@ -26,6 +26,7 @@
     type SlashCommandItem,
   } from './slashCommands'
   import { runChecklistInteractionAcceptance } from './checklistAcceptance'
+  import { reportAcceptanceStage } from './acceptanceStageLog'
   import type { ResolvedLanguage } from './settings'
   import { conversionBlockedMessage, convertTableToDatabase } from './tableToDatabase'
   import { tableExtensions } from './tableExtension'
@@ -445,13 +446,21 @@
         // non-isolated acceptance run must fail closed rather than write to the
         // developer's real notes.
         void assertAcceptanceIsolation()
-          .then(() => runSlashAcceptance(startedEditor, acceptanceText, onDocumentChange))
+          .then(() => {
+            // Editor acceptance entry: a stage marker before the first suite
+            // lets a stopped run be told apart from one that never started.
+            void reportAcceptanceStage(0)
+            return runSlashAcceptance(startedEditor, acceptanceText, onDocumentChange)
+          })
           .then(async () => {
             const currentEditor = editor
             if (!currentEditor) {
               throw new Error('Flashnote checklist acceptance lost the editor instance')
             }
             await runChecklistInteractionAcceptance(currentEditor, acceptanceText)
+            // Editor acceptance completion: every suite before the App-owned
+            // pipeline has now succeeded.
+            await reportAcceptanceStage(99)
             onAcceptanceReady?.()
           })
           .catch((error) => {

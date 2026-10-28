@@ -33,6 +33,7 @@
 import { runNewNoteShortcutAcceptance } from './lib/newNoteShortcutAcceptance'
 import { runSidebarDragDropAcceptance } from './lib/sidebarDragDropAcceptance'
 import { runScrollStructureAcceptance } from './lib/scrollStructureAcceptance'
+import { reportAcceptanceStage } from './lib/acceptanceStageLog'
 import { exportCurrentNoteMarkdown, installMarkdownExportShortcut } from './lib/export-shortcut'
 import { setMarkdownExportReadiness } from './lib/markdownExportGate'
   import { encodeDocumentForSave, isDeterministicDocumentSaveError } from './lib/documentWire'
@@ -1981,6 +1982,8 @@ import {
           // mutates note data, so a non-isolated acceptance run must fail closed
           // here rather than reach its first write.
           await assertAcceptanceIsolation()
+          // Pipeline entry: the whole App-owned suite starts here.
+          await reportAcceptanceStage(100)
           await runNewNoteShortcutAcceptance({
             getNoteID: () => noteID,
             getTitle: () => title,
@@ -1992,14 +1995,21 @@ import {
             applyNote,
             refreshSidebar,
           })
+          await reportAcceptanceStage(101)
           await runAcceptanceEmptyTrashReturn()
+          await reportAcceptanceStage(102)
           await runSidebarDragDropAcceptance({ refreshSidebar })
+          await reportAcceptanceStage(103)
           await runAcceptanceTrashLifecycle()
+          // Every acceptance before the scroll suite has succeeded, so a missing
+          // scroll stage marker now isolates a scroll-suite start failure.
+          await reportAcceptanceStage(104)
           await runScrollStructureAcceptance({
             refreshSidebar,
             applyNote,
             getNoteID: () => noteID,
           })
+          await reportAcceptanceStage(199)
           console.log('FLASHNOTE_ACCEPTANCE_FULL_PIPELINE_SUCCESS')
           await Window.Close()
         } catch (error) {

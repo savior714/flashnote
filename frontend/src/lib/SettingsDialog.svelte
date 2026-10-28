@@ -208,6 +208,9 @@
       >✕</button>
     </div>
 
+    <!-- The settings sections are the body's only children. A footer element
+         placed inside this container would make the section count stop
+         describing the surface, so it stays a sibling below. -->
     <div class="settings-body">
       <section class="settings-section" aria-labelledby="language-heading">
         <h3 id="language-heading" class="settings-section-title">{messages.settingsPage.language}</h3>
@@ -330,11 +333,11 @@
           </div>
         {/if}
       </section>
-
-      <p class="settings-build" data-build-revision={appRevision || ''}>
-        {messages.settingsPage.build}: {buildLabel}
-      </p>
     </div>
+
+    <p class="settings-build" data-build-revision={appRevision || ''}>
+      {messages.settingsPage.build}: {buildLabel}
+    </p>
   </div>
 </div>
 

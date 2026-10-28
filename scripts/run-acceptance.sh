@@ -66,8 +66,47 @@ fingerprint_real_data() {
 readonly REAL_BEFORE="${LOG_DIR}/real-data-before.md5"
 fingerprint_real_data >"${REAL_BEFORE}"
 
+# Proved on every exit path (see cleanup): the real data directory must be
+# byte-identical to what it was before the run, whether the run passed or not.
+verify_real_data_unchanged() {
+  local after="${LOG_DIR}/real-data-after.md5"
+  fingerprint_real_data >"${after}"
+  if ! diff -q "${REAL_BEFORE}" "${after}" >/dev/null; then
+    print -u2 "acceptance isolation: real data directory CHANGED during the acceptance run"
+    diff "${REAL_BEFORE}" "${after}" >&2 || true
+    return 1
+  fi
+  print "acceptance isolation: real data directory unchanged"
+  return 0
+}
+
+# Preserved before the isolated HOME is deleted. The database and the note
+# titles it holds are the durable state of a stopped run, and the application
+# log's stage markers are the only record of how far the pipeline actually got.
+capture_verdict_diagnostics() {
+  local db="${WORK_HOME}/Library/Application Support/Flashnote/flashnote.db"
+  if [[ -f "${db}" ]]; then
+    sqlite3 -batch "${db}" \
+      "SELECT title FROM notes ORDER BY updated_at DESC LIMIT 20;" \
+      >"${LOG_DIR}/isolated-note-titles.txt" 2>>"${LOG_DIR}/verdict-sql-error.log" || true
+    sqlite3 -batch "${db}" \
+      "SELECT id, title, revision, updated_at FROM notes WHERE title LIKE 'FLASHNOTE_SCROLL_ACCEPTANCE%' ORDER BY updated_at DESC;" \
+      >"${LOG_DIR}/scroll-verdict-notes.txt" 2>>"${LOG_DIR}/verdict-sql-error.log" || true
+  fi
+  grep -o 'FLASHNOTE_NOTE_SEARCH query_len=[0-9]*' "${RUN_LOG}" 2>/dev/null \
+    >"${LOG_DIR}/acceptance-stage-history.txt" || true
+}
+
 cleanup() {
   local rc=$?
+  # The isolated HOME is removed below, so anything needed to explain the run is
+  # copied out first. The verdict query and the recorded note titles are the
+  # durable state; the application log is the stage history.
+  capture_verdict_diagnostics
+  # The real data directory must be proven untouched on every exit path, not
+  # only on a passing one: a failing run is exactly the one where an isolation
+  # hole would otherwise hide.
+  verify_real_data_unchanged
   # Go leaves the module cache read-only, so make the isolated HOME writable
   # before removing it.
   chmod -R u+w "${WORK_HOME}" 2>/dev/null || true
@@ -126,17 +165,52 @@ fi
 print "acceptance isolation: run HOME=${WORK_HOME} (baked VITE_FLASHNOTE_ACCEPTANCE_HOME is the same HOME)"
 HOME="${WORK_HOME}" VITE_FLASHNOTE_DATA_SAFETY_ACCEPTANCE="${DATA_SAFETY_MODE}" ./flashnote >"${RUN_LOG}" 2>&1 &
 readonly RUN_PID=$!
-for _ in $(seq 1 240); do
+# The app must terminate on its own. A process that outlives this budget was
+# killed, not run to completion, so the run below is not a terminal state.
+readonly RUN_TIMEOUT_SECONDS=240
+for _ in $(seq 1 "${RUN_TIMEOUT_SECONDS}"); do
   if ! kill -0 "${RUN_PID}" 2>/dev/null; then break; fi
   sleep 1
 done
+APP_EXIT_STATUS=-1
 if kill -0 "${RUN_PID}" 2>/dev/null; then
+  # Forcibly terminated: capture the intent and the status the kill produced so
+  # the run is reported as forced rather than silently as an OK one.
   kill "${RUN_PID}" 2>/dev/null || true
   wait "${RUN_PID}" 2>/dev/null || true
-  print -u2 "acceptance isolation: acceptance app did not exit"
+  readonly APP_FORCED_EXIT=1
+  print -u2 "acceptance isolation: the acceptance app was forcibly terminated after ${RUN_TIMEOUT_SECONDS}s"
+else
+  readonly APP_FORCED_EXIT=0
+  wait "${RUN_PID}" && APP_EXIT_STATUS=0 || APP_EXIT_STATUS=$?
+fi
+readonly APP_EXIT_STATUS="${APP_EXIT_STATUS}"
+if [[ "${APP_FORCED_EXIT}" -ne 0 ]]; then
+  print -u2 "acceptance isolation: forced termination is not a completed run; a verdict note is not sufficient"
   exit 1
 fi
-wait "${RUN_PID}" || true
+if [[ "${APP_EXIT_STATUS}" -ne 0 ]]; then
+  print -u2 "acceptance isolation: the acceptance app exited with status ${APP_EXIT_STATUS} instead of 0"
+  exit 1
+fi
+print "acceptance isolation: the acceptance app exited on its own with status ${APP_EXIT_STATUS}"
+
+# The native close path decides which terminal state the app reached. A normal
+# close flushes the pending draft and is approved; a discarded close throws the
+# draft away. Only the approved path may produce a passing acceptance.
+if ! grep -q "FLASHNOTE_CLOSE_FLUSH_REQUESTED" "${RUN_LOG}"; then
+  print -u2 "acceptance isolation: the run never reached the native close path, so no verdict note proves a completed run"
+  exit 1
+fi
+if grep -q "FLASHNOTE_CLOSE_DISCARDED" "${RUN_LOG}"; then
+  print -u2 "acceptance isolation: the run closed through the discard path, which is not a verified-saved state"
+  exit 1
+fi
+if ! grep -q "FLASHNOTE_CLOSE_APPROVED" "${RUN_LOG}"; then
+  print -u2 "acceptance isolation: the run never recorded a normal approved close"
+  exit 1
+fi
+print "acceptance isolation: the app closed through the normal approved path"
 
 # The isolation gate mirrors any refusal into the application log, and the
 # application logs the data directory it actually resolved. A mismatch must stop
@@ -162,23 +236,50 @@ if [[ ! -f "${ISOLATED_DB}" ]]; then
   print -u2 "acceptance isolation: isolated database was never created at ${ISOLATED_DB}"
   exit 1
 fi
-readonly VERDICT="$(sqlite3 "${ISOLATED_DB}" \
-  "SELECT title FROM notes WHERE title LIKE 'FLASHNOTE_SCROLL_ACCEPTANCE%' ORDER BY updated_at DESC LIMIT 1;" || true)"
-if [[ -z "${VERDICT}" ]]; then
-  print -u2 "acceptance isolation: no scroll-structure verdict note was recorded"
-  sqlite3 "${ISOLATED_DB}" "SELECT title FROM notes ORDER BY updated_at DESC LIMIT 5;" >&2 || true
-  exit 1
-fi
-print "acceptance isolation: verdict ${VERDICT}"
 
-# The real data directory must be byte-identical to before the run.
-readonly REAL_AFTER="${LOG_DIR}/real-data-after.md5"
-fingerprint_real_data >"${REAL_AFTER}"
-if ! diff -q "${REAL_BEFORE}" "${REAL_AFTER}" >/dev/null; then
-  print -u2 "acceptance isolation: real data directory CHANGED during the acceptance run"
-  diff "${REAL_BEFORE}" "${REAL_AFTER}" >&2 || true
+# SQLite diagnostics are captured before the isolated HOME is removed, so a
+# verdict that could not be read can still be explained afterwards. A query
+# failure must be distinguished from a missing verdict, so the query itself runs
+# without `|| true` swallowing its exit status.
+readonly VERDICT_QUERY="SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE title = 'FLASHNOTE_SCROLL_ACCEPTANCE_OK') AS ok_count, COUNT(*) FILTER (WHERE title = 'FLASHNOTE_SCROLL_ACCEPTANCE_FAILED') AS failed_count FROM notes WHERE title LIKE 'FLASHNOTE_SCROLL_ACCEPTANCE%';"
+readonly VERDICT_BREAKDOWN="$(sqlite3 -batch "${ISOLATED_DB}" "${VERDICT_QUERY}" 2>>"${LOG_DIR}/verdict-sql-error.log")"
+readonly VERDICT_SQL_STATUS=$?
+if [[ "${VERDICT_SQL_STATUS}" -ne 0 ]]; then
+  print -u2 "acceptance isolation: the verdict query itself failed; a verdict cannot be read, which is not the same as a missing verdict"
   exit 1
 fi
-print "acceptance isolation: real data directory unchanged"
+
+# The verdict is judged by exact counts, never by ordering. `ORDER BY
+# updated_at DESC LIMIT 1` cannot tell a real success from a FAILED row, a
+# duplicate, or an ambiguous prefix written in the same second, so every
+# conflicting result fails instead.
+readonly VERDICT_TOTAL="${${VERDICT_BREAKDOWN%%\|*}:?}"
+readonly VERDICT_OK="${${VERDICT_BREAKDOWN#*\|}%%\|*}"
+readonly VERDICT_FAILED_COUNT="${${VERDICT_BREAKDOWN##*\|}}"
+print "acceptance isolation: verdict counts total=${VERDICT_TOTAL} ok=${VERDICT_OK} failed=${VERDICT_FAILED_COUNT}"
+
+if [[ "${VERDICT_FAILED_COUNT}" -ne 0 ]]; then
+  print -u2 "acceptance isolation: a FAILED verdict note is present (${VERDICT_FAILED_COUNT}), so this run is not a pass"
+  exit 1
+fi
+if [[ "${VERDICT_TOTAL}" -ne 1 ]]; then
+  if [[ "${VERDICT_TOTAL}" -eq 0 ]]; then
+    print -u2 "acceptance isolation: no scroll-structure verdict note was recorded"
+  else
+    print -u2 "acceptance isolation: ambiguous scroll-structure verdict notes (total=${VERDICT_TOTAL}, ok=${VERDICT_OK}); exactly one OK is required"
+  fi
+  print -u2 "acceptance isolation: recorded note titles:"
+  sqlite3 -batch "${ISOLATED_DB}" \
+    "SELECT title FROM notes ORDER BY updated_at DESC LIMIT 5;" >&2 || true
+  exit 1
+fi
+if [[ "${VERDICT_OK}" -ne 1 ]]; then
+  print -u2 "acceptance isolation: the single verdict note is not an OK verdict (ok=${VERDICT_OK})"
+  print -u2 "acceptance isolation: recorded note titles:"
+  sqlite3 -batch "${ISOLATED_DB}" \
+    "SELECT title FROM notes ORDER BY updated_at DESC LIMIT 5;" >&2 || true
+  exit 1
+fi
+print "acceptance isolation: verdict FLASHNOTE_SCROLL_ACCEPTANCE_OK"
 
 print "acceptance isolation: PASS"

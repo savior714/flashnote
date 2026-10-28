@@ -7,6 +7,7 @@ import {
   SaveNote,
   SearchNotes,
 } from '../../bindings/github.com/savior714/flashnote/appservice'
+import { reportAcceptanceStage, scrollStageEntered, scrollStageFailed } from './acceptanceStageLog'
 
 type NoteTuple = [string, string, string, number, boolean]
 
@@ -103,41 +104,64 @@ function longDocumentEnvelope(): string {
  * failure would otherwise be indistinguishable from success. The marker note is
  * read back from the isolated database by the runner, and searching for it also
  * exercises the real search path.
+ *
+ * This function is deliberately not fail-silent for the success case: the note
+ * is read back through the backend search path before returning, so a note that
+ * was created and saved in memory but never became queryable cannot be reported
+ * as recorded. A failed write is then propagated to the caller, which decides
+ * what the run's terminal state is.
  */
 async function recordVerdict(status: 'ok' | 'failed', detail: string): Promise<void> {
-  try {
-    const [noteID, , , revision] = await CreateNote()
-    await SaveNote(
-      noteID,
-      `FLASHNOTE_SCROLL_ACCEPTANCE_${status.toUpperCase()}`,
-      JSON.stringify({
-        schemaVersion: 1,
-        doc: {
-          type: 'doc',
-          content: [{ type: 'paragraph', content: [{ type: 'text', text: detail }] }],
-        },
-      }),
-      revision,
+  // Verdict CreateNote/SaveNote start and completion are the two boundaries a
+  // durable verdict can be lost at, so each is reported through the same
+  // stage channel the rest of the pipeline uses.
+  await reportAcceptanceStage(status === 'ok' ? 1000 : 1100)
+  const [noteID, , , revision] = await CreateNote()
+  await SaveNote(
+    noteID,
+    `FLASHNOTE_SCROLL_ACCEPTANCE_${status.toUpperCase()}`,
+    JSON.stringify({
+      schemaVersion: 1,
+      doc: {
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: detail }] }],
+      },
+    }),
+    revision,
+  )
+  // Persistence proof: the marker must be visible through the real search path
+  // that owns the note's durable projection, not merely accepted by the write
+  // call. A note that does not come back is not a recorded verdict.
+  const [searchIDs] = (await SearchNotes(`FLASHNOTE_SCROLL_ACCEPTANCE_${status.toUpperCase()}`)) as [
+    string[],
+    string[],
+    boolean[],
+    string[],
+  ]
+  if (!searchIDs.includes(noteID)) {
+    throw new Error(
+      `acceptance scroll: the ${status} verdict note ${noteID} was not readable back through the search path`,
     )
-  } catch {
-    // Verdict reporting must never mask or alter the acceptance result.
   }
+  await reportAcceptanceStage(status === 'ok' ? 1001 : 1101)
 }
 
 /**
- * Reports the failure stage through the application log.
+ * Records a failure verdict without letting its own write error replace the
+ * verification failure that is being reported.
  *
- * The frontend's console is not carried into the application log, and a
- * durable verdict note needs a full create-and-save round trip that the
- * shutdown path can cut short. The backend does log every search request with
- * its query length, so the length encodes the stage that failed and the
- * application log shows it directly.
+ * The verification exception is the authoritative result, so the terminal throw
+ * below is always that exception. A failure marker that could not be written is
+ * an observed diagnostic gap, not a new verdict.
  */
-async function reportStageToLog(stage: number): Promise<void> {
+async function recordFailureVerdict(detail: string): Promise<void> {
   try {
-    await SearchNotes('f'.repeat(1000 + stage))
-  } catch {
-    // Reporting must never alter the acceptance result.
+    await recordVerdict('failed', detail)
+  } catch (verdictError) {
+    console.error(
+      'FLASHNOTE_SCROLL_ACCEPTANCE_FAILED_VERDICT_WRITE',
+      verdictError instanceof Error ? verdictError.message : String(verdictError),
+    )
   }
 }
 
@@ -171,6 +195,7 @@ export async function runScrollStructureAcceptance({
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // A. REAL OVERFLOW SETUP: a sidebar that overflows the window
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    await reportAcceptanceStage(scrollStageEntered(1))
     stage = 1
     const [existingNoteIDs] = (await ListNotes()) as [string[], string[], boolean[]]
     const notesToCreate = Math.max(0, SIDEBAR_OVERFLOW_NOTE_COUNT - existingNoteIDs.length)
@@ -192,6 +217,7 @@ export async function runScrollStructureAcceptance({
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // B. THE REPORTED CONDITION EXISTS: the sidebar really overflows
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    await reportAcceptanceStage(scrollStageEntered(2))
     stage = 2
     const sidebarOverflow = noteList.scrollHeight - noteList.clientHeight
     measure('sidebarOverflow', sidebarOverflow)
@@ -210,6 +236,7 @@ export async function runScrollStructureAcceptance({
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // C. THE PAGE NEVER SCROLLS — proven by scrolling it
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    await reportAcceptanceStage(scrollStageEntered(3))
     stage = 3
     assertViewportDoesNotScroll('with a long sidebar')
     if (maxScrollTop(shell) !== 0 || maxScrollTop(sidebar) !== 0) {
@@ -219,6 +246,7 @@ export async function runScrollStructureAcceptance({
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // D. A LONG DOCUMENT THROUGH THE REAL NOTE PATH
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    await reportAcceptanceStage(scrollStageEntered(4))
     stage = 4
     const originalNoteID = getNoteID()
     if (!originalNoteID) {
@@ -251,6 +279,7 @@ export async function runScrollStructureAcceptance({
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // E. THE DOCUMENT PANE IS THE ONE DOCUMENT SCROLL OWNER
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    await reportAcceptanceStage(scrollStageEntered(5))
     stage = 5
     pane.scrollTop = 0
     await tick()
@@ -281,6 +310,7 @@ export async function runScrollStructureAcceptance({
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // F. THE NOTE LIST OWNS SIDEBAR SCROLL INDEPENDENTLY
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    await reportAcceptanceStage(scrollStageEntered(6))
     stage = 6
     noteList.scrollTop = 0
     await tick()
@@ -315,6 +345,7 @@ export async function runScrollStructureAcceptance({
     // caret following rests on: the caret's own DOM position resolves the
     // document pane — and only the pane — as its scroll container, and nothing
     // the caret does can move the page.
+    await reportAcceptanceStage(scrollStageEntered(7))
     stage = 7
     noteList.scrollTop = 0
     pane.scrollTop = 0
@@ -366,6 +397,7 @@ export async function runScrollStructureAcceptance({
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // H. NOTE TRANSITION AND SIDEBAR TOGGLE KEEP ONE OWNER
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    await reportAcceptanceStage(scrollStageEntered(8))
     stage = 8
     const [shortNoteID] = await CreateNote()
     applyNote((await OpenNote(shortNoteID)) as NoteTuple)
@@ -417,6 +449,7 @@ export async function runScrollStructureAcceptance({
     // The sidebar and the shell are now overflow-clipped, so a menu the sidebar
     // renders over its rows must still reach the user. Open a real one from a
     // row in the visible part of the list and measure it.
+    await reportAcceptanceStage(scrollStageEntered(9))
     stage = 9
     const restoredSidebar = document.querySelector<HTMLElement>('aside.sidebar')
     if (!restoredSidebar) {
@@ -479,6 +512,7 @@ export async function runScrollStructureAcceptance({
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // J. LEAVE THE ORIGINAL NOTE OPEN AND BOTH REGIONS RESET
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    await reportAcceptanceStage(scrollStageEntered(10))
     stage = 10
     if (originalNoteID) {
       applyNote((await OpenNote(originalNoteID)) as NoteTuple)
@@ -493,8 +527,9 @@ export async function runScrollStructureAcceptance({
     }
     assertViewportDoesNotScroll('at completion')
 
-    await recordVerdict('ok', 'single document scroll owner; page never scrolls; note list scrolls independently')
-
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // K. THE SEARCH OVERLAY OPENS AND CLOSES ABOVE THE SHELL
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // The search overlay is a fixed layer above the shell. It must open and close
     // without the page becoming a scroll container, which is the regression the
     // shell-level overflow guards could otherwise introduce.
@@ -528,11 +563,18 @@ export async function runScrollStructureAcceptance({
       throw new Error('acceptance scroll: the search overlay did not close')
     }
     assertViewportDoesNotScroll('after the search overlay closed')
+
+    // Every scroll-structure verification above has now succeeded, so this is
+    // the only point where an OK verdict may be written. Recording it earlier
+    // would leave a durable OK behind for a run that then failed a later check.
+    await recordVerdict('ok', 'single document scroll owner; page never scrolls; note list scrolls independently')
     console.log('FLASHNOTE_SCROLL_ACCEPTANCE_SUCCESS')
   } catch (error) {
-    await reportStageToLog(stage)
+    await reportAcceptanceStage(scrollStageFailed(stage))
     console.error('FLASHNOTE_SCROLL_ACCEPTANCE_FAILURE', error)
-    await recordVerdict('failed', failureDetail(error))
+    // A failed-verdict write must never overwrite the original verification
+    // failure: the original exception is what the run is judged by.
+    await recordFailureVerdict(failureDetail(error))
     throw error
   }
 }
