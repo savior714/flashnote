@@ -14,8 +14,8 @@ import { SearchNotes } from '../../bindings/github.com/savior714/flashnote/appse
  *
  *   0, 99      editor acceptance entry and completion
  *   100-199    the App-owned pipeline, per step and completion
- *   200-209    scroll suite stage entry (stage 1 enters at 200)
- *   900-909    scroll suite failure at stage 1-10
+ *   200-210    scroll suite stage entry (stage 1 enters at 200)
+ *   900-910    scroll suite failure at stage 1-11
  *   1000-1001  OK verdict persistence start and completion
  *   1100-1101  FAILED verdict persistence start and completion
  *

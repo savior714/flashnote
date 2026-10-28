@@ -533,6 +533,12 @@ export async function runScrollStructureAcceptance({
     // The search overlay is a fixed layer above the shell. It must open and close
     // without the page becoming a scroll container, which is the regression the
     // shell-level overflow guards could otherwise introduce.
+    //
+    // Reported as its own stage: the overlay checks used to run inside stage 10's
+    // span, so a failure here was indistinguishable from a stage-10 failure in
+    // the last stage recorded before the run stopped.
+    await reportAcceptanceStage(scrollStageEntered(11))
+    stage = 11
     const isMac = typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac')
     const searchShortcut = new KeyboardEvent('keydown', {
       key: 'k',

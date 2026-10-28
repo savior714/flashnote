@@ -239,11 +239,16 @@ fi
 
 # SQLite diagnostics are captured before the isolated HOME is removed, so a
 # verdict that could not be read can still be explained afterwards. A query
-# failure must be distinguished from a missing verdict, so the query itself runs
-# without `|| true` swallowing its exit status.
+# failure must be distinguished from a missing verdict, so the query's real exit
+# status has to reach the check below. `readonly VAR="$(cmd)"` reports the
+# readonly builtin's own success, which masked every SQL failure behind a zero
+# (and left the check below unreachable). The value and its status are captured
+# beside one ordinary assignment instead: `|| VERDICT_SQL_STATUS=$?` records the
+# failing status without letting `set -e` end the run before it is judged.
 readonly VERDICT_QUERY="SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE title = 'FLASHNOTE_SCROLL_ACCEPTANCE_OK') AS ok_count, COUNT(*) FILTER (WHERE title = 'FLASHNOTE_SCROLL_ACCEPTANCE_FAILED') AS failed_count FROM notes WHERE title LIKE 'FLASHNOTE_SCROLL_ACCEPTANCE%';"
-readonly VERDICT_BREAKDOWN="$(sqlite3 -batch "${ISOLATED_DB}" "${VERDICT_QUERY}" 2>>"${LOG_DIR}/verdict-sql-error.log")"
-readonly VERDICT_SQL_STATUS=$?
+VERDICT_SQL_STATUS=0
+VERDICT_BREAKDOWN="$(sqlite3 -batch "${ISOLATED_DB}" "${VERDICT_QUERY}" 2>>"${LOG_DIR}/verdict-sql-error.log")" || VERDICT_SQL_STATUS=$?
+readonly VERDICT_BREAKDOWN VERDICT_SQL_STATUS
 if [[ "${VERDICT_SQL_STATUS}" -ne 0 ]]; then
   print -u2 "acceptance isolation: the verdict query itself failed; a verdict cannot be read, which is not the same as a missing verdict"
   exit 1

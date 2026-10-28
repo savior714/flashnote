@@ -101,3 +101,40 @@ test('the scroll suite reports its own stages so a stopped run is locatable', ()
     'the OK and FAILED verdict writes are respectively reported',
   )
 })
+
+test('the search overlay verification runs under a stage of its own', () => {
+  // The overlay checks used to run inside the previous section's stage span, so
+  // a failure there was indistinguishable from that section's failure in the
+  // stage history a stopped run leaves behind.
+  const stageEntries = [
+    ...scrollSource.matchAll(
+      /await reportAcceptanceStage\(scrollStageEntered\((\d+)\)\)\n\s*stage = (\d+)/g,
+    ),
+  ]
+  assert.ok(stageEntries.length >= 11, 'each verification section reports its own stage entry')
+
+  const stageNumbers: string[] = []
+  for (const entry of stageEntries) {
+    const [reported, recorded] = [entry[1], entry[2]]
+    // The stage recorded for a failure must be the stage that was reported, or
+    // the last entered stage cannot locate the failing section.
+    assert.equal(reported, recorded, 'the reported and recorded stage numbers agree')
+    stageNumbers.push(reported)
+  }
+  // Two sections sharing one stage number make that stage ambiguous as a
+  // failure location, which is the ambiguity this suite is meant to remove.
+  assert.equal(
+    new Set(stageNumbers).size,
+    stageNumbers.length,
+    'every verification section reports a distinct stage',
+  )
+
+  const overlayOpenGuard = scrollSource.indexOf('the search overlay did not open over the shell')
+  const overlayCloseGuard = scrollSource.indexOf('the search overlay did not close')
+  const overlayStageEntry = stageEntries[stageEntries.length - 1]
+  assert.ok(overlayStageEntry.index !== undefined)
+  assert.ok(
+    overlayStageEntry.index! < overlayOpenGuard && overlayStageEntry.index! < overlayCloseGuard,
+    'the overlay checks run after their own stage entry',
+  )
+})
