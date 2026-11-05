@@ -8,6 +8,21 @@ on:
   push:
     tags:
       - 'v*'
+  # Proves that packaging still produces installable artifacts when the
+  # packaging inputs change. It never publishes: a pull request builds only.
+  pull_request:
+    paths:
+      - '.github/workflows/release-installers.yml'
+      - '.github/actions/setup-toolchain/**'
+      - '.github/release-notes.md'
+      - 'scripts/package-windows-release.sh'
+      - 'scripts/stamp-release-version.mjs'
+      - 'Taskfile.release.yml'
+      - 'build/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'frontend/package.json'
+      - 'frontend/pnpm-lock.yaml'
   workflow_dispatch:
     inputs:
       version:
@@ -46,6 +61,11 @@ jobs:
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             version="$INPUT_VERSION"
             publish="${INPUT_PUBLISH:-false}"
+          elif [[ "$EVENT_NAME" == "pull_request" ]]; then
+            # A pull request only proves the artifacts build, so it uses a
+            # placeholder version and never publishes.
+            version="0.0.0"
+            publish=false
           else
             # The tag is the version authority: v1.2.3 releases version 1.2.3.
             version="${REF_NAME#v}"
