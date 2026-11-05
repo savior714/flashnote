@@ -30,3 +30,9 @@ build/appicon.png
 build/darwin/icons.icns
 build/darwin/Assets.car
 build/windows/icon.ico
+
+# Windows release packaging intermediates: the generated resource archive and
+# the WebView2 bootstrapper downloaded by
+# scripts/package-windows-release.sh.
+*.syso
+build/windows/nsis/MicrosoftEdgeWebview2Setup.exe

@@ -29,12 +29,33 @@ Flashnote는 아이디어, 회의 메모, 공부 기록처럼 **짧은 글**을 
 기능을 더하는 대신 **켜는 속도, 타이핑 속도, 저장의 안정성**을 지키는 쪽을 택했습니다.
 필요가 분명해질 때 하나씩 더하는 게 이 앱의 방향입니다.
 
-## 설치하기 (macOS)
+## 설치하기
 
-> 아직 공식 배포 전 단계라 App Store나 다운로드 버튼이 없습니다. 아래처럼 **처음 한 번만** 준비하면, 그다음부터는 `Flashnote.command`를 실행해서 켤 수 있습니다.
+설치 파일은 [Releases](https://github.com/savior714/flashnote/releases)에 올라갑니다.
+Go, Node.js, 소스 코드 없이 내려받아 설치하면 됩니다. Windows와 macOS 모두 같은 노트 앱을 씁니다.
+
+### macOS (macOS 12 이상 · Apple silicon / Intel)
+
+1. 최신 릴리스에서 `Flashnote-<버전>-macOS-universal.dmg`를 내려받아 엽니다.
+2. `Flashnote.app`을 **Applications** 폴더로 끌어다 놓습니다.
+3. 처음 실행할 때 macOS가 막으면 Finder에서 앱을 **Control-클릭 → 열기**를 누르거나, **시스템 설정 → 개인정보 보호 및 보안 → 그래도 열기**를 선택합니다.
+   터미널을 쓰는 경우: `xattr -dr com.apple.quarantine /Applications/Flashnote.app`
+
+### Windows (Windows 10 이상 · x64 / ARM64)
+
+1. 최신 릴리스에서 `Flashnote-<버전>-windows-setup.exe`를 내려받아 실행합니다.
+2. SmartScreen이 "Windows가 PC를 보호했습니다"라고 막으면 **추가 정보 → 실행**을 누릅니다.
+3. 설치 파일 하나가 x64와 ARM64를 모두 지원하고, 관리자 권한 없이 사용자 폴더에 설치됩니다.
+
+설치 없이 쓰려면 `Flashnote-<버전>-windows-x64-portable.exe`(ARM64 기기에서는 `...-arm64-portable.exe`)를 내려받아 바로 실행해도 됩니다.
+
+> 아직 Apple Developer ID 서명·공증과 Windows 코드 서명이 없습니다. 그래서 첫 실행 때 위 3번(또는 2번) 과정이 **한 번** 필요합니다.
+> 서명을 붙이는 절차와 비용은 [`docs/DISTRIBUTION.md`](docs/DISTRIBUTION.md)에 정리했습니다.
+
+## 소스에서 실행하기 (macOS, 개발자용)
+
+> 직접 코드를 고치면서 쓰고 싶을 때의 경로입니다. 처음 한 번만 준비하면, 그다음부터는 `Flashnote.command`를 실행해서 켤 수 있습니다.
 > 준비에 보통 5~10분, 이후 실행에는 수십 초 정도 걸립니다.
->
-> 이 저장소의 실행·패키징 안내는 macOS 기준입니다. 제품 방향에는 Windows도 포함되어 있지만, Windows 설치 경로는 아직 정리되어 있지 않습니다.
 
 ### 준비물
 
@@ -134,7 +155,9 @@ Finder에서 저장소 폴더를 열고 `Flashnote.command`를 더블클릭해�
 ## 노트는 어디에 저장되나요?
 
 ```
-~/Library/Application Support/Flashnote/
+macOS    ~/Library/Application Support/Flashnote/
+Windows  %APPDATA%\Flashnote\            (예: C:\Users\<이름>\AppData\Roaming\Flashnote)
+
 ├── flashnote.db    노트, 폴더, 휴지통
 ├── attachments/    문서에 넣은 이미지
 └── backups/        자동 백업 (6시간마다, 최근 8개)
@@ -142,11 +165,19 @@ Finder에서 저장소 폴더를 열고 `Flashnote.command`를 더블클릭해�
 
 - 백업에는 데이터베이스와 이미지가 **한 세트로** 들어갑니다.
 - 노트를 수동으로 백업하고 싶다면, 앱을 완전히 끈 상태에서 위 폴더를 통째로 복사해 두면 됩니다.
-- 데이터 폴더를 iCloud Drive, Dropbox, Google Drive 같은 동기화 폴더로 옮기지 마세요.
+- 데이터 폴더를 iCloud Drive, Dropbox, Google Drive, OneDrive 같은 동기화 폴더로 옮기지 마세요.
   SQLite 데이터베이스와 이미지 파일이 항상 같은 시점으로 움직여야 해서, 일반 파일 동기화는 노트를 깨뜨릴 수 있습니다.
-- 계정도 서버도 없으니 노트가 이 Mac 밖으로 자동 전송되는 일은 없습니다.
+- 계정도 서버도 없으니 노트가 이 컴퓨터 밖으로 자동 전송되는 일은 없습니다.
+- 노트는 OS별로 따로 저장됩니다. macOS와 Windows에서 같은 라이브러리를 함께 쓰는 동기화는 아직 없습니다.
 
 ## 업데이트하기
+
+### 설치 파일로 설치한 경우
+
+새 릴리스가 나오면 [Releases](https://github.com/savior714/flashnote/releases)에서 새 설치 파일을 받아 덮어 설치하면 됩니다.
+노트와 설정은 데이터 폴더에 그대로 남습니다.
+
+### 소스에서 실행하는 경우
 
 ```bash
 cd flashnote
@@ -156,11 +187,12 @@ git pull
 
 노트와 설정은 그대로 남아 있습니다.
 
-## 다른 Mac에 설치하기 (선택)
+## 직접 설치 파일 만들기
 
-내가 쓰는 다른 Mac에 앱으로 설치하고 싶을 때만 필요한 단계입니다. 받는 쪽 Mac에는 Go, Node.js, 소스 저장소가 없어도 됩니다.
+CI 없이 내 컴퓨터에서 설치 파일을 만들 때의 절차입니다. 받는 쪽 컴퓨터에는 Go, Node.js, 소스 저장소가 없어도 됩니다.
+자세한 운영 절차는 [`docs/DISTRIBUTION.md`](docs/DISTRIBUTION.md)에 있습니다.
 
-빌드하는 Mac에서:
+### macOS (universal DMG)
 
 ```bash
 go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
@@ -168,20 +200,35 @@ go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
 ```
 
 결과물은 `bin/flashnote.dmg`입니다. Apple Silicon과 Intel Mac을 모두 지원하고 macOS 12 이상에서 실행됩니다.
-받는 Mac에서 DMG를 열고 `Flashnote.app`을 **Applications** 폴더로 끌어다 놓으면 됩니다.
 
-- 이 빌드는 개인용이라 정식 서명·공증이 되어 있지 않습니다. 처음 열 때 macOS가 막으면 Finder에서 앱을 **Control-클릭 → 열기**로 실행하세요.
-- 노트는 앱과 함께 옮겨지지 않습니다. Mac마다 자기 라이브러리를 따로 가집니다(동기화 기능은 아직 없습니다).
+### Windows (실행 파일 + 설치본)
+
+Git Bash(또는 macOS/Linux에서 NSIS가 설치된 환경)에서:
+
+```bash
+VERSION=0.1.0 bash ./scripts/package-windows-release.sh
+```
+
+결과물은 `bin/flashnote-amd64.exe`, `bin/flashnote-arm64.exe`, `bin/Flashnote-0.1.0-windows-setup.exe`입니다.
+`makensis`가 없으면 `SKIP_INSTALLER=1`로 실행 파일만 만들 수 있습니다.
+
+- 이 빌드들은 아직 서명·공증이 되어 있지 않습니다. 처음 열 때 macOS는 **Control-클릭 → 열기**, Windows는 SmartScreen의 **추가 정보 → 실행**이 필요합니다.
+- 노트는 앱과 함께 옮겨지지 않습니다. 컴퓨터마다 자기 라이브러리를 따로 가집니다(동기화 기능은 아직 없습니다).
 
 ## 문제가 생기면
 
 | 증상 | 해결 |
 | --- | --- |
+| macOS: 앱이 "손상되었습니다" 또는 "확인되지 않은 개발자"로 열리지 않음 | 서명이 없는 빌드라 나오는 안내입니다. **Control-클릭 → 열기** 또는 `xattr -dr com.apple.quarantine /Applications/Flashnote.app` |
+| Windows: "Windows가 PC를 보호했습니다" | 서명이 없는 빌드라 나오는 안내입니다. **추가 정보 → 실행** |
+| Windows: 설치 없이 exe만 실행하고 싶음 | `Flashnote-<버전>-windows-x64-portable.exe`(ARM64 기기에서는 `...-arm64-portable.exe`)를 내려받아 실행하세요 |
 | `go: command not found` | `brew install go` 후 터미널을 새로 열어 보세요. |
 | `corepack: command not found` | `brew install corepack`(또는 `npm install -g corepack`)을 실행하세요. |
 | `xcode-select: error` 또는 `clang` 관련 오류 | `xcode-select --install`로 Command Line Tools를 설치하세요. |
 | `Flashnote source run requires ...` | 위 준비물 중 빠진 도구가 있다는 뜻입니다. 메시지에 나온 도구를 설치하세요. |
 | `Permission denied: ./Flashnote.command` | `chmod +x Flashnote.command`를 한 번 실행하세요. |
+| `makensis: command not found` (Windows 빌드) | macOS: `brew install makensis`, Ubuntu: `sudo apt install nsis`, Windows: `choco install nsis` |
+
 | 첫 실행이 멈춘 것처럼 오래 걸림 | 빌드 중인 경우가 많습니다. 터미널의 마지막 줄을 확인하면서 기다려 보세요. |
 | 앱 창이 뜨지 않음 | 터미널에 출력된 마지막 오류 메시지를 확인하세요. |
 | macOS가 "확인되지 않은 개발자"라고 막음 | 직접 만든 DMG를 처음 열 때만 나옵니다. Control-클릭 → 열기로 실행하세요. |
@@ -197,6 +244,7 @@ go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
 - [`docs/PRODUCT.md`](docs/PRODUCT.md) — 제품 동작과 UX 계약
 - [`docs/TECHNICAL.md`](docs/TECHNICAL.md) — 구현 구조와 기술 기준
 - [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) — 개발·검증·배포 규칙
+- [`docs/DISTRIBUTION.md`](docs/DISTRIBUTION.md) — 설치 파일 빌드·릴리스·서명 절차
 
 자주 쓰는 명령:
 

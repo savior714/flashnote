@@ -194,6 +194,8 @@ Prefer server-side defense in depth when available:
 
 Server rules do not replace semantic-overlap checks, proof validity, candidate integrity, or fresh remote authority. If protection/ruleset state has not been directly read, report it as `UNKNOWN/UNVERIFIED`, not healthy.
 
+Install-file releases are a separate lifecycle from `main` publication. A `v*` tag is the only version authority, and the release pipeline verifies that it can build every shipped artifact before it publishes one. The release runbook, signing steps, and artifact naming live in `docs/DISTRIBUTION.md`; this document keeps owning how source changes reach `main`.
+
 ## 10. Review standard
 
 Review implementation results as strict pair programming, not as a pass/fail formality. Actively look for:

@@ -43,3 +43,22 @@ tasks:
     deps: [prepare:icon]
     cmds:
       - task: darwin:package:universal:dmg
+
+  # The release tag is the version authority. CI stamps the build assets from
+  # it before packaging so the DMG, the .app, the executable's file version and
+  # the installer all report the same number.
+  stamp:version:
+    summary: Stamps one release version into every shipped build asset
+    cmds:
+      - node scripts/stamp-release-version.mjs {{.VERSION}}
+
+  # Windows packaging owns a script rather than a Taskfile: the same commands
+  # have to run under Git Bash on Windows and on macOS/Linux, and go-task's
+  # shell abstractions are the one thing that differs between those hosts.
+  package:windows:
+    summary: Packages the Windows executables and the per-user NSIS installer
+    env:
+      VERSION: '{{.VERSION | default "0.1.0"}}'
+      INSTALL_SCOPE: '{{.INSTALL_SCOPE | default "user"}}'
+    cmds:
+      - bash ./scripts/package-windows-release.sh
