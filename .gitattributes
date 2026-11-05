@@ -1,0 +1,13 @@
+# The Windows release build runs these same files from a Windows checkout, where
+# Git would otherwise convert them to CRLF: a CRLF shell script cannot be
+# executed by bash, and a CRLF NSIS script is read differently line by line.
+*.sh      text eol=lf
+*.command text eol=lf
+*.mjs     text eol=lf
+*.nsi     text eol=lf
+*.nsh     text eol=lf
+
+build/config.yml                 text eol=lf
+build/darwin/*.plist             text eol=lf
+build/windows/info.json          text eol=lf
+build/windows/wails.exe.manifest text eol=lf

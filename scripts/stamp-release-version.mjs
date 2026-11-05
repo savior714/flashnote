@@ -31,9 +31,17 @@ const updated = []
 function stamp(relativePath, transform) {
   const path = join(repoRoot, relativePath)
   const before = readFileSync(path, 'utf8')
-  const after = transform(before)
-  if (after === before) {
+  // A Windows checkout may hand these files back with CRLF line endings. The
+  // version fields are matched line by line, so match against LF text and
+  // restore the file's own convention before writing it back.
+  const usesCRLF = before.includes('\r\n')
+  const lfText = usesCRLF ? before.replace(/\r\n/g, '\n') : before
+  let after = transform(lfText)
+  if (after === lfText) {
     return
+  }
+  if (usesCRLF) {
+    after = after.replace(/\n/g, '\r\n')
   }
   writeFileSync(path, after)
   updated.push(relativePath)
