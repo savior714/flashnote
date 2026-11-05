@@ -21,6 +21,15 @@ Use **Wails v3** with **Go** for the desktop application shell and native/backen
 
 Tauri/Rust, Electron, and separate native macOS/Windows UI implementations are not the current baseline. They should be reconsidered only if implementation evidence shows a material limitation in Wails for Flashnote.
 
+### Install packaging and release artifacts
+
+Users install Flashnote from prebuilt artifacts, not from a source checkout: a universal macOS DMG and a Windows NSIS installer. Both are produced by the same release pipeline (`.github/workflows/release-installers.yml`) from a `v*` tag, with the pinned `wails3` CLI and the platform build assets committed under `build/darwin` and `build/windows`.
+
+- The release tag is the single version authority. `scripts/stamp-release-version.mjs` writes that one number into every shipped metadata surface (`build/config.yml`, both `Info.plist` files, `build/windows/info.json`, `wails.exe.manifest`, NSIS `wails_tools.nsh`) before packaging, so a DMG, an executable, and an installer from the same release never disagree.
+- Windows packaging lives in `scripts/package-windows-release.sh` rather than a Taskfile because the same commands must run under Git Bash on Windows and on macOS/Linux; go-task's shell abstraction is exactly the layer that differs between those hosts. It builds both `amd64` and `arm64` executables and folds them into one per-user installer, which needs no administrator rights.
+- macOS packaging keeps reusing the canonical Wails Darwin tasks in `Taskfile.release.yml`.
+- The pipeline currently ships **unsigned** artifacts. Apple Developer ID signing/notarization and Windows Authenticode signing are deliberate later steps; until they exist, install-time OS warnings are the expected, documented behavior rather than a defect. The signing runbook and channel expansion are owned by `docs/DISTRIBUTION.md`.
+
 ## 2. Frontend
 
 ### Decision

@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "0.1.0"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "0.1.0",
+			"CompanyName": "Flashnote",
+			"FileDescription": "A lightweight local-first document note app",
+			"LegalCopyright": "© 2026 Flashnote",
+			"ProductName": "Flashnote",
+			"Comments": ""
+		}
+	}
+}

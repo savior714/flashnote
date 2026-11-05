@@ -1,0 +1,201 @@
+name: Release installers
+
+# Turns one version into the install files a user actually downloads: a macOS
+# DMG and a Windows installer, plus portable/checksum companions. Pushing a
+# `v*` tag publishes a GitHub Release; a manual run builds the same artifacts
+# without publishing, which is how the pipeline is verified before a tag exists.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (numeric x.y.z)'
+        required: true
+        default: '0.1.0'
+      publish:
+        description: 'Publish the artifacts as a GitHub Release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-installers-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      publish: ${{ steps.resolve.outputs.publish }}
+    steps:
+      - name: Resolve the release version
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PUBLISH: ${{ inputs.publish }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            version="$INPUT_VERSION"
+            publish="${INPUT_PUBLISH:-false}"
+          else
+            # The tag is the version authority: v1.2.3 releases version 1.2.3.
+            version="${REF_NAME#v}"
+            publish=true
+          fi
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "release version must be numeric x.y.z, got '$version'" >&2
+            exit 1
+          fi
+          {
+            echo "version=$version"
+            echo "tag=v$version"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+
+  macos:
+    name: macOS DMG
+    needs: resolve
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: ./.github/actions/setup-toolchain
+
+      - name: Stamp the release version into the build assets
+        run: node scripts/stamp-release-version.mjs "${{ needs.resolve.outputs.version }}"
+
+      - name: Package the universal DMG
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '12.0'
+          CGO_CFLAGS: '-mmacosx-version-min=12.0'
+          CGO_LDFLAGS: '-mmacosx-version-min=12.0'
+        run: wails3 task --taskfile ./Taskfile.release.yml package:macos:universal:dmg
+
+      - name: Collect macOS artifacts
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          test -f bin/flashnote.dmg
+          mkdir -p dist
+          cp bin/flashnote.dmg "dist/Flashnote-$VERSION-macOS-universal.dmg"
+          cd dist
+          shasum -a 256 ./*.dmg > SHA256SUMS-macos.txt
+          cat SHA256SUMS-macos.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    name: Windows installer
+    needs: resolve
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: ./.github/actions/setup-toolchain
+
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          choco install nsis --no-progress -y
+          "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Verify NSIS
+        shell: bash
+        run: makensis -VERSION
+
+      - name: Stamp the release version into the build assets
+        shell: bash
+        run: node scripts/stamp-release-version.mjs "${{ needs.resolve.outputs.version }}"
+
+      - name: Package the Windows executables and installer
+        shell: bash
+        run: >-
+          wails3 task --taskfile ./Taskfile.release.yml package:windows
+          VERSION=${{ needs.resolve.outputs.version }} INSTALL_SCOPE=user
+
+      - name: Collect Windows artifacts
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item "bin\Flashnote-$env:VERSION-windows-setup.exe" "dist\Flashnote-$env:VERSION-windows-setup.exe"
+          Compress-Archive -Path 'bin\flashnote-amd64.exe','bin\flashnote-arm64.exe' -DestinationPath "dist\Flashnote-$env:VERSION-windows-portable.zip" -Force
+          Get-ChildItem dist | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)"
+          } | Out-File -FilePath "dist\SHA256SUMS-windows.txt" -Encoding ascii
+          Get-ChildItem dist | Select-Object Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs: [resolve, macos, windows]
+    if: needs.resolve.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Write the combined checksum file and the release body
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum ./*.dmg ./*.exe ./*.zip > SHA256SUMS.txt
+          rm -f SHA256SUMS-macos.txt SHA256SUMS-windows.txt
+          cd ..
+          sed "s/VERSION/$VERSION/g" .github/release-notes.md > "$RUNNER_TEMP/release-body.md"
+          {
+            echo
+            echo "---"
+            echo "이 버전에 포함된 커밋: https://github.com/$REPOSITORY/commits/$TAG"
+          } >> "$RUNNER_TEMP/release-body.md"
+          ls -l dist
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --title "Flashnote $VERSION" \
+              --notes-file "$RUNNER_TEMP/release-body.md"
+          fi

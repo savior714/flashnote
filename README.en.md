@@ -11,6 +11,28 @@ Flashnote keeps the polished writing feel of a modern document editor while deli
 - [`docs/PRODUCT.md`](docs/PRODUCT.md) defines the product contract.
 - [`docs/TECHNICAL.md`](docs/TECHNICAL.md) records implementation-level baseline decisions.
 - [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) defines development/publication rules and the current post-MVP dogfood loop.
+- [`docs/DISTRIBUTION.md`](docs/DISTRIBUTION.md) defines how install files are built, published, and (later) signed.
+
+## Install
+
+Install files are published on [Releases](https://github.com/savior714/flashnote/releases). Installing does not require Go, Node.js, or a source checkout.
+
+### macOS (macOS 12 or later · Apple silicon / Intel)
+
+1. Download `Flashnote-<version>-macOS-universal.dmg` from the latest release and open it.
+2. Drag `Flashnote.app` into **Applications**.
+3. If macOS blocks the first launch, Control-click the app and choose **Open**, or use **System Settings → Privacy & Security → Open Anyway**.
+   From a terminal: `xattr -dr com.apple.quarantine /Applications/Flashnote.app`
+
+### Windows (Windows 10 or later · x64 / ARM64)
+
+1. Download `Flashnote-<version>-windows-setup.exe` from the latest release and run it.
+2. If SmartScreen says "Windows protected your PC", choose **More info → Run anyway**.
+3. One installer covers x64 and ARM64 and installs per user, without administrator rights.
+
+`Flashnote-<version>-windows-portable.zip` runs without installing.
+
+> These builds are not yet Developer ID-signed/notarized on macOS and not code-signed on Windows, so step 3 (or step 2) is needed once. [`docs/DISTRIBUTION.md`](docs/DISTRIBUTION.md) covers adding signing.
 
 ## Current implementation baseline
 
@@ -20,7 +42,7 @@ Flashnote keeps the polished writing feel of a modern document editor while deli
 - SQLite through `modernc.org/sqlite`
 - Go-owned persistence boundary
 
-The functional MVP is closed. The normal dogfooding path remains personal use directly from the source checkout: observe one concrete defect or friction, apply the smallest fix, verify it, and return to use. A separate private universal DMG path is available for installing on another Mac you own; this is not a public, Developer ID-signed release.
+The functional MVP is closed. The normal dogfooding path remains personal use directly from the source checkout: observe one concrete defect or friction, apply the smallest fix, verify it, and return to use.
 
 ## Personal use from source
 
@@ -42,37 +64,31 @@ cd flashnote
 
 The personal-use launcher intentionally does **not** start `wails3 dev`. Watch/HMR/rebuild relaunches are useful while coding, but they can replace the frontend or process outside Flashnote's normal save/close transition and therefore are not an acceptable lifecycle boundary for real notes.
 
-## Install on another Mac you own (private DMG)
+## Build the install files yourself
 
-Build the app on the development Mac, then transfer the DMG to the other Mac. The receiving Mac does **not** need Go, Node.js, Corepack, Wails, or a source checkout.
+The receiving computer needs no toolchain. [`docs/DISTRIBUTION.md`](docs/DISTRIBUTION.md) has the full runbook.
 
-On the development Mac, with this repository's normal prerequisites installed, run:
+macOS universal DMG:
 
 ```bash
 wails3 task --taskfile ./Taskfile.release.yml package:macos:universal:dmg
 ```
 
-The output is `bin/flashnote.dmg`. It contains a universal app for Apple silicon and Intel Macs and supports macOS 12 or later. Open the DMG on the other Mac, drag `Flashnote.app` to `Applications`, then launch it.
-
-This private build is ad-hoc signed but **not Developer ID-signed or notarized**. macOS may block its first launch. Since this is your own build, use Finder's Control-click → **Open**, or **System Settings → Privacy & Security → Open Anyway** if macOS offers that option. Do not disable Gatekeeper globally or approve a build you do not trust.
-
-Installing the app does not transfer or sync its notes. Each Mac currently has its own library under `~/Library/Application Support/Flashnote`; Flashnote has no cross-Mac sync yet. Do not put the live database folder in iCloud Drive, Dropbox, or another generic file-sync folder: SQLite's database/WAL files and image attachments must remain consistent, and simultaneous edits need conflict handling. A safe sync or handoff workflow needs to be designed separately.
-
-## Development watch mode
-
-Use watch mode only while actively changing/debugging code, not as the real-note launcher:
+Windows executables and NSIS installer (Git Bash, or macOS/Linux with NSIS installed):
 
 ```bash
-go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
-wails3 dev -config ./build/config.yml
+VERSION=0.1.0 bash ./scripts/package-windows-release.sh
 ```
 
-Native/UI/acceptance automation must use an isolated temporary `HOME`; it must never point at the normal Flashnote database or user-data directory.
+Outputs are `bin/flashnote.dmg`, `bin/flashnote-amd64.exe`, `bin/flashnote-arm64.exe`, and `bin/Flashnote-0.1.0-windows-setup.exe`.
 
-Useful checks:
+Pushing a `v*` tag builds all of these in CI and publishes them as a GitHub Release; see [`.github/workflows/release-installers.yml`](.github/workflows/release-installers.yml).
 
-```bash
-wails3 task check
+## Where notes live
+
+```
+macOS    ~/Library/Application Support/Flashnote/
+Windows  %APPDATA%\Flashnote\
 ```
 
-Generated dependency lockfiles (`go.sum` and `frontend/pnpm-lock.yaml`) should be committed after intentional dependency resolution on a network-enabled development machine.
+Each directory holds `flashnote.db` (notes, folders, trash), `attachments/`, and `backups/`. Installing the app does not transfer or sync notes: each computer keeps its own library, and Flashnote has no cross-device sync yet. Do not put the live data folder in iCloud Drive, Dropbox, OneDrive, or another generic file-sync folder: SQLite's database/WAL files and image attachments must remain consistent, and simultaneous edits need conflict handling.
