@@ -96,6 +96,10 @@ CI는 패키징 전에 `scripts/stamp-release-version.mjs <버전>`을 실행해
 | `scripts/package-windows-release.sh` | Windows 실행 파일 2종 + 설치본 빌드 |
 | `scripts/stamp-release-version.mjs` | 릴리스 버전 각인 |
 
+패키징 입력(워크플로, `build/**` 자산, `scripts/` 스크립트, `Taskfile.release.yml`)을 건드리는 pull request는
+같은 두 잡(macOS DMG / Windows installer)을 실행하되 배포하지 않습니다. 태그를 만들기 전에 설치 파일이 실제로
+만들어지는지 PR 단계에서 확인하는 게이트입니다.
+
 `build/windows/`의 자산은 Wails v3.0.0이 생성하는 형식과 같습니다. `wails3 generate build-assets`를 실행하면
 이 디렉터리가 템플릿 기본값으로 덮어써지므로, Flashnote 값(제품명·버전·아이콘)이 들어 있는 현재 파일을 기준으로 삼으세요.
 
