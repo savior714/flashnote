@@ -30,7 +30,7 @@ Install files are published on [Releases](https://github.com/savior714/flashnote
 2. If SmartScreen says "Windows protected your PC", choose **More info → Run anyway**.
 3. One installer covers x64 and ARM64 and installs per user, without administrator rights.
 
-`Flashnote-<version>-windows-portable.zip` runs without installing.
+`Flashnote-<version>-windows-x64-portable.exe` (or `...-arm64-portable.exe` on ARM64 machines) runs without installing.
 
 > These builds are not yet Developer ID-signed/notarized on macOS and not code-signed on Windows, so step 3 (or step 2) is needed once. [`docs/DISTRIBUTION.md`](docs/DISTRIBUTION.md) covers adding signing.
 

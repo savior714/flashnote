@@ -47,7 +47,7 @@ Go, Node.js, 소스 코드 없이 내려받아 설치하면 됩니다. Windows�
 2. SmartScreen이 "Windows가 PC를 보호했습니다"라고 막으면 **추가 정보 → 실행**을 누릅니다.
 3. 설치 파일 하나가 x64와 ARM64를 모두 지원하고, 관리자 권한 없이 사용자 폴더에 설치됩니다.
 
-설치 없이 쓰려면 `Flashnote-<버전>-windows-portable.zip`을 풀어 실행해도 됩니다.
+설치 없이 쓰려면 `Flashnote-<버전>-windows-x64-portable.exe`(ARM64 기기에서는 `...-arm64-portable.exe`)를 내려받아 바로 실행해도 됩니다.
 
 > 아직 Apple Developer ID 서명·공증과 Windows 코드 서명이 없습니다. 그래서 첫 실행 때 위 3번(또는 2번) 과정이 **한 번** 필요합니다.
 > 서명을 붙이는 절차와 비용은 [`docs/DISTRIBUTION.md`](docs/DISTRIBUTION.md)에 정리했습니다.
@@ -221,7 +221,7 @@ VERSION=0.1.0 bash ./scripts/package-windows-release.sh
 | --- | --- |
 | macOS: 앱이 "손상되었습니다" 또는 "확인되지 않은 개발자"로 열리지 않음 | 서명이 없는 빌드라 나오는 안내입니다. **Control-클릭 → 열기** 또는 `xattr -dr com.apple.quarantine /Applications/Flashnote.app` |
 | Windows: "Windows가 PC를 보호했습니다" | 서명이 없는 빌드라 나오는 안내입니다. **추가 정보 → 실행** |
-| Windows: 설치 없이 exe만 실행하고 싶음 | portable zip을 풀어 `flashnote-amd64.exe`(ARM64 기기에서는 `flashnote-arm64.exe`)를 실행하세요 |
+| Windows: 설치 없이 exe만 실행하고 싶음 | `Flashnote-<버전>-windows-x64-portable.exe`(ARM64 기기에서는 `...-arm64-portable.exe`)를 내려받아 실행하세요 |
 | `go: command not found` | `brew install go` 후 터미널을 새로 열어 보세요. |
 | `corepack: command not found` | `brew install corepack`(또는 `npm install -g corepack`)을 실행하세요. |
 | `xcode-select: error` 또는 `clang` 관련 오류 | `xcode-select --install`로 Command Line Tools를 설치하세요. |

@@ -11,7 +11,7 @@ _Status: 현재 구현 기준 · 2026-11-05_
 | --- | --- |
 | macOS DMG (Apple silicon + Intel, macOS 12+) | 됨 · GitHub Releases로 배포 |
 | Windows 설치본 (x64 + ARM64 한 파일, NSIS) | 됨 · GitHub Releases로 배포 |
-| Windows portable zip (설치 없이 실행) | 됨 |
+| Windows portable 실행 파일 (x64 / ARM64, 설치 없이 실행) | 됨 |
 | 체크섬(SHA-256) | 됨 |
 | Apple Developer ID 서명·공증 | 안 됨 → macOS 첫 실행 시 경고 1회 |
 | Windows Authenticode 서명 | 안 됨 → SmartScreen 경고 1회 |
@@ -36,7 +36,7 @@ git push origin v0.2.0
 
 1. `v0.2.0` → 버전 `0.2.0` 해석
 2. macOS 러너: universal DMG 빌드 → `Flashnote-0.2.0-macOS-universal.dmg`
-3. Windows 러너: x64/ARM64 실행 파일 + NSIS 설치본 → `Flashnote-0.2.0-windows-setup.exe`, portable zip
+3. Windows 러너: x64/ARM64 실행 파일 + NSIS 설치본 → `Flashnote-0.2.0-windows-setup.exe`, portable 실행 파일 2종
 4. 체크섬 파일 생성 후 GitHub Release 생성 및 자산 업로드
 
 ### 2-2. 태그 없이 파이프라인만 검증
@@ -69,7 +69,8 @@ CI는 패키징 전에 `scripts/stamp-release-version.mjs <버전>`을 실행해
 | --- | --- |
 | `Flashnote-<버전>-macOS-universal.dmg` | macOS 12+, Apple silicon + Intel |
 | `Flashnote-<버전>-windows-setup.exe` | Windows 10+ x64/ARM64, 사용자 단위 설치 |
-| `Flashnote-<버전>-windows-portable.zip` | 설치 없이 실행 |
+| `Flashnote-<버전>-windows-x64-portable.exe` | 설치 없이 실행 (x64) |
+| `Flashnote-<버전>-windows-arm64-portable.exe` | 설치 없이 실행 (ARM64) |
 | `SHA256SUMS.txt` | 전체 체크섬 |
 
 ## 3. 파이프라인 구조
@@ -215,7 +216,7 @@ CI에 추가할 순서:
 
 **태그 후**
 
-- [ ] Release 자산 4종 + `SHA256SUMS.txt` 확인
+- [ ] Release 자산 4종(DMG, 설치본, portable 2종) + `SHA256SUMS.txt` 확인
 - [ ] 실제 macOS/Windows 기기에서 설치 → 첫 실행 → 노트 저장 확인
 - [ ] 이전 버전 위에 덮어 설치했을 때 노트가 유지되는지 확인
 
